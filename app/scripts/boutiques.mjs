@@ -258,28 +258,56 @@ async function google() {
     method: 'POST',
     form: { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion },
   });
-  const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/inappproducts`;
+  // API « produits ponctuels » (l'ancienne inappproducts est fermée aux nouvelles applis).
+  const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/onetimeproducts`;
+  const api = (path, opts) => http(`${base}${path}`, { token, ...opts });
+  // Sert aussi de vérification des droits, même en essai.
+  const existants = (await api('?pageSize=100')).oneTimeProducts ?? [];
+  const euros = (prix) => {
+    const [u, c = '0'] = String(prix).split('.');
+    return { currencyCode: 'EUR', units: u, nanos: Number(c.padEnd(2, '0')) * 10_000_000 };
+  };
+  const dollars = (prix) => ({ ...euros(prix), currencyCode: 'USD' });
+  // Pays de la zone euro où Michel a du sens ; les autres pays ne sont pas ouverts.
+  const PAYS = ['FR', 'BE', 'LU'];
+  const OPTION = 'achat';
 
   for (const p of PALIERS) {
     const sku = produit(p, 'google');
-    dire(`- ${sku}`);
-    // Créé s'il manque, sinon mis à jour (allowMissing). Le caractère « consommable » est géré par
-    // l'appli (RevenueCat consomme l'achat), côté Google c'est un produit géré ordinaire.
-    await agir(`produit actif à ${p.prix} €`, () =>
-      http(`${base}/${sku}?allowMissing=true&autoConvertMissingPrices=true`, {
-        method: 'PUT',
-        token,
+    const deja = existants.find((x) => x.productId === sku);
+    dire(`- ${sku}${deja ? '' : ' (nouveau)'}`);
+    await agir(`${deja ? 'mise à jour' : 'création'} à ${p.prix} €`, () =>
+      api(`/${sku}?allowMissing=true&regionsVersion.version=2022/02&updateMask=listings,purchaseOptions`, {
+        method: 'PATCH',
         body: {
           packageName: PACKAGE,
-          sku,
-          status: 'active',
-          purchaseType: 'managedUser',
-          defaultLanguage: 'fr-FR',
-          defaultPrice: { priceMicros: String(Math.round(Number(p.prix) * 1e6)), currency: 'EUR' },
-          listings: { 'fr-FR': { title: p.nom, description: DESCRIPTION } },
+          productId: sku,
+          listings: [{ languageCode: 'fr-FR', title: p.nom, description: DESCRIPTION }],
+          purchaseOptions: [
+            {
+              purchaseOptionId: OPTION,
+              buyOption: { legacyCompatible: true, multiQuantityEnabled: false },
+              regionalPricingAndAvailabilityConfigs: PAYS.map((regionCode) => ({
+                regionCode,
+                price: euros(p.prix),
+                availability: 'AVAILABLE',
+              })),
+              newRegionsConfig: { eurPrice: euros(p.prix), usdPrice: dollars(p.prix), availability: 'NO_LONGER_AVAILABLE' },
+            },
+          ],
         },
       }),
     );
+    const actif = deja?.purchaseOptions?.find((o) => o.purchaseOptionId === OPTION)?.state === 'ACTIVE';
+    if (actif) dire('  déjà en vente');
+    else
+      await agir('mise en vente', () =>
+        http(`${base.replace('onetimeproducts', 'oneTimeProducts')}/${sku}/purchaseOptions:batchUpdateStates`, {
+          method: 'POST',
+          token,
+          body: { requests: [{ activatePurchaseOptionRequest: { packageName: PACKAGE, productId: sku, purchaseOptionId: OPTION } }] },
+        }),
+      );
   }
 }
 
