@@ -252,7 +252,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
             <Text style={styles.intro}>
               {mode === 'signup'
                 ? 'Avec un compte, Michel te reconnaît sur tous tes appareils.'
-                : 'Content de te revoir, boudu.'}
+                : 'Content de te revoir, con.'}
             </Text>
             {apple && (
               <AppleAuthentication.AppleAuthenticationButton

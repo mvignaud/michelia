@@ -22,7 +22,7 @@ Le papi du Gers dans ta poche
 Adishatz ! Michel, papi gersois coincé dans la machine, répond à toutes tes questions avec son franc-parler du Sud-Ouest. Gratuit, sans pub.
 
 **Description**
-Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, boudu !
+Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, pardi !
 
 MichelIA est une intelligence artificielle gratuite qui parle comme un vrai papi du Gers : franc du collier, un avis sur tout, et l'accent qui va avec.
 

@@ -36,10 +36,10 @@ import { colors, serif } from './src/theme';
 
 function welcome(name?: string) {
   return name
-    ? `Adishatz ${name} ! Te revoilà, boudu. Toujours coincé dans cette fichue machine, moi. ` +
+    ? `Adishatz ${name} ! Te revoilà, con. Toujours coincé dans cette fichue machine, moi. ` +
         "Qu'est-ce que je peux faire pour toi ?"
     : "Adishatz ! C'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. " +
-        "Tant que j'y suis, pose-moi ta question, boudu !";
+        "Tant que j'y suis, pose-moi ta question, con !";
 }
 
 // Sur le web les pages légales sont servies par le même site ; dans les applis, par michel.beer.
@@ -122,7 +122,7 @@ export default function App() {
       setBubbles((all) => [...all, { id: newId(), role: 'assistant', content, local: true }]);
     unsubscribeFromNews(token)
       .then(() => say("C'est noté, plus de nouvelles de Michel dans ta boîte aux lettres. Mais tu peux toujours venir causer, hè !"))
-      .catch(() => say('Boudu, ce lien de désabonnement ne marche pas. Coupe les nouvelles dans « Compte », ou écris à contact@michel.beer.'));
+      .catch(() => say('Pétard, ce lien de désabonnement ne marche pas. Coupe les nouvelles dans « Compte », ou écris à contact@michel.beer.'));
   }, []);
 
   useEffect(() => {
@@ -208,10 +208,10 @@ export default function App() {
       if (learned.name) setName(learned.name);
     } catch (e) {
       const message = isOffline()
-        ? "Boudu, ça capte plus ! Sans internet je peux rien te dire, con. Réessaie quand le réseau revient."
+        ? "Miladiou, ça capte plus ! Sans internet je peux rien te dire, con. Réessaie quand le réseau revient."
         : e instanceof Error && e.message
           ? e.message
-          : 'Macarel, ça a planté.';
+          : 'Pétard, ça a planté.';
       updateAnswer((b) => ({ ...b, content: message, failed: true }));
     } finally {
       setBusy(false);
