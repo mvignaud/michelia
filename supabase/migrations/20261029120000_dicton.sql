@@ -114,8 +114,10 @@ create table if not exists public.daily_sayings (
 alter table public.daily_sayings enable row level security;
 
 -- Réserve le dicton du jour. Vrai si l'appel doit l'écrire et l'envoyer : la première fois,
--- ou après un échec (trois essais au plus, dix minutes d'écart), ou si un envoi est resté
--- bloqué plus de quinze minutes. Deux appels simultanés ne peuvent pas envoyer deux fois.
+-- ou après un échec (trois essais au plus, dix minutes d'écart), ou si l'écriture est restée
+-- bloquée plus de quinze minutes sans texte. Une ligne « en_cours » qui a déjà son texte a
+-- peut-être été envoyée : elle n'est jamais reprise. Deux appels simultanés ne peuvent pas
+-- envoyer deux fois.
 create or replace function public.claim_daily_saying(p_day date)
 returns boolean
 language plpgsql
@@ -128,7 +130,7 @@ begin
     set status = 'en_cours', attempts = d.attempts + 1, updated_at = now()
     where d.attempts < 3
       and ((d.status = 'echec' and d.updated_at < now() - interval '10 minutes')
-        or (d.status = 'en_cours' and d.updated_at < now() - interval '15 minutes'));
+        or (d.status = 'en_cours' and d.text is null and d.updated_at < now() - interval '15 minutes'));
   return found;
 end;
 $$;
