@@ -21,6 +21,8 @@ import { unsubscribeFromNews } from './src/admin';
 import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
+import { Comptoir } from './src/Comptoir';
+import { ComptoirCard, countSentMessage } from './src/ComptoirCard';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { InstallCard } from './src/InstallCard';
 import { NotifyCard } from './src/NotifyCard';
@@ -52,6 +54,8 @@ const LEGAL_LINKS = [
   { label: 'Mentions légales', path: '/mentions-legales.html' },
   { label: 'Confidentialité', path: '/confidentialite.html' },
   { label: 'Conditions', path: '/conditions.html' },
+  // Les pourboires n'existent que sur le web : aucun lien vers le comptoir dans les applis (règle Apple 3.1.1).
+  ...(Platform.OS === 'web' ? [{ label: 'Le comptoir', path: '/comptoir' }] : []),
 ];
 
 // « local » : mot de Michel affiché seulement ici, jamais renvoyé à l'IA ni gardé en mémoire.
@@ -62,7 +66,22 @@ registerServiceWorker();
 let nextId = 0;
 const newId = () => String(nextId++);
 
+// Sur le web seulement, l'adresse /comptoir ouvre la page des pourboires à la place du chat.
 export default function App() {
+  const onComptoir = Platform.OS === 'web' && window.location.pathname.replace(/\/+$/, '') === '/comptoir';
+  return onComptoir ? (
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.screen}>
+        <StatusBar style="dark" />
+        <Comptoir />
+      </SafeAreaView>
+    </SafeAreaProvider>
+  ) : (
+    <Chat />
+  );
+}
+
+function Chat() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState('');
   const [attached, setAttached] = useState<Photo>();
@@ -74,6 +93,7 @@ export default function App() {
   const [account, setAccount] = useState<AccountMode | null>(null);
   const [admin, setAdmin] = useState(false);
   const [sharing, setSharing] = useState<Card | null>(null);
+  const [sentCount, setSentCount] = useState(0);
   const listRef = useRef<FlatList<Bubble>>(null);
   const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
@@ -199,6 +219,8 @@ export default function App() {
       question,
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
+    countSentMessage();
+    setSentCount((n) => n + 1);
     setDraft('');
     setAttached(undefined);
     setBusy(true);
@@ -398,6 +420,7 @@ export default function App() {
           />
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
+            <ComptoirCard member={member} tick={sentCount} />
             {attached && (
               <View style={styles.preview}>
                 <Image

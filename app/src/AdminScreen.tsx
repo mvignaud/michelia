@@ -16,6 +16,7 @@ import {
   exportMembers,
   listBroadcasts,
   listUsers,
+  loadCostPerActive,
   loadCosts,
   loadStats,
   mergeUsers,
@@ -25,6 +26,7 @@ import {
   userUsage,
   type AdminUser,
   type Broadcast,
+  type CostPerActive,
   type Costs,
   type Stats,
   type UserDay,
@@ -89,6 +91,7 @@ export function AdminScreen({ onClose }: { onClose: () => void }) {
 function StatsTab() {
   const [stats, setStats] = useState<Stats>();
   const [costs, setCosts] = useState<Costs>();
+  const [perActive, setPerActive] = useState<CostPerActive>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -98,6 +101,10 @@ function StatsTab() {
     // Absent tant que le SQL des coûts n'est pas lancé : le reste du tableau de bord s'affiche quand même.
     loadCosts()
       .then(setCosts)
+      .catch(() => undefined);
+    // Idem tant que le SQL du comptoir n'est pas lancé.
+    loadCostPerActive()
+      .then(setPerActive)
       .catch(() => undefined);
   }, []);
 
@@ -144,6 +151,33 @@ function StatsTab() {
             {costs.since ? `, mesurée depuis le ${date(costs.since)}` : ', pas encore de réponse mesurée'}. La facture qui fait foi
             reste celle de la console Claude.
           </Text>
+        </Section>
+      )}
+
+      {perActive && (
+        <Section title="Coût par utilisateur actif (30 j)">
+          <View style={styles.tiles}>
+            <Tile label="Actifs" value={perActive.actifs} hint={`${dollars(perActive.cout_total)} au total`} />
+            <Tile label="Coût moyen" text={dollars(perActive.cout_moyen)} hint={`médiane ${dollars(perActive.mediane)}`} />
+            <Tile label="90e centile" text={dollars(perActive.p90)} />
+            <Tile label="Part des 10 % les plus gros" text={`${Math.round(perActive.part_top10 * 100)} %`} />
+          </View>
+          <Breakdown
+            values={Object.fromEntries(perActive.tranches.map((t) => [t.label, t.actifs]))}
+            order={perActive.tranches.map((t) => t.label)}
+          />
+          <Text style={styles.small}>
+            Actif : au moins une question sur les 30 derniers jours. Tranches de coût Claude par utilisateur, en dollars.
+          </Text>
+        </Section>
+      )}
+      {perActive && (
+        <Section title="Pourboires du mois">
+          <Tile
+            label="Pourboires du mois"
+            text={`${(perActive.pourboires_mois.total_eur ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
+            hint={`${number(perActive.pourboires_mois.nombre)} reçus`}
+          />
         </Section>
       )}
 
