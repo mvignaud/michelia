@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dateLongue, enLigne, PIED, versHtml } from './nouveautes-lib.mjs';
+import { dateLongue, enLigne, PIED, TETE, versHtml } from './nouveautes-lib.mjs';
 
 const FICHIER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ca-mijote.md');
 // Les trois casseroles, dans l'ordre de la page, avec leur étiquette.
@@ -48,7 +48,7 @@ function page({ maj, sections }) {
 <style>.etiquettes .type-attente { background: #8a9bb0; color: #fff; } .vide { color: var(--gris); font-style: italic; }</style>
 </head>
 <body>
-<header><div><span class="logo">MichelIA</span><a href="/">Parler à Michel</a></div></header>
+${TETE}
 <main>
 <h1>Ça mijote chez Michel</h1>
 <p class="maj">Dernière mise à jour : ${dateLongue(maj)}</p>

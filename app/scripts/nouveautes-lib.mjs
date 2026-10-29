@@ -93,5 +93,8 @@ export const dateLongue = (iso) => {
 };
 
 
+// En-tête commun aux pages générées : le logo MichelIA, comme sur les pages légales.
+export const TETE = `<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/">Parler à Michel</a></div></header>`;
+
 // Pied de page commun aux pages générées.
 export const PIED = `<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/ca-mijote">Ça mijote</a> · <a href="/cahier-de-doleances">Améliore Michel</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>`;

@@ -3,7 +3,7 @@
 // Sans dossier de sortie existant (vérification seule) : node scripts/nouveautes.mjs --verifier
 import fs from 'node:fs';
 import path from 'node:path';
-import { dateLongue, enLigne, lireNouveautes, PIED, PLATEFORMES, TYPES, versHtml } from './nouveautes-lib.mjs';
+import { dateLongue, enLigne, lireNouveautes, PIED, TETE, PLATEFORMES, TYPES, versHtml } from './nouveautes-lib.mjs';
 
 function disponibilite(e) {
   if (!e.appli) return 'Sur le site';
@@ -44,7 +44,7 @@ function page(entrees) {
 <link rel="stylesheet" href="/legal.css">
 </head>
 <body>
-<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/">Parler à Michel</a></div></header>
+${TETE}
 <main>
 <h1>Les nouveautés de Michel</h1>
 <p class="maj">Dernière mise à jour : ${entrees.length ? dateLongue(entrees[0].date) : '—'}</p>
