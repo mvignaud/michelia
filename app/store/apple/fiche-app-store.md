@@ -66,7 +66,7 @@ Réponses suggérées au questionnaire :
 - Accès web non restreint : **Non**
 - Tout le reste : **Aucun**
 
-Résultat attendu : 12+ ou 13+.
+Apple calcule 16+. Choisir « Remplacer par une classification d'âge plus élevée » : **18+**, car les conditions d'utilisation réservent MichelIA aux 18 ans et plus.
 
 ## Confidentialité de l'app (« étiquettes nutritionnelles »)
 
