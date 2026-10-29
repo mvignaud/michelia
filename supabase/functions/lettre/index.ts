@@ -389,13 +389,13 @@ async function tick(origin: string | null): Promise<Response> {
   if (!configured()) return json(500, { error: "Secrets POSTAL_API_URL, POSTAL_API_KEY et UNSUBSCRIBE_SECRET manquants." }, origin);
 
   // Une lettre coupée en route, ou que Postal a refusée en partie : on la termine avant toute
-  // chose (ceux qui l'ont reçue sont sautés). Un échec est retenté chaque matin pendant RETRY_DAYS jours.
+  // chose (ceux qui l'ont reçue sont sautés). Un échec est retenté chaque matin, jusqu’à RETRY_DAYS jours après la lettre.
   const staleBefore = new Date(Date.now() - STALE_MINUTES * 60000).toISOString();
   const retryAfter = new Date(Date.now() - RETRY_DAYS * 86400000).toISOString();
   const { data: reprises } = await db
     .from("lettres")
     .update({ email_status: "envoi", email_started_at: new Date().toISOString(), finished_at: null })
-    .or(`and(email_status.eq.envoi,email_started_at.lt.${staleBefore}),and(email_status.in.(partiel,echec),finished_at.gt.${retryAfter})`)
+    .or(`and(email_status.eq.envoi,email_started_at.lt.${staleBefore}),and(email_status.in.(partiel,echec),created_at.gt.${retryAfter})`)
     .select("id, created_at, subject, entrees")
     .order("id");
   // Une à la fois ; une autre, rare, sera « coupée » au prochain passage et reprise alors.
