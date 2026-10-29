@@ -22,6 +22,7 @@ import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
 import { Comptoir } from './src/Comptoir';
+import { cleAppli, loadComptoir } from './src/comptoir';
 import { ComptoirCard, countSentMessage } from './src/ComptoirCard';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { InstallCard } from './src/InstallCard';
@@ -54,7 +55,7 @@ const LEGAL_LINKS = [
   { label: 'Mentions légales', path: '/mentions-legales.html' },
   { label: 'Confidentialité', path: '/confidentialite.html' },
   { label: 'Conditions', path: '/conditions.html' },
-  // Les pourboires n'existent que sur le web : aucun lien vers le comptoir dans les applis (règle Apple 3.1.1).
+  // Sur le web, la page /comptoir (Stripe). Dans les applis, le comptoir par achat intégré s'ouvre par-dessus le chat.
   ...(Platform.OS === 'web' ? [{ label: 'Le comptoir', path: '/comptoir' }] : []),
 ];
 
@@ -73,7 +74,7 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
-        <Comptoir />
+        <Comptoir onClose={() => window.location.assign('/')} />
       </SafeAreaView>
     </SafeAreaProvider>
   ) : (
@@ -94,6 +95,9 @@ function Chat() {
   const [admin, setAdmin] = useState(false);
   const [sharing, setSharing] = useState<Card | null>(null);
   const [sentCount, setSentCount] = useState(0);
+  // Applis : comptoir par achat intégré, proposé seulement s'il est ouvert pour la boutique de l'appareil.
+  const [comptoirAppli, setComptoirAppli] = useState(false);
+  const [comptoir, setComptoir] = useState(false);
   const listRef = useRef<FlatList<Bubble>>(null);
   const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
@@ -118,6 +122,13 @@ function Chat() {
       }
     });
     return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    loadComptoir()
+      .then((data) => setComptoirAppli(!!cleAppli(data)))
+      .catch(() => undefined);
   }, []);
 
   // Notifications déjà acceptées : l'appareil suit le compte connecté (et son jeton est rafraîchi).
@@ -496,6 +507,14 @@ function Chat() {
                   </Text>
                 </Text>
               ))}
+              {comptoirAppli && (
+                <Text style={styles.legalText}>
+                  {' · '}
+                  <Text style={styles.legalLink} onPress={() => setComptoir(true)} accessibilityRole="link">
+                    Le comptoir
+                  </Text>
+                </Text>
+              )}
               {ANALYTICS_ENABLED && (
                 <Text style={styles.legalText}>
                   {' · '}
@@ -520,6 +539,7 @@ function Chat() {
           />
         )}
         {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
+        {comptoir && <Comptoir onClose={() => setComptoir(false)} />}
         {sharing && <ShareSheet card={sharing} onClose={() => setSharing(null)} />}
         <CaptchaHost />
         <CookieBanner ref={cookiesRef} />
