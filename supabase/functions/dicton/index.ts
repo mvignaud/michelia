@@ -91,6 +91,20 @@ async function send(kind: Kind, text: string): Promise<number> {
   return sent;
 }
 
+// Met à jour la ligne du jour, avec deux nouveaux essais si la base ne répond pas.
+async function mark(day: string, fields: Record<string, unknown>): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error } = await admin
+      .from("daily_sayings")
+      .update({ ...fields, updated_at: new Date().toISOString() })
+      .eq("day", day);
+    if (!error) return true;
+    console.error("daily_sayings", error);
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+  }
+  return false;
+}
+
 const json = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 
@@ -130,29 +144,30 @@ Deno.serve(async (req) => {
     if (!text) {
       const written = await write(kind, now, config);
       text = written.text;
-      await admin
-        .from("daily_sayings")
-        .update({
-          kind,
-          text,
-          input_tokens: written.usage.input_tokens,
-          output_tokens: written.usage.output_tokens,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("day", day);
+      // Texte noté avant l'envoi : sans lui, une reprise pourrait renvoyer le dicton.
+      const saved = await mark(day, {
+        kind,
+        text,
+        input_tokens: written.usage.input_tokens,
+        output_tokens: written.usage.output_tokens,
+      });
+      if (!saved) throw new Error("texte du jour non enregistré");
     }
-    const sent = await send(kind, text);
-    await admin
-      .from("daily_sayings")
-      .update({ status: "envoye", sent, updated_at: new Date().toISOString() })
-      .eq("day", day);
+    let sent: number;
+    try {
+      sent = await send(kind, text);
+    } catch (e) {
+      console.error("dicton : envoi", e);
+      await mark(day, { kind, status: "echec" });
+      return json(500, { error: "échec", day });
+    }
+    // Envoyé : si la base refuse de le noter, la ligne reste « en_cours » avec son texte,
+    // et claim_daily_saying ne la reprend jamais. Mieux vaut un dicton non noté qu'envoyé deux fois.
+    if (!(await mark(day, { status: "envoye", sent }))) console.error("dicton : envoyé mais non noté", day);
     return json(200, { status: "envoye", day, kind, text, sent });
   } catch (e) {
     console.error("dicton", e);
-    await admin
-      .from("daily_sayings")
-      .update({ kind, status: "echec", updated_at: new Date().toISOString() })
-      .eq("day", day);
+    await mark(day, { kind, status: "echec" });
     return json(500, { error: "échec", day });
   }
 });
