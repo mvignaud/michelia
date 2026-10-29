@@ -14,3 +14,8 @@ verify_jwt = true
 # Annonces du back-office et désabonnement en un clic depuis les messageries :
 # le droit d'administrateur est vérifié dans la fonction elle-même.
 verify_jwt = false
+
+[functions.dicton]
+# Appelée par pg_cron sans clé : elle n'envoie qu'une fois par jour, après l'heure prévue,
+# quel que soit le nombre d'appels.
+verify_jwt = false

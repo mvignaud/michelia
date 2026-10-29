@@ -18,7 +18,7 @@ Compter une heure la première fois. Aucune clé secrète ne va dans ce dépôt 
 
    Pour modifier Michel plus tard : relancer la même requête, ou éditer la ligne dans **Table Editor > app_config**. Effet immédiat, sans redéployer.
 
-5. Réglages dans la même table : `daily_limit` (messages gratuits par jour et par visiteur, 30 par défaut), `global_daily_limit` (plafond pour tout le site, 5 000), `model` (`claude-haiku-5-5`), `max_output_tokens` (2048). Cache des questions d'ouverture : `cache_enabled` (`true` / `false`), `cache_threshold` (proximité minimale entre deux questions, 0,94) et `cache_variants` (nombre de réponses à avoir en réserve avant d'en resservir une, 3).
+5. Réglages dans la même table : `daily_limit` (messages gratuits par jour et par visiteur, 30 par défaut), `global_daily_limit` (plafond pour tout le site, 5 000), `model` (`claude-haiku-5-5`), `max_output_tokens` (2048). Cache des questions d'ouverture : `cache_enabled` (`true` / `false`), `cache_threshold` (proximité minimale entre deux questions, 0,94) et `cache_variants` (nombre de réponses à avoir en réserve avant d'en resservir une, 3). Outils de Michel (météo par Open-Meteo, actualité par Google Actualités, gratuits et sans clé) : `tools_enabled` (`true` par défaut, `false` pour les couper sans redéployer). Les questions sur la météo ou l'actualité ne passent jamais par le cache.
 
 ## 2. Clé Anthropic
 
@@ -82,7 +82,7 @@ Le portrait des e-mails est servi par le site (`app/public/email/michel.png`).
 ## Connexion par SMS (Twilio)
 
 1. Supabase > Authentication > Sign In / Providers > Phone : activer, fournisseur Twilio, puis saisir l'Account SID, l'Auth Token (seulement là) et le Message Service SID.
-2. Texte du SMS : `Boudu, ton code MichelIA : {{ .Code }}. Le donne à personne, même pas au cousin Jeannot.`
+2. Texte du SMS : `Miladiou, ton code MichelIA : {{ .Code }}. Le donne à personne, même pas au cousin Jeannot.`
 3. Twilio > Messaging > Settings > Geo permissions : n'autoriser que la France (et les pays voulus), contre la fraude au « SMS pumping ».
 4. Le captcha Turnstile protège déjà l'envoi des codes. Rate Limits : garder un plafond bas de SMS par heure.
 

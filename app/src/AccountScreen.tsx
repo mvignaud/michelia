@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { useEffect, useState } from 'react';
@@ -37,7 +38,9 @@ import {
 } from './auth';
 import { isAdmin } from './admin';
 import { LinkedAccounts } from './LinkedAccounts';
+import { DAILY_KEY } from './NotifyCard';
 import { COUNTRIES, PhoneField, fullPhone } from './PhoneField';
+import { pushState, setDailyPush } from './push';
 import { SWITCH_COLORS, colors, serif } from './theme';
 
 export type AccountMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'profile' | 'phone';
@@ -71,6 +74,8 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [apple, setApple] = useState(false);
   const [news, setNews] = useState(false);
+  // Dicton du jour sur cet appareil ; null tant que les notifications ne sont pas autorisées.
+  const [daily, setDaily] = useState<boolean | null>(null);
   const [admin, setAdmin] = useState(false);
 
   useEffect(() => {
@@ -85,6 +90,9 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
       setAge(String(ageFromBirthYear(p.birthYear) ?? ''));
       setNews(!!p.newsOptIn);
     });
+    Promise.all([pushState(), AsyncStorage.getItem(DAILY_KEY).catch(() => null)])
+      .then(([state, answer]) => setDaily(state === 'on' ? answer === 'oui' : null))
+      .catch(() => undefined);
   }, [mode, session]);
 
   useEffect(() => {
@@ -197,6 +205,20 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
     });
   };
 
+  const toggleDaily = (value: boolean) => {
+    setDaily(value);
+    run(async () => {
+      try {
+        await setDailyPush(value);
+        await AsyncStorage.setItem(DAILY_KEY, value ? 'oui' : 'non').catch(() => undefined);
+        setNotice(value ? 'Noté, à demain matin pour le dicton.' : 'Noté, plus de dicton du matin.');
+      } catch (e) {
+        setDaily(!value);
+        throw e;
+      }
+    });
+  };
+
   const remove = () =>
     run(async () => {
       await deleteAccount();
@@ -230,7 +252,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
             <Text style={styles.intro}>
               {mode === 'signup'
                 ? 'Avec un compte, Michel te reconnaît sur tous tes appareils.'
-                : 'Content de te revoir, boudu.'}
+                : 'Content de te revoir, con.'}
             </Text>
             {apple && (
               <AppleAuthentication.AppleAuthenticationButton
@@ -325,6 +347,12 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
               Recevoir les nouvelles de Michel par e-mail, une ou deux fois par mois au plus. Désabonnement en un clic.
             </Text>
             <Switch value={news} onValueChange={toggleNews} disabled={busy} {...SWITCH_COLORS} />
+          </View>
+        )}
+        {mode === 'profile' && daily !== null && (
+          <View style={styles.newsRow}>
+            <Text style={styles.newsText}>Le dicton du jour de Michel, chaque matin sur cet appareil.</Text>
+            <Switch value={daily} onValueChange={toggleDaily} disabled={busy} {...SWITCH_COLORS} />
           </View>
         )}
 

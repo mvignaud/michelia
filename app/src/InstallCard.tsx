@@ -32,7 +32,7 @@ export function InstallCard() {
         {mode === 'ios' ? (
           <Text style={styles.text}>
             Touche <Text style={styles.strong}>Partager</Text> (le carré avec la flèche), puis{' '}
-            <Text style={styles.strong}>« Sur l'écran d'accueil »</Text>. Il s'ouvrira comme une vraie appli, boudu.
+            <Text style={styles.strong}>« Sur l'écran d'accueil »</Text>. Il s'ouvrira comme une vraie appli, pardi.
           </Text>
         ) : (
           <Text style={styles.text}>Une icône sur ton écran d'accueil, et il s'ouvre comme une vraie appli.</Text>

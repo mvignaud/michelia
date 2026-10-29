@@ -5,7 +5,7 @@
 //   N'importe quel utilisateur connecté peut la déclencher : seules partent les annonces
 //   que l'admin a mises en attente.
 // - POST { title, body, url?, audience? | user_ids? } avec la clé service_role : envoi libre,
-//   réutilisable par d'autres fonctions ou scripts.
+//   réutilisable par d'autres fonctions ou scripts (la fonction « dicton » s'en sert, audience « daily »).
 import webpush from "npm:web-push@3.6.7";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
@@ -231,10 +231,10 @@ Deno.serve(async (req) => {
     let targets: Target[];
     if (Array.isArray(input.user_ids)) {
       targets = await targetsForUsers(input.user_ids.filter((id): id is string => typeof id === "string"));
-    } else if (input.audience === "service" || input.audience === "news") {
+    } else if (input.audience === "service" || input.audience === "news" || input.audience === "daily") {
       targets = await targetsFor(input.audience);
     } else {
-      return json(400, { error: "audience ('service' ou 'news') ou user_ids requis" }, origin);
+      return json(400, { error: "audience ('service', 'news' ou 'daily') ou user_ids requis" }, origin);
     }
     const result = await sendPush(targets, { title: input.title, body: input.body, url });
     return json(200, { ...result, expired: result.expired.length }, origin);

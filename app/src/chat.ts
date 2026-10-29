@@ -14,9 +14,11 @@ const SILENCE_MS = 60_000;
 
 // Envoie l'historique à la fonction « chat » et transmet la réponse au fil de l'eau.
 // Renvoie le prénom si la personne vient de le donner à Michel.
+// mode : identifiant du mode thématique choisi (voir modes.ts), ou rien.
 export async function askMichel(
   messages: ChatMessage[],
   name: string | undefined,
+  mode: string | undefined,
   onText: (chunk: string) => void,
   signal?: AbortSignal,
 ): Promise<{ name?: string }> {
@@ -30,7 +32,7 @@ export async function askMichel(
   };
   wait();
   try {
-    return await read(token, messages, name, onText, controller.signal, wait);
+    return await read(token, messages, name, mode, onText, controller.signal, wait);
   } catch (e) {
     if (controller.signal.aborted && !signal?.aborted) throw new Error('Michel s’est endormi sur sa chaise. Réessaie, con.');
     throw e;
@@ -43,6 +45,7 @@ async function read(
   token: string,
   messages: ChatMessage[],
   name: string | undefined,
+  mode: string | undefined,
   onText: (chunk: string) => void,
   signal: AbortSignal,
   alive: () => void,
@@ -62,6 +65,7 @@ async function read(
         ...(image && { image: { media_type: image.media_type, data: image.data } }),
       })),
       name,
+      mode,
     }),
     signal,
   });

@@ -7,6 +7,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -27,26 +28,22 @@ import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
 import { pickPhoto, photoUri, type Photo } from './src/photo';
+import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
+import { makeCard, type Card } from './src/shareCard';
+import { ShareSheet } from './src/ShareSheet';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
 
 function welcome(name?: string) {
   return name
-    ? `Adishatz ${name} ! Te revoilà, boudu. Toujours coincé dans cette fichue machine, moi. ` +
+    ? `Adishatz ${name} ! Te revoilà, con. Toujours coincé dans cette fichue machine, moi. ` +
         "Qu'est-ce que je peux faire pour toi ?"
     : "Adishatz ! C'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. " +
-        "Tant que j'y suis, pose-moi ta question, boudu !";
+        "Tant que j'y suis, pose-moi ta question, con !";
 }
-
-const SUGGESTIONS = [
-  'Une recette de garbure',
-  'Écris un mot pour mon voisin',
-  "Explique-moi l'inflation",
-  'Quel temps fait-il ?',
-];
 
 // Sur le web les pages légales sont servies par le même site ; dans les applis, par michel.beer.
 const SITE = Platform.OS === 'web' ? '' : 'https://michel.beer';
@@ -70,10 +67,12 @@ export default function App() {
   const [attached, setAttached] = useState<Photo>();
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState<string>();
+  const [mode, setMode] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountMode | null>(null);
   const [admin, setAdmin] = useState(false);
+  const [sharing, setSharing] = useState<Card | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
   const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
@@ -128,8 +127,21 @@ export default function App() {
       setBubbles((all) => [...all, { id: newId(), role: 'assistant', content, local: true }]);
     unsubscribeFromNews(token)
       .then(() => say("C'est noté, plus de nouvelles de Michel dans ta boîte aux lettres. Mais tu peux toujours venir causer, hè !"))
-      .catch(() => say('Boudu, ce lien de désabonnement ne marche pas. Coupe les nouvelles dans « Compte », ou écris à contact@michel.beer.'));
+      .catch(() => say('Pétard, ce lien de désabonnement ne marche pas. Coupe les nouvelles dans « Compte », ou écris à contact@michel.beer.'));
   }, []);
+
+  useEffect(() => {
+    loadMode().then(setMode);
+  }, []);
+
+  // Changement de mode : Michel l'annonce d'un mot, affiché seulement.
+  function chooseMode(id: string | undefined) {
+    if (busy || id === mode) return;
+    setMode(id);
+    saveMode(id);
+    const hello = findMode(id)?.hello ?? "Bon, on reprend la causette normale. Demande-moi ce que tu veux.";
+    setBubbles((all) => [...all, { id: newId(), role: 'assistant', content: hello, local: true }]);
+  }
 
   useEffect(() => {
     loadMemory().then((memory) => {
@@ -203,15 +215,16 @@ export default function App() {
           image: i === history.length - 1 ? image : undefined,
         })),
         name,
+        mode,
         (chunk) => updateAnswer((b) => ({ ...b, content: b.content + chunk })),
       );
       if (learned.name) setName(learned.name);
     } catch (e) {
       const message = isOffline()
-        ? "Boudu, ça capte plus ! Sans internet je peux rien te dire, con. Réessaie quand le réseau revient."
+        ? "Miladiou, ça capte plus ! Sans internet je peux rien te dire, con. Réessaie quand le réseau revient."
         : e instanceof Error && e.message
           ? e.message
-          : 'Macarel, ça a planté.';
+          : 'Pétard, ça a planté.';
       updateAnswer((b) => ({ ...b, content: message, failed: true }));
     } finally {
       setBusy(false);
@@ -229,6 +242,8 @@ export default function App() {
   }
 
   const canSend = !busy && (draft.trim().length > 0 || !!attached);
+  const suggestions = findMode(mode)?.suggestions ?? DEFAULT_SUGGESTIONS;
+  const modeChips = [{ id: undefined, label: '💬 Tout' }, ...MODES];
 
   return (
     <SafeAreaProvider>
@@ -268,6 +283,29 @@ export default function App() {
               </Pressable>
             )}
           </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.modesScroll}
+            contentContainerStyle={styles.modes}
+            accessibilityRole="tablist"
+          >
+            {modeChips.map((m) => {
+              const active = m.id === mode;
+              return (
+                <Pressable
+                  key={m.id ?? 'tout'}
+                  onPress={() => chooseMode(m.id)}
+                  disabled={busy}
+                  style={({ pressed }) => [styles.mode, active && styles.modeActive, pressed && styles.pressed]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[styles.modeText, active && styles.modeTextActive]}>{m.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
 
         <KeyboardAvoidingView
@@ -277,6 +315,7 @@ export default function App() {
           <FlatList
             ref={listRef}
             data={bubbles}
+            extraData={busy}
             keyExtractor={(b) => b.id}
             contentContainerStyle={styles.list}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
@@ -295,9 +334,9 @@ export default function App() {
               </View>
             }
             ListFooterComponent={
-              bubbles.length === 0 ? (
+              bubbles.filter((b) => !b.local).length === 0 ? (
                 <View style={styles.suggestions}>
-                  {SUGGESTIONS.map((s) => (
+                  {suggestions.map((s) => (
                     <Pressable
                       key={s}
                       onPress={() => send(s)}
@@ -309,32 +348,52 @@ export default function App() {
                 </View>
               ) : undefined
             }
-            renderItem={({ item }) => (
-              <View
-                style={[
-                  styles.bubble,
-                  item.role === 'user' ? styles.user : styles.michel,
-                  item.failed && styles.failed,
-                ]}
-              >
-                {item.image ? (
-                  <Image
-                    source={{ uri: photoUri(item.image) }}
-                    style={[styles.photo, { aspectRatio: item.image.width / item.image.height }]}
-                    accessibilityLabel="Photo montrée à Michel"
-                  />
-                ) : item.photo ? (
-                  <Text style={styles.photoNote}>📷 Photo</Text>
-                ) : null}
-                {item.role === 'user' || item.failed ? (
-                  !!item.content && <Text style={styles.userText}>{item.content}</Text>
-                ) : item.content ? (
-                  <RichText text={item.content} style={styles.michelText} />
-                ) : (
-                  <Text style={styles.thinking}>Michel cherche ses lunettes…</Text>
-                )}
-              </View>
-            )}
+            renderItem={({ item, index }) => {
+              const bubble = (
+                <View
+                  style={[
+                    styles.bubble,
+                    item.role === 'user' ? styles.user : styles.michel,
+                    item.failed && styles.failed,
+                  ]}
+                >
+                  {item.image ? (
+                    <Image
+                      source={{ uri: photoUri(item.image) }}
+                      style={[styles.photo, { aspectRatio: item.image.width / item.image.height }]}
+                      accessibilityLabel="Photo montrée à Michel"
+                    />
+                  ) : item.photo ? (
+                    <Text style={styles.photoNote}>📷 Photo</Text>
+                  ) : null}
+                  {item.role === 'user' || item.failed ? (
+                    !!item.content && <Text style={styles.userText}>{item.content}</Text>
+                  ) : item.content ? (
+                    <RichText text={item.content} style={styles.michelText} />
+                  ) : (
+                    <Text style={styles.thinking}>Michel cherche ses lunettes…</Text>
+                  )}
+                </View>
+              );
+              // Une réponse terminée se partage en carte image, avec la question qui l'a amenée.
+              const done = !(busy && index === bubbles.length - 1);
+              if (item.role === 'user' || item.failed || !item.content || !done) return bubble;
+              const asked = bubbles[index - 1];
+              return (
+                <View>
+                  {bubble}
+                  <Pressable
+                    onPress={() => setSharing(makeCard(item.content, asked?.role === 'user' ? asked.content : undefined))}
+                    style={({ pressed }) => [styles.shareLink, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Partager cette réponse en image"
+                    hitSlop={8}
+                  >
+                    <Text style={styles.shareLinkText}>Partager</Text>
+                  </Pressable>
+                </View>
+              );
+            }}
           />
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
@@ -437,6 +496,7 @@ export default function App() {
           />
         )}
         {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
+        {sharing && <ShareSheet card={sharing} onClose={() => setSharing(null)} />}
         <CaptchaHost />
         <CookieBanner ref={cookiesRef} />
       </SafeAreaView>
@@ -485,6 +545,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft,
   },
   newChatText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  modesScroll: { ...COLUMN, flexGrow: 0 },
+  modes: { gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  mode: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    backgroundColor: colors.surface,
+  },
+  modeActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  modeText: { color: colors.text, fontSize: 14 },
+  modeTextActive: { color: colors.onAccent, fontWeight: '600' },
   body: { flex: 1 },
   list: { ...COLUMN, paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
   intro: { gap: 16 },
@@ -508,6 +581,8 @@ const styles = StyleSheet.create({
   userText: { color: colors.onAccent, fontSize: 16, lineHeight: 23 },
   photo: { width: 220, maxWidth: '100%', borderRadius: 12, marginVertical: 2 },
   photoNote: { color: colors.onAccent, fontSize: 14, fontStyle: 'italic', opacity: 0.85 },
+  shareLink: { alignSelf: 'flex-start', marginTop: 4, marginLeft: 6 },
+  shareLinkText: { color: colors.secondary, fontSize: 13, fontWeight: '600' },
   thinking: { color: colors.secondary, fontSize: 15, fontStyle: 'italic' },
   suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   chip: {
