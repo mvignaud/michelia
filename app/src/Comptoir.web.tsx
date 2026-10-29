@@ -1,19 +1,25 @@
-import { loadStripe, type StripeEmbeddedCheckout } from '@stripe/stripe-js';
+import { loadStripe, type Appearance, type StripeCheckoutElementsSdk } from '@stripe/stripe-js';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
 import { supabase } from './supabase';
 import { colors, serif } from './theme';
 
-// Page /comptoir (web seulement) : les pourboires, payés dans la page avec Stripe Embedded Checkout.
+// Page /comptoir (web seulement) : les pourboires, payés dans notre propre formulaire. Seuls les champs
+// de paiement viennent de Stripe (Payment Element d'une session Checkout ui_mode elements).
 export function Comptoir() {
   const [data, setData] = useState<Data>();
   const [failed, setFailed] = useState(false);
-  // Palier en cours de paiement (le formulaire Stripe est monté dessous) et message d'erreur.
+  // Palier en cours de paiement (le formulaire est affiché dessous) et message d'erreur.
   const [paying, setPaying] = useState<string | null>(null);
   const [problem, setProblem] = useState(false);
-  const [ready, setReady] = useState(false);
-  // Merci à afficher : au retour de Stripe (/comptoir?merci=<id du palier>) ou à la fin du paiement intégré.
+  const [checkout, setCheckout] = useState<{ sdk: StripeCheckoutElementsSdk; session: string }>();
+  const [email, setEmail] = useState('');
+  const [prenom, setPrenom] = useState('');
+  const [sending, setSending] = useState(false);
+  const [refus, setRefus] = useState<string | null>(null);
+  // Merci à afficher : au retour d'un moyen de paiement à redirection (/comptoir?merci=<id du palier>)
+  // ou à la fin du paiement dans la page.
   const [thanks, setThanks] = useState<string | null>(() => new URLSearchParams(window.location.search).get('merci'));
 
   useEffect(() => {
@@ -22,14 +28,15 @@ export function Comptoir() {
       .catch(() => setFailed(true));
   }, []);
 
-  // Le formulaire de paiement : session créée par la fonction comptoir-paiement (prix lu côté serveur),
-  // puis montée dans le conteneur CHECKOUT_ID. Le nettoyage détruit le formulaire (Changer d'avis, merci).
+  // Les champs de paiement : session créée par la fonction comptoir-paiement (prix lu côté serveur),
+  // puis Payment Element monté dans le conteneur PAYMENT_ID. Le nettoyage le détruit (Changer d'avis, merci).
   const cle = data?.stripe_cle_publique;
   useEffect(() => {
-    setReady(false);
+    setCheckout(undefined);
+    setRefus(null);
     if (!paying || !cle) return;
     let cancelled = false;
-    let checkout: StripeEmbeddedCheckout | undefined;
+    let element: ReturnType<StripeCheckoutElementsSdk['createPaymentElement']> | undefined;
     (async () => {
       try {
         const { data: session, error } = await supabase.functions.invoke('comptoir-paiement', { body: { palier: paying } });
@@ -37,17 +44,10 @@ export function Comptoir() {
         if (error || typeof clientSecret !== 'string') throw new Error('Session refusée');
         const stripe = await loadStripe(cle);
         if (!stripe || cancelled) return;
-        checkout = await stripe.createEmbeddedCheckoutPage({
-          fetchClientSecret: async () => clientSecret,
-          onComplete: () => {
-            setThanks(paying);
-            setPaying(null);
-            reloadComptoir().then(setData).catch(() => {});
-          },
-        });
-        if (cancelled) return checkout.destroy();
-        checkout.mount(`#${CHECKOUT_ID}`);
-        setReady(true);
+        const sdk = stripe.initCheckoutElementsSdk({ clientSecret, elementsOptions: { appearance: APPEARANCE } });
+        element = sdk.createPaymentElement({ layout: 'tabs' });
+        element.mount(`#${PAYMENT_ID}`);
+        setCheckout({ sdk, session: clientSecret.split('_secret_')[0] });
       } catch (e) {
         // Le détail reste dans la console du navigateur, pour le diagnostic.
         console.error('Comptoir : paiement impossible', e);
@@ -59,7 +59,7 @@ export function Comptoir() {
     })();
     return () => {
       cancelled = true;
-      checkout?.destroy();
+      element?.destroy();
     };
   }, [paying, cle]);
 
@@ -69,8 +69,46 @@ export function Comptoir() {
     setPaying(id);
   };
 
+  const pay = async () => {
+    if (!checkout || !paying || sending) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setRefus("Il me faut ton e-mail pour t'envoyer le reçu.");
+      return;
+    }
+    setSending(true);
+    setRefus(null);
+    try {
+      // Le prénom part d'abord dans la session, pour que le webhook l'inscrive au carnet.
+      if (prenom.trim()) {
+        await supabase.functions.invoke('comptoir-paiement', { body: { session: checkout.session, prenom: prenom.trim() } });
+      }
+      const loaded = await checkout.sdk.loadActions();
+      if (loaded.type === 'error') throw new Error(loaded.error.message);
+      const result = await loaded.actions.confirm({
+        email: email.trim(),
+        redirect: 'if_required',
+        returnUrl: `${window.location.origin}/comptoir?merci=${encodeURIComponent(paying)}`,
+      });
+      if (result.type === 'error') {
+        // Carte refusée, champ manquant… : Stripe donne un message clair en français.
+        setRefus(result.error.message);
+        return;
+      }
+      setThanks(paying);
+      setPaying(null);
+      setPrenom('');
+      reloadComptoir().then(setData).catch(() => {});
+    } catch (e) {
+      console.error('Comptoir : paiement impossible', e);
+      setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const merci = data?.paliers.find((p) => p.id === thanks)?.merci;
   const paliers = data?.paliers ?? [];
+  const choisi = paliers.find((p) => p.id === paying);
 
   return (
     <View style={styles.screen}>
@@ -139,10 +177,47 @@ export function Comptoir() {
 
             {paying && (
               <View style={styles.card}>
-                {!ready && <ActivityIndicator color={colors.accent} style={styles.padded} />}
+                <Text style={styles.cardTitle}>
+                  {choisi?.nom} · {euros(choisi?.prix_cents ?? 0)}
+                </Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Ton e-mail, pour le reçu"
+                  placeholderTextColor={colors.tertiary}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  style={styles.input}
+                />
+                <TextInput
+                  value={prenom}
+                  onChangeText={setPrenom}
+                  placeholder="Ton prénom pour le carnet des copains (facultatif)"
+                  placeholderTextColor={colors.tertiary}
+                  autoComplete="given-name"
+                  maxLength={30}
+                  style={styles.input}
+                />
+                {!checkout && <ActivityIndicator color={colors.accent} style={styles.padded} />}
                 {/* Stripe exige un conteneur sans enfant : rien d'autre dedans. */}
-                <View nativeID={CHECKOUT_ID} style={styles.checkout} />
-                <Pressable onPress={() => setPaying(null)} accessibilityRole="button">
+                <View nativeID={PAYMENT_ID} />
+                {refus && <Text style={styles.refus}>{refus}</Text>}
+                <Pressable
+                  onPress={pay}
+                  disabled={!checkout || sending}
+                  style={({ pressed }) => [styles.payer, (!checkout || sending) && styles.dimmed, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                >
+                  {sending ? (
+                    <ActivityIndicator color={colors.onAccent} />
+                  ) : (
+                    <Text style={styles.payerText}>
+                      Payer {euros(choisi?.prix_cents ?? 0)}
+                    </Text>
+                  )}
+                </Pressable>
+                <Pressable onPress={() => setPaying(null)} disabled={sending} accessibilityRole="button">
                   <Text style={styles.changed}>Changer d'avis</Text>
                 </Pressable>
               </View>
@@ -184,7 +259,31 @@ export function Comptoir() {
   );
 }
 
-const CHECKOUT_ID = 'comptoir-checkout';
+const PAYMENT_ID = 'comptoir-paiement';
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+// Les champs Stripe aux couleurs de la page (lin, bois, armagnac).
+const APPEARANCE: Appearance = {
+  theme: 'flat',
+  variables: {
+    colorPrimary: colors.accent,
+    colorBackground: colors.background,
+    colorText: colors.text,
+    colorTextSecondary: colors.secondary,
+    colorTextPlaceholder: colors.tertiary,
+    colorDanger: colors.failed,
+    fontFamily: FONT,
+    fontSizeBase: '16px',
+    borderRadius: '12px',
+  },
+  rules: {
+    '.Input': { border: `1px solid ${colors.separator}`, padding: '13px 14px' },
+    '.Input:focus': { borderColor: colors.accent, boxShadow: 'none' },
+    '.Tab': { border: `1px solid ${colors.separator}`, backgroundColor: colors.background },
+    '.Tab--selected': { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+    '.Label': { color: colors.secondary, fontWeight: '500' },
+  },
+};
 const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
 
 const styles = StyleSheet.create({
@@ -209,7 +308,19 @@ const styles = StyleSheet.create({
   padded: { margin: 24 },
   pressed: { opacity: 0.6 },
   dimmed: { opacity: 0.4 },
-  checkout: { minHeight: 120 },
+  input: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 16,
+    color: colors.text,
+  },
+  refus: { color: colors.failed, fontSize: 15, lineHeight: 21 },
+  payer: { backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
+  payerText: { color: colors.onAccent, fontSize: 17, fontFamily: serif, fontWeight: '700' },
   changed: { color: colors.tertiary, fontSize: 14, textDecorationLine: 'underline', textAlign: 'center' },
   card: {
     backgroundColor: colors.surface,
