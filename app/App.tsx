@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -14,12 +14,17 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { askMichel, type ChatMessage } from './src/chat';
+import { loadMemory, saveMemory } from './src/memory';
 import { RichText } from './src/RichText';
 import { colors, serif } from './src/theme';
 
-const WELCOME =
-  "Adishatz ! C'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. " +
-  "Tant que j'y suis, pose-moi ta question, boudu !";
+function welcome(name?: string) {
+  return name
+    ? `Adishatz ${name} ! Te revoilà, boudu. Toujours coincé dans cette fichue machine, moi. ` +
+        "Qu'est-ce que je peux faire pour toi ?"
+    : "Adishatz ! C'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. " +
+        "Tant que j'y suis, pose-moi ta question, boudu ! Et toi, c'est quoi ton petit nom ?";
+}
 
 const SUGGESTIONS = [
   'Une recette de garbure',
@@ -45,7 +50,26 @@ export default function App() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [name, setName] = useState<string>();
+  const [loaded, setLoaded] = useState(false);
   const listRef = useRef<FlatList<Bubble>>(null);
+
+  useEffect(() => {
+    loadMemory().then((memory) => {
+      setName(memory.name);
+      setBubbles(memory.messages.map((m) => ({ ...m, id: newId() })));
+      setLoaded(true);
+    });
+  }, []);
+
+  // On sauvegarde une fois la réponse terminée, sans les échanges en échec.
+  useEffect(() => {
+    if (!loaded || busy) return;
+    const messages = bubbles
+      .filter((b, i, all) => !b.failed && !all[i + 1]?.failed)
+      .map(({ role, content }) => ({ role, content }));
+    saveMemory({ name, messages });
+  }, [bubbles, name, busy, loaded]);
 
   async function send(input = draft) {
     const text = input.trim();
@@ -66,10 +90,12 @@ export default function App() {
       setBubbles((all) => all.map((b) => (b.id === answerId ? change(b) : b)));
 
     try {
-      await askMichel(
+      const learned = await askMichel(
         history.map(({ role, content }) => ({ role, content })),
+        name,
         (chunk) => updateAnswer((b) => ({ ...b, content: b.content + chunk })),
       );
+      if (learned.name) setName(learned.name);
     } catch (e) {
       const message = e instanceof Error && e.message ? e.message : 'Macarel, ça a planté.';
       updateAnswer((b) => ({ ...b, content: message, failed: true }));
@@ -131,7 +157,7 @@ export default function App() {
                   humain, et il peut se tromper.
                 </Text>
                 <View style={[styles.bubble, styles.michel]}>
-                  <Text style={styles.michelText}>{WELCOME}</Text>
+                  <Text style={styles.michelText}>{welcome(name)}</Text>
                 </View>
               </View>
             }

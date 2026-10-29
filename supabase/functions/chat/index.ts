@@ -1,12 +1,27 @@
 // Fonction « chat » : vérifie l'utilisateur et son quota, puis renvoie la réponse
 // de Michel en flux de texte brut. Les clés restent dans les secrets Supabase.
+// Les premières questions passent d'abord par un cache de réponses déjà écrites.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
+// Modèle d'embeddings gratuit fourni par le runtime des Edge Functions Supabase.
+declare const Supabase: {
+  ai: {
+    Session: new (model: string) => {
+      run(input: string, options: { mean_pool: boolean; normalize: boolean }): Promise<number[]>;
+    };
+  };
+};
+
 const MAX_HISTORY = 20;
 const MAX_CHARS = 4000;
+// Seules les questions d'ouverture courtes et sans chiffres ni adresse vont dans le cache.
+const CACHE_MAX_CHARS = 200;
+// Séparateur avant les informations de fin de réponse, lu par l'appli.
+const TRAILER = "\u001e";
+const NAME_TAG = /<prenom>([^<]*)<\/prenom>/;
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 const admin = createClient(
@@ -56,6 +71,40 @@ function parseMessages(body: unknown): ChatMessage[] | null {
   return messages.map((m) => ({ role: m.role, content: m.content }));
 }
 
+// Prénom affichable : lettres, espaces, tirets et apostrophes, 30 caractères au plus.
+function cleanName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const name = value.replace(/[^\p{L}\s'’-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 30);
+  return name || undefined;
+}
+
+function cacheable(messages: ChatMessage[]): string | null {
+  if (messages.length !== 1) return null;
+  const question = messages[0].content.trim();
+  if (question.length > CACHE_MAX_CHARS || /[0-9@]/.test(question)) return null;
+  return question;
+}
+
+// Longueur de la fin du texte qui pourrait être le début de « <prenom> ».
+function partialTag(text: string): number {
+  for (let n = Math.min(7, text.length); n > 0; n--) {
+    if ("<prenom>".startsWith(text.slice(-n))) return n;
+  }
+  return 0;
+}
+
+let embedder: InstanceType<typeof Supabase.ai.Session> | null = null;
+
+async function embed(text: string): Promise<number[] | null> {
+  try {
+    embedder ??= new Supabase.ai.Session("gte-small");
+    return await embedder.run(text.toLowerCase(), { mean_pool: true, normalize: true });
+  } catch (e) {
+    console.error("embeddings", e);
+    return null;
+  }
+}
+
 async function loadConfig(): Promise<Record<string, string>> {
   const { data, error } = await admin.from("app_config").select("key, value");
   if (error) throw error;
@@ -72,8 +121,11 @@ Deno.serve(async (req) => {
   if (!auth.user) return reply(401, "Session manquante, recharge la page.", origin);
 
   let messages: ChatMessage[] | null = null;
+  let name: string | undefined;
   try {
-    messages = parseMessages(await req.json());
+    const body = await req.json();
+    messages = parseMessages(body);
+    name = cleanName((body as { name?: unknown })?.name);
   } catch {
     // corps illisible : traité comme invalide juste en dessous
   }
@@ -117,6 +169,25 @@ Deno.serve(async (req) => {
     );
   }
 
+  const headers = {
+    ...corsHeaders(origin),
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+  };
+
+  // Question d'ouverture : on ressert une réponse déjà écrite si la base en a assez de proches.
+  const question = config.cache_enabled === "false" ? null : cacheable(messages);
+  const embedding = question ? await embed(question) : null;
+  if (embedding) {
+    const { data: cached, error } = await admin.rpc("pick_cached_answer", {
+      p_embedding: embedding,
+      p_threshold: Number(config.cache_threshold ?? 0.94),
+      p_min_variants: Number(config.cache_variants ?? 3),
+    });
+    if (error) console.error("cache", error);
+    else if (typeof cached === "string" && cached) return new Response(cached, { headers });
+  }
+
   const today = new Date().toLocaleDateString("fr-FR", {
     timeZone: "Europe/Paris",
     weekday: "long",
@@ -124,6 +195,16 @@ Deno.serve(async (req) => {
     month: "long",
     year: "numeric",
   });
+  const context = [
+    `Nous sommes le ${today}. Tu n'as pas accès à internet ni à la météo en direct.`,
+    embedding
+      ? "Ta réponse pourra être resservie à d'autres personnes : n'utilise aucun prénom."
+      : name
+        ? `La personne s'appelle ${name}. Appelle-la par son prénom de temps en temps, sans en abuser.`
+        : "Tu ne connais pas encore le prénom de la personne.",
+    "Quand la personne te donne son prénom ou te demande de l'appeler autrement, termine ta " +
+      "réponse par la balise <prenom>Prénom</prenom>, sans rien après. N'utilise jamais cette balise autrement.",
+  ].join("\n");
 
   const stream = anthropic.messages.stream({
     model: config.model ?? "claude-haiku-5-5",
@@ -131,7 +212,7 @@ Deno.serve(async (req) => {
     output_config: { effort: "low" },
     system: [
       { type: "text", text: config.system_prompt, cache_control: { type: "ephemeral" } },
-      { type: "text", text: `Nous sommes le ${today}. Tu n'as pas accès à internet ni à la météo en direct.` },
+      { type: "text", text: context },
     ],
     messages,
   });
@@ -139,23 +220,58 @@ Deno.serve(async (req) => {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // Le texte part au fil de l'eau, sauf ce qui pourrait être le début de la balise <prenom>.
+      let pending = "";
+      let held = false;
+      let answer = "";
+      let complete = false;
+      const flush = (text: string) => {
+        if (!text) return;
+        answer += text;
+        controller.enqueue(encoder.encode(text));
+      };
       try {
         for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            controller.enqueue(encoder.encode(event.delta.text));
+          if (event.type !== "content_block_delta" || event.delta.type !== "text_delta") continue;
+          pending += event.delta.text;
+          if (held) continue;
+          const tag = pending.indexOf("<prenom>");
+          if (tag !== -1) {
+            flush(pending.slice(0, tag));
+            pending = pending.slice(tag);
+            held = true;
+            continue;
           }
+          const keep = partialTag(pending);
+          flush(pending.slice(0, pending.length - keep));
+          pending = pending.slice(pending.length - keep);
         }
+        const learned = cleanName(pending.match(NAME_TAG)?.[1]);
+        flush(pending.replace(NAME_TAG, "").trimEnd());
+
         const final = await stream.finalMessage();
         if (final.stop_reason === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
         } else if (final.stop_reason === "max_tokens") {
           controller.enqueue(encoder.encode("…\n\nBoudu, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
+        } else {
+          complete = !learned;
         }
+        if (learned) controller.enqueue(encoder.encode(TRAILER + JSON.stringify({ prenom: learned })));
       } catch (e) {
         console.error("anthropic", e);
         controller.enqueue(encoder.encode("\n\nMacarel, la machine a fait des siennes. Réessaie."));
       } finally {
         controller.close();
+      }
+
+      if (embedding && complete && answer.trim()) {
+        const { error } = await admin.from("response_cache").insert({
+          question,
+          embedding,
+          answer: answer.trim(),
+        });
+        if (error) console.error("cache: enregistrement", error);
       }
     },
     cancel() {
@@ -163,11 +279,5 @@ Deno.serve(async (req) => {
     },
   });
 
-  return new Response(body, {
-    headers: {
-      ...corsHeaders(origin),
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
+  return new Response(body, { headers });
 });
