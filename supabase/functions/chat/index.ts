@@ -26,6 +26,9 @@ const FRESH = /m[ée]t[ée]o|temps|pleu|pluie|soleil|neige|orage|chaud|froid|act
 // Séparateur avant les informations de fin de réponse, lu par l'appli.
 const TRAILER = "\u001e";
 const NAME_TAG = /<prenom>([^<]*)<\/prenom>/;
+// Identifiant de mode thématique choisi dans l'appli (cuisine, rugby…). Sa consigne vit
+// dans app_config sous la clé mode_<id> ; un mode sans consigne est ignoré.
+const MODE_ID = /^[a-z]{1,20}$/;
 // Ajoutée après la première réponse quand Michel ne connaît pas encore le prénom
 // (hors cache, pour que les réponses resservies restent anonymes).
 const ASK_NAME = [
@@ -380,10 +383,13 @@ Deno.serve(async (req) => {
 
   let messages: ChatMessage[] | null = null;
   let name: string | undefined;
+  let mode: string | undefined;
   try {
     const body = await req.json();
     messages = parseMessages(body);
     name = cleanName((body as { name?: unknown })?.name);
+    const rawMode = (body as { mode?: unknown })?.mode;
+    if (typeof rawMode === "string" && MODE_ID.test(rawMode)) mode = rawMode;
   } catch {
     // corps illisible : traité comme invalide juste en dessous
   }
@@ -444,8 +450,11 @@ Deno.serve(async (req) => {
     "Cache-Control": "no-store",
   };
 
+  const modeText = mode ? config[`mode_${mode}`]?.trim() : undefined;
+
   // Question d'ouverture : on ressert une réponse déjà écrite si la base en a assez de proches.
-  const question = config.cache_enabled === "false" ? null : cacheable(messages);
+  // Pas en mode thématique : la réponse dépend du mode, elle ne vaut pas pour tout le monde.
+  const question = config.cache_enabled === "false" || modeText ? null : cacheable(messages);
   const embedding = question ? await embed(question) : null;
   if (embedding) {
     const { data: cached, error } = await admin.rpc("pick_cached_answer", {
@@ -490,6 +499,7 @@ Deno.serve(async (req) => {
     // Rappel de personnage relu à chaque message, pour que Michel ne s'affadisse pas
     // au fil de la conversation. Réglable dans app_config (persona_reminder, vide = aucun).
     config.persona_reminder ?? PERSONA_REMINDER,
+    modeText,
   ].filter(Boolean).join("\n");
 
   // La conversation s'allonge des appels d'outils et de leurs résultats au fil des allers-retours.
