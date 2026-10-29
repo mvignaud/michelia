@@ -37,7 +37,11 @@ function notes(boutique) {
 // Champs dont la valeur voulue diffère de l'actuelle (les champs voulus vides sont ignorés).
 const ecarts = (actuel, voulu) =>
   Object.fromEntries(Object.entries(voulu).filter(([k, v]) => v !== undefined && (actuel?.[k] ?? '') !== v));
-const noms = (o) => Object.keys(o).join(', ');
+// Les champs courts sont montrés avant → après, pour relire un essai sans ouvrir les consoles.
+const noms = (o, actuel) =>
+  Object.entries(o)
+    .map(([k, v]) => (String(v).length <= 100 ? `${k} « ${actuel?.[k] ?? ''} » → « ${v} »` : k))
+    .join(', ');
 
 // ---------- App Store Connect ----------
 // États où Apple laisse modifier la fiche d'une version.
@@ -60,7 +64,7 @@ async function apple() {
     if (!loc) dire(`- informations : pas de langue ${LANGUE} dans App Store Connect`);
     else if (!Object.keys(diff).length) dire('- informations (nom, sous-titre) : à jour');
     else
-      await agir(`informations : ${noms(diff)}`, () =>
+      await agir(`informations : ${noms(diff, loc.attributes)}`, () =>
         api(`/v1/appInfoLocalizations/${loc.id}`, {
           method: 'PATCH',
           body: { data: { type: 'appInfoLocalizations', id: loc.id, attributes: diff } },
@@ -98,7 +102,7 @@ async function apple() {
       dire(`${titre} : à jour${modifiable ? '' : ' (seul le texte promotionnel se modifie dans cet état)'}`);
       continue;
     }
-    await agir(`${titre.slice(2)} : ${noms(diff)}`, () =>
+    await agir(`${titre.slice(2)} : ${noms(diff, loc.attributes)}`, () =>
       api(`/v1/appStoreVersionLocalizations/${loc.id}`, {
         method: 'PATCH',
         body: { data: { type: 'appStoreVersionLocalizations', id: loc.id, attributes: diff } },
@@ -140,7 +144,7 @@ async function google() {
     const diff = ecarts(listing, { title: f.nom, shortDescription: f.description_courte, fullDescription: f.description });
     if (!Object.keys(diff).length) dire('- textes de la fiche : à jour');
     else
-      await changer(`textes de la fiche : ${noms(diff)}`, () =>
+      await changer(`textes de la fiche : ${noms(diff, listing)}`, () =>
         api(`${e}/listings/${LANGUE}`, {
           method: 'PUT',
           body: { language: LANGUE, title: f.nom, shortDescription: f.description_courte, fullDescription: f.description },
@@ -151,7 +155,7 @@ async function google() {
     const details = await api(`${e}/details`);
     const diffD = ecarts(details, { contactEmail: f.email, contactWebsite: f.site, defaultLanguage: LANGUE });
     if (!Object.keys(diffD).length) dire('- coordonnées : à jour');
-    else await changer(`coordonnées : ${noms(diffD)}`, () => api(`${e}/details`, { method: 'PATCH', body: diffD }));
+    else await changer(`coordonnées : ${noms(diffD, details)}`, () => api(`${e}/details`, { method: 'PATCH', body: diffD }));
 
     // Images : remplacées seulement si elles diffèrent de celles du dossier store/google.
     for (const [type, fichiers] of Object.entries(f.images)) {
