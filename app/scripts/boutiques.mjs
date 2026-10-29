@@ -92,12 +92,20 @@ async function apple() {
   dire('Apple (App Store Connect)');
   // Apple refuse un jeton qui vit plus de 20 min : on garde de la marge (horloges, espaces collés en trop).
   const now = Math.floor(Date.now() / 1000);
-  const token = jwt(
-    { alg: 'ES256', kid: ASC_KEY_ID.trim(), typ: 'JWT' },
-    { iss: ASC_ISSUER_ID.trim(), iat: now - 60, exp: now + 600, aud: 'appstoreconnect-v1' },
-    ASC_KEY_P8,
-    'ES256',
-  );
+  // Clé d'équipe : iss = ID de l'émetteur. Clé individuelle : sub = 'user', sans iss.
+  const signer = (individuelle) =>
+    jwt(
+      { alg: 'ES256', kid: ASC_KEY_ID.trim(), typ: 'JWT' },
+      {
+        ...(individuelle ? { sub: 'user' } : { iss: ASC_ISSUER_ID.trim() }),
+        iat: now - 60,
+        exp: now + 600,
+        aud: 'appstoreconnect-v1',
+      },
+      ASC_KEY_P8,
+      'ES256',
+    );
+  let token = signer(false);
   const api = (path, opts) => http(`https://api.appstoreconnect.apple.com${path}`, { token, ...opts });
   // Sur un refus, on décrit la forme des secrets (jamais leur valeur) pour trouver lequel cloche.
   const forme = () => {
@@ -110,8 +118,16 @@ async function apple() {
   try {
     await api(`/v1/apps/${APPLE_APP_ID}?fields[apps]=bundleId`);
   } catch (e) {
-    if (e.status === 401) forme();
-    throw e;
+    if (e.status !== 401) throw e;
+    token = signer(true);
+    try {
+      await api(`/v1/apps/${APPLE_APP_ID}?fields[apps]=bundleId`);
+      dire('  (clé individuelle : acceptée)');
+    } catch (e2) {
+      forme();
+      dire('  Refusée en clé d\'équipe comme en clé individuelle : le fichier .p8 ne correspond sans doute pas à ASC_KEY_ID, ou la clé est révoquée.');
+      throw e2;
+    }
   }
 
   const existants = (await api(`/v1/apps/${APPLE_APP_ID}/inAppPurchasesV2?limit=200`)).data;
