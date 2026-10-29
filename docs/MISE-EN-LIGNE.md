@@ -79,6 +79,13 @@ Les e-mails de compte partent par le serveur Postal, avec les modèles de `supab
 
 Le portrait des e-mails est servi par le site (`app/public/email/michel.png`).
 
+## Connexion par SMS (Twilio)
+
+1. Supabase > Authentication > Sign In / Providers > Phone : activer, fournisseur Twilio, puis saisir l'Account SID, l'Auth Token (seulement là) et le Message Service SID.
+2. Texte du SMS : `Boudu, ton code MichelIA : {{ .Code }}. Le donne à personne, même pas au cousin Jeannot.`
+3. Twilio > Messaging > Settings > Geo permissions : n'autoriser que la France (et les pays voulus), contre la fraude au « SMS pumping ».
+4. Le captcha Turnstile protège déjà l'envoi des codes. Rate Limits : garder un plafond bas de SMS par heure.
+
 ## 5. Tester en local
 
 ```bash
