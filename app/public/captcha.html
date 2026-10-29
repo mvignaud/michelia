@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vérification MichelIA</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; }
+  body { display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+<!-- Captcha des applis iOS et Android : la page renvoie le jeton à l'appli. -->
+<div id="captcha"></div>
+<script>
+  function send(message) {
+    if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(message);
+  }
+  function start() {
+    var key = new URLSearchParams(location.search).get('k');
+    if (!key) return send('error');
+    turnstile.render('#captcha', {
+      sitekey: key,
+      appearance: 'interaction-only',
+      language: 'fr',
+      callback: function (token) { send('token:' + token); },
+      'before-interactive-callback': function () { send('show'); },
+      'error-callback': function () { send('error'); },
+      'expired-callback': function () { send('error'); }
+    });
+  }
+</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=start&render=explicit" async defer onerror="send('error')"></script>
+</body>
+</html>

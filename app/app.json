@@ -8,7 +8,11 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "beer.michel.app"
+      "bundleIdentifier": "beer.michel.app",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -41,7 +45,9 @@
             "backgroundColor": "#5E2214"
           }
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-apple-authentication"
     ]
   }
 }
