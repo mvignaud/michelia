@@ -91,6 +91,11 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
     if (member) isAdmin().then(setAdmin);
   }, [member]);
 
+  // Connexion Apple, Google ou Facebook réussie dans l'appli : on revient à la conversation.
+  useEffect(() => {
+    if (member && (mode === 'signin' || mode === 'signup')) onClose();
+  }, [member]);
+
   function go(next: AccountMode) {
     setMode(next);
     setError(undefined);
