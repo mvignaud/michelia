@@ -4,6 +4,6 @@ titre: Le dicton du jour de Michel
 type: nouveau
 plateformes: web, ios, android
 pr: 38
-store: Le dicton ou le coup de gueule du jour, chaque matin vers 8 h
+store: Chaque matin, si tu veux, un dicton ou un coup de gueule de Michel
 ---
-Chaque matin vers 8 h, si tu le demandes, je t'envoie un dicton de chez nous ou mon coup de gueule du jour. Ça s'active depuis la carte d'accueil ou dans Compte. Faut bien que quelqu'un te réveille, con.
+Tous les matins, je t'envoie mon dicton du jour, et quand ça me gratte, un bon coup de gueule. Une notification par jour, pas une de plus, et seulement si tu me dis oui sur l'écran d'accueil. Ça te gave ? Tu coupes ça dans Compte, je bouderai dans mon coin.
