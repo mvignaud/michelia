@@ -32,7 +32,7 @@ import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
-import { makeCard, type Card } from './src/shareCard';
+import { makeCard, type Card } from './src/shareCardModel';
 import { ShareSheet } from './src/ShareSheet';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';

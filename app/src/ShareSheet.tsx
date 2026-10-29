@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useShareCard } from './ShareCard';
-import type { Card } from './shareCard';
+import type { Card } from './shareCardModel';
 import { colors } from './theme';
 
 // Aperçu de la carte avant de la partager : on voit ce qui part sur les réseaux.

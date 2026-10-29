@@ -3,7 +3,7 @@ import { useRef, type ComponentRef } from 'react';
 import { Image, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { RichText } from './RichText';
-import { CARD_LOGO, CARD_LOGO_RATIO, CARD_RATIO, CARD_SITE, CARD_TAGLINE, CARD_WIDTH, type Card } from './shareCard';
+import { CARD_LOGO, CARD_LOGO_RATIO, CARD_RATIO, CARD_SITE, CARD_TAGLINE, CARD_WIDTH, type Card } from './shareCardModel';
 import { colors, serif } from './theme';
 
 // Applis : la carte est une vraie vue, photographiée au moment du partage.
