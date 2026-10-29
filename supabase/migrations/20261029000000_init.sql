@@ -1,8 +1,9 @@
 -- MichelIA : configuration et quotas.
 -- Aucune table n'est lisible depuis l'appli : seule la fonction « chat »
 -- (clé service_role côté serveur) y accède.
+-- Rejouable sans risque si le SQL a déjà été exécuté à la main.
 
-create table public.app_config (
+create table if not exists public.app_config (
   key text primary key,
   value text not null,
   updated_at timestamptz not null default now()
@@ -15,9 +16,10 @@ alter table public.app_config enable row level security;
 insert into public.app_config (key, value) values
   ('model', 'claude-haiku-5-5'),
   ('daily_limit', '30'),
-  ('max_output_tokens', '1024');
+  ('max_output_tokens', '1024')
+on conflict (key) do nothing;
 
-create table public.usage_daily (
+create table if not exists public.usage_daily (
   user_id uuid not null references auth.users (id) on delete cascade,
   day date not null default (now() at time zone 'Europe/Paris')::date,
   messages integer not null default 0,
@@ -28,7 +30,7 @@ alter table public.usage_daily enable row level security;
 
 -- Compte un message et renvoie le nouveau total, ou null si le quota du jour est atteint.
 -- Atomique : deux requêtes simultanées ne peuvent pas dépasser la limite.
-create function public.consume_message(p_user uuid, p_limit integer)
+create or replace function public.consume_message(p_user uuid, p_limit integer)
 returns integer
 language sql
 security definer

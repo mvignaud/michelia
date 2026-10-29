@@ -28,7 +28,9 @@ Compter une heure la première fois. Aucune clé secrète ne va dans ce dépôt 
 
 ## 3. Déployer la fonction
 
-Depuis un terminal, à la racine du dépôt :
+**Avec l'intégration GitHub de Supabase** (Project Settings > Integrations > GitHub, dossier de travail `.`, branche `main`) : chaque fusion sur `main` applique les migrations et déploie la fonction. Rien d'autre à faire.
+
+**Sinon, depuis un terminal**, à la racine du dépôt :
 
 ```bash
 npx supabase login
