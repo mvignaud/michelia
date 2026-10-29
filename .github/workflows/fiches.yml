@@ -1,0 +1,46 @@
+# Fiches des stores (textes App Store et Google Play, images Google, notes de version) : app/scripts/fiches.mjs.
+# Se lance à la main : GitHub > Actions > « Fiches des stores » > Run workflow. Par défaut, un essai qui ne change rien.
+# Textes : app/store/fiche.json. Notes de version : app/nouveautes/builds/<build>.md.
+# Secrets du dépôt : ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, PLAY_SERVICE_ACCOUNT_JSON.
+name: Fiches des stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      appliquer:
+        description: Appliquer pour de vrai (sinon essai)
+        type: boolean
+        default: false
+      build:
+        description: "Numéro de build dont pousser les notes de version (vide = aucune)"
+        type: string
+        default: ""
+      seulement:
+        description: "Stores (apple,google), vide = les deux"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  fiches:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fiches
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          APPLIQUER: ${{ inputs.appliquer && '--appliquer' || '' }}
+          BUILD: ${{ inputs.build }}
+          SEULEMENT: ${{ inputs.seulement }}
+        run: node scripts/fiches.mjs $APPLIQUER ${BUILD:+--build "$BUILD"} ${SEULEMENT:+--seulement "$SEULEMENT"}

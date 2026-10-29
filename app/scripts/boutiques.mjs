@@ -11,10 +11,8 @@
 //   PLAY_SERVICE_ACCOUNT_JSON                   compte de service Google Play (JSON complet)
 //   REVENUECAT_API_KEY                          clé secrète RevenueCat API v2 (sk_…)
 // Aucune clé n'est jamais affichée.
-import crypto from 'node:crypto';
+import { APPLE_APP_ID, PACKAGE, appleApi, dire, googleToken, http, mode } from './stores-lib.mjs';
 
-const APPLE_APP_ID = '6828365649';
-const PACKAGE = 'beer.michel.app';
 const DESCRIPTION = 'Un pourboire pour Michel, sans contrepartie.';
 const NOTE_VERIFICATION =
   'Pourboire facultatif et sans contrepartie : il ne débloque aucune fonction. ' +
@@ -30,111 +28,13 @@ const PALIERS = [
 ];
 const produit = (p, boutique) => p[boutique] ?? `pourboire_${p.id}`;
 
-const args = process.argv.slice(2);
-const APPLIQUER = args.includes('--appliquer');
-const seulement = args.includes('--seulement') ? args[args.indexOf('--seulement') + 1].split(',') : null;
-const veut = (b) => !seulement || seulement.includes(b);
-
-let erreurs = 0;
-const dire = (...m) => console.log(...m);
-const agir = async (quoi, fn) => {
-  if (!APPLIQUER) return dire(`  (essai) ${quoi}`);
-  try {
-    await fn();
-    dire(`  ✓ ${quoi}`);
-  } catch (e) {
-    erreurs++;
-    dire(`  ✗ ${quoi} : ${e.message}`);
-  }
-};
-
-async function http(url, { method = 'GET', token, body, form } = {}) {
-  const res = await fetch(url, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
-    },
-    body: body ? JSON.stringify(body) : form ? new URLSearchParams(form) : undefined,
-  });
-  const text = await res.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    // Page HTML (404, adresse inconnue…) : on garde le statut, pas la page.
-    if (res.ok) throw new Error(`réponse illisible de ${new URL(url).pathname}`);
-  }
-  if (!res.ok) {
-    const detail = data?.errors?.[0]?.detail ?? data?.error?.message ?? data?.message ?? (data ? text.slice(0, 300) : `page HTML sur ${new URL(url).pathname}`);
-    const err = new Error(`${res.status} ${detail}`);
-    err.status = res.status;
-    throw err;
-  }
-  return data;
-}
-
-const b64url = (b) => Buffer.from(b).toString('base64url');
-function jwt(header, payload, key, alg) {
-  const input = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-  const signature =
-    alg === 'ES256'
-      ? crypto.sign('sha256', Buffer.from(input), { key, dsaEncoding: 'ieee-p1363' })
-      : crypto.sign('RSA-SHA256', Buffer.from(input), key);
-  return `${input}.${b64url(signature)}`;
-}
+const { agir, lancer, etat } = mode();
 
 // ---------- App Store Connect ----------
 async function apple() {
-  let { ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 } = process.env;
-  if (!ASC_KEY_ID || !ASC_ISSUER_ID || !ASC_KEY_P8) return dire('Apple : clés absentes, ignoré.');
-  // ID de clé (10 caractères) et ID d'émetteur (UUID) se confondent facilement : on les remet dans l'ordre.
-  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (UUID.test(ASC_KEY_ID.trim()) && !UUID.test(ASC_ISSUER_ID.trim())) {
-    [ASC_KEY_ID, ASC_ISSUER_ID] = [ASC_ISSUER_ID, ASC_KEY_ID];
-    dire('  (ASC_KEY_ID et ASC_ISSUER_ID étaient inversés : remis dans l\'ordre)');
-  }
   dire('Apple (App Store Connect)');
-  // Apple refuse un jeton qui vit plus de 20 min : on garde de la marge (horloges, espaces collés en trop).
-  const now = Math.floor(Date.now() / 1000);
-  // Clé d'équipe : iss = ID de l'émetteur. Clé individuelle : sub = 'user', sans iss.
-  const signer = (individuelle) =>
-    jwt(
-      { alg: 'ES256', kid: ASC_KEY_ID.trim(), typ: 'JWT' },
-      {
-        ...(individuelle ? { sub: 'user' } : { iss: ASC_ISSUER_ID.trim() }),
-        iat: now - 60,
-        exp: now + 600,
-        aud: 'appstoreconnect-v1',
-      },
-      ASC_KEY_P8,
-      'ES256',
-    );
-  let token = signer(false);
-  const api = (path, opts) => http(`https://api.appstoreconnect.apple.com${path}`, { token, ...opts });
-  // Sur un refus, on décrit la forme des secrets (jamais leur valeur) pour trouver lequel cloche.
-  const forme = () => {
-    const id = ASC_KEY_ID.trim();
-    const iss = ASC_ISSUER_ID.trim();
-    dire(`  ASC_KEY_ID : ${/^[A-Z0-9]{10}$/.test(id) ? 'forme OK (10 caractères)' : `forme inattendue (${id.length} caractères, 10 attendus)`}`);
-    dire(`  ASC_ISSUER_ID : ${UUID.test(iss) ? 'forme OK (identifiant 8-4-4-4-12)' : `forme inattendue (${iss.length} caractères) : attendu l'ID de l'émetteur, du type xxxxxxxx-xxxx-…`}`);
-    dire(`  ASC_KEY_P8 : ${ASC_KEY_P8.includes('BEGIN PRIVATE KEY') ? 'en-tête OK' : 'en-tête BEGIN PRIVATE KEY absent'}`);
-  };
-  try {
-    await api(`/v1/apps/${APPLE_APP_ID}?fields[apps]=bundleId`);
-  } catch (e) {
-    if (e.status !== 401) throw e;
-    token = signer(true);
-    try {
-      await api(`/v1/apps/${APPLE_APP_ID}?fields[apps]=bundleId`);
-      dire('  (clé individuelle : acceptée)');
-    } catch (e2) {
-      forme();
-      dire('  Refusée en clé d\'équipe comme en clé individuelle : le fichier .p8 ne correspond sans doute pas à ASC_KEY_ID, ou la clé est révoquée.');
-      throw e2;
-    }
-  }
+  const api = await appleApi();
+  if (!api) return dire('  clés absentes, ignoré.');
 
   const existants = (await api(`/v1/apps/${APPLE_APP_ID}/inAppPurchasesV2?limit=200`)).data;
   for (const p of PALIERS) {
@@ -159,7 +59,7 @@ async function apple() {
       if (!iap) continue;
     } else {
       if (iap.attributes.inAppPurchaseType !== 'CONSUMABLE') {
-        erreurs++;
+        etat.erreurs++;
         dire(`  ✗ type ${iap.attributes.inAppPurchaseType} : il faut un consommable (à recréer sous un autre identifiant)`);
       }
       if (iap.attributes.reviewNote !== NOTE_VERIFICATION) {
@@ -211,7 +111,7 @@ async function apple() {
     const points = (await api(`/v2/inAppPurchases/${iap.id}/pricePoints?filter[territory]=FRA&limit=8000`)).data;
     const point = points.find((x) => x.attributes.customerPrice === p.prix);
     if (!point) {
-      erreurs++;
+      etat.erreurs++;
       dire(`  ✗ pas de palier de prix Apple à ${p.prix} € en France`);
       continue;
     }
@@ -243,27 +143,9 @@ async function apple() {
 
 // ---------- Google Play ----------
 async function google() {
-  const raw = process.env.PLAY_SERVICE_ACCOUNT_JSON;
-  if (!raw) return dire('Google : clé absente, ignoré.');
   dire('Google Play');
-  const sa = JSON.parse(raw);
-  const now = Math.floor(Date.now() / 1000);
-  const assertion = jwt(
-    { alg: 'RS256', typ: 'JWT' },
-    {
-      iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/androidpublisher',
-      aud: sa.token_uri ?? 'https://oauth2.googleapis.com/token',
-      iat: now,
-      exp: now + 3600,
-    },
-    sa.private_key,
-    'RS256',
-  );
-  const { access_token: token } = await http(sa.token_uri ?? 'https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    form: { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion },
-  });
+  const token = await googleToken();
+  if (!token) return dire('  clé absente, ignoré.');
   // API « produits ponctuels » (l'ancienne inappproducts est fermée aux nouvelles applis).
   const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/onetimeproducts`;
   const api = (path, opts) => http(`${base}${path}`, { token, ...opts });
@@ -322,8 +204,8 @@ async function google() {
 // ---------- RevenueCat ----------
 async function revenuecat() {
   const token = process.env.REVENUECAT_API_KEY;
-  if (!token) return dire('RevenueCat : clé absente, ignoré.');
   dire('RevenueCat');
+  if (!token) return dire('  clé absente, ignoré.');
   const api = (path, opts) => http(`https://api.revenuecat.com/v2${path}`, { token, ...opts });
   const projects = (await api('/projects')).items;
   const project = process.env.REVENUECAT_PROJECT_ID ?? projects?.[0]?.id;
@@ -356,23 +238,8 @@ async function revenuecat() {
   }
 }
 
-dire(APPLIQUER ? 'Mode : on applique.\n' : 'Mode : essai (rien ne change). Ajouter --appliquer pour de vrai.\n');
-for (const [nom, fn] of [
+await lancer([
   ['apple', apple],
   ['google', google],
   ['revenuecat', revenuecat],
-]) {
-  if (!veut(nom)) continue;
-  try {
-    await fn();
-  } catch (e) {
-    erreurs++;
-    dire(`✗ ${nom} : ${e.message}`);
-  }
-  dire('');
-}
-if (erreurs) {
-  dire(`${erreurs} problème(s), voir ci-dessus.`);
-  process.exit(1);
-}
-dire('Tout est en ordre.');
+]);
