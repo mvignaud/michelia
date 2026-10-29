@@ -29,7 +29,25 @@ const ASK_NAME = [
   "\n\nEt toi, tu t'appelles comment ? J'aime bien savoir à qui je cause, hè.",
   "\n\nDis, tu me donnes ton prénom ? Ici dans la machine, tout le monde s'appelle « utilisateur », c'est triste à mourir.",
 ];
-const askName = () => ASK_NAME[Math.floor(Math.random() * ASK_NAME.length)];
+const pick = (lines: string[]) => lines[Math.floor(Math.random() * lines.length)];
+const askName = () => pick(ASK_NAME);
+
+// Quota du jour atteint, sans compte : Michel pousse à l'inscription.
+const GUEST_LIMIT = [
+  "Oh, doucement ! Je cause pas plus que ça aux inconnus, moi. Inscris-toi dans le cloud (bouton « Connexion » en haut) : " +
+    "promis, le patron sait même pas allumer l'ordinateur, il fera rien de tes données. Et après on cause tant que tu veux.",
+  "Macarel, t'as vidé ma réserve du jour ! Crée-toi un compte, bouton « Connexion » en haut, et je te fais crédit. " +
+    "Tes données, le chef y touche pas : il sait à peine se servir de la télécommande.",
+  "Hé, je te connais même pas et tu me fais déjà trimer comme à la vendange ! Inscris-toi (bouton « Connexion »), " +
+    "que je sache à qui j'ai affaire. Tes données restent au chaud, le patron y comprend rien de toute façon.",
+];
+
+// Quota du jour atteint, avec un compte : Michel rend son tablier jusqu'à demain.
+const MEMBER_LIMIT = [
+  "Oh, tu me chauffes la carafe, là ! Laisse-moi un peu tranquille et reviens demain me poser tes questions bêtes.",
+  "Boudu, j'ai la tête comme une citrouille ! Assez causé pour aujourd'hui, va voir dehors si j'y suis et reviens demain.",
+  "Macarel, même au comptoir on me fout la paix plus que ça ! Je ferme boutique, reviens demain, je serai requinqué.",
+];
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 const admin = createClient(
@@ -168,10 +186,7 @@ Deno.serve(async (req) => {
   if (quota === "user_limit") {
     return reply(
       429,
-      guest
-        ? `Boudu, ${limit} questions sans te connaître, c'est mon maximum ! Crée-toi un compte ` +
-          "(bouton « Connexion » en haut) et on pourra causer bien plus, sinon reviens demain."
-        : `Boudu, ${limit} questions aujourd'hui, tu m'as vidé ! Reviens demain, je serai requinqué.`,
+      pick(guest ? GUEST_LIMIT : MEMBER_LIMIT),
       origin,
     );
   }
