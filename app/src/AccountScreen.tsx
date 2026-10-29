@@ -3,6 +3,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -11,6 +12,7 @@ import {
   Text,
   TextInput,
   View,
+  type ImageSourcePropType,
   type TextInputProps,
 } from 'react-native';
 import {
@@ -234,9 +236,17 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
                 onPress={() => run(signInWithApple)}
               />
             )}
-            <ProviderButton label="Continuer avec Google" onPress={() => run(() => signInWithProvider('google'))} />
-            <ProviderButton label="Continuer avec Facebook" onPress={() => run(() => signInWithProvider('facebook'))} />
-            <ProviderButton label="Continuer avec mon numéro" onPress={() => go('phone')} />
+            <ProviderButton
+              label="Continuer avec Google"
+              logo={LOGOS.google}
+              onPress={() => run(() => signInWithProvider('google'))}
+            />
+            <ProviderButton
+              label="Continuer avec Facebook"
+              logo={LOGOS.facebook}
+              onPress={() => run(() => signInWithProvider('facebook'))}
+            />
+            <ProviderButton label="Continuer avec mon numéro" logo={LOGOS.sms} onPress={() => go('phone')} />
             <Text style={styles.or}>ou avec ton e-mail</Text>
           </>
         )}
@@ -325,16 +335,19 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
           {busy ? (
             <ActivityIndicator color={colors.onAccent} />
           ) : (
-            <Text style={styles.primaryText}>
-              {{
-                signin: 'Se connecter',
-                signup: 'Créer mon compte',
-                forgot: 'Recevoir le lien',
-                reset: 'Changer le mot de passe',
-                profile: 'Enregistrer',
-                phone: codeSent ? 'Valider le code' : 'Recevoir le code',
-              }[mode]}
-            </Text>
+            <View style={styles.primaryInner}>
+              {(mode === 'signin' || mode === 'signup') && <Image source={LOGOS.email} style={styles.logo} />}
+              <Text style={styles.primaryText}>
+                {{
+                  signin: 'Se connecter',
+                  signup: 'Créer mon compte',
+                  forgot: 'Recevoir le lien',
+                  reset: 'Changer le mot de passe',
+                  profile: 'Enregistrer',
+                  phone: codeSent ? 'Valider le code' : 'Recevoir le code',
+                }[mode]}
+              </Text>
+            </View>
           )}
         </Pressable>
 
@@ -396,13 +409,22 @@ function Field({ label, last, ...input }: TextInputProps & { label: string; last
   );
 }
 
-function ProviderButton({ label, onPress }: { label: string; onPress: () => void }) {
+// Logos des boutons de connexion (dessinés à 72 px, affichés à 22).
+const LOGOS = {
+  google: require('../assets/logos/google.png'),
+  facebook: require('../assets/logos/facebook.png'),
+  sms: require('../assets/logos/sms.png'),
+  email: require('../assets/logos/email.png'),
+} satisfies Record<string, ImageSourcePropType>;
+
+function ProviderButton({ label, logo, onPress }: { label: string; logo: ImageSourcePropType; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.provider, pressed && styles.pressed]}
       accessibilityRole="button"
     >
+      <Image source={logo} style={styles.logo} />
       <Text style={styles.providerText}>{label}</Text>
     </Pressable>
   );
@@ -444,9 +466,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.separator,
     backgroundColor: colors.surface,
+    flexDirection: 'row',
+    gap: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  logo: { width: 22, height: 22 },
   apple: { height: 48 },
   providerText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   or: { color: colors.tertiary, fontSize: 13, textAlign: 'center', marginVertical: 4 },
@@ -473,6 +498,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 4,
   },
+  primaryInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   primaryText: { color: colors.onAccent, fontSize: 17, fontWeight: '700' },
   pressed: { opacity: 0.6 },
   links: { alignItems: 'center', gap: 14, marginTop: 8 },
