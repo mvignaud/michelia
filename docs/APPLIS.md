@@ -8,7 +8,7 @@ Les applis sont construites avec EAS (Expo Application Services) depuis le dossi
    - Un compte Expo (gratuit) sur expo.dev.
    - Un compte Apple Developer (99 $ par an).
    - Un compte Google Play Console (25 $ une fois).
-2. **Projet EAS** : projet `michelia` sur expo.dev, déjà relié dans `app.json` (`extra.eas.projectId`). Dans `app/`, lancer `npx eas-cli login`.
+2. **Projet EAS** : projet `michel-ia` sur expo.dev, déjà relié dans `app.json` (`extra.eas.projectId`). Dans `app/`, lancer `npx eas-cli login`.
 3. **Variables EAS** : dans expo.dev > projet > Environment variables, pour les environnements `preview` et `production`, créer ces trois variables de type « Plain text ». Ce sont des valeurs publiques, les mêmes que sur Cloudflare Pages :
    - `EXPO_PUBLIC_SUPABASE_URL`
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
