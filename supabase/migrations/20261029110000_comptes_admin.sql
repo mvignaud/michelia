@@ -85,14 +85,17 @@ begin
     cache_read_tokens = u.cache_read_tokens + excluded.cache_read_tokens,
     cache_write_tokens = u.cache_write_tokens + excluded.cache_write_tokens;
 
-  -- Profil : on complète ce qui manque. Les nouvelles restent acceptées si l'un des deux les acceptait.
+  insert into public.usage_hourly as h (user_id, hour, messages)
+  select p_keep, hour, messages from public.usage_hourly where user_id = p_remove
+  on conflict (user_id, hour) do update set messages = h.messages + excluded.messages;
+
+  -- Profil : on complète ce qui manque. L'accord pour les nouvelles reste celui du compte gardé :
+  -- un refus n'est pas daté, on ne peut donc pas savoir lequel des deux choix est le plus récent.
   insert into public.profiles (id) values (p_keep) on conflict (id) do nothing;
   update public.profiles k set
     first_name = coalesce(k.first_name, r.first_name),
     last_name = coalesce(k.last_name, r.last_name),
-    birth_year = coalesce(k.birth_year, r.birth_year),
-    news_opt_in = k.news_opt_in or r.news_opt_in,
-    news_opt_in_at = case when k.news_opt_in then k.news_opt_in_at else r.news_opt_in_at end
+    birth_year = coalesce(k.birth_year, r.birth_year)
   from public.profiles r
   where k.id = p_keep and r.id = p_remove;
 
@@ -111,6 +114,7 @@ begin
   select broadcast_id, p_keep, ok, sent_at from public.broadcast_deliveries where user_id = p_remove
   on conflict do nothing;
   update public.broadcasts set created_by = p_keep where created_by = p_remove;
+  update public.admin_audit set admin_id = p_keep where admin_id = p_remove;
   if exists (select 1 from public.admins where user_id = p_remove) then
     insert into public.admins (user_id) values (p_keep) on conflict do nothing;
   end if;
@@ -126,8 +130,19 @@ begin
   -- passe sur le compte gardé si celui-ci n'en avait pas.
   delete from auth.users where id = p_remove;
 
-  select coalesce(jsonb_agg(distinct provider), '[]'::jsonb) into providers
-  from auth.identities where user_id = p_keep;
+  -- Moyens de connexion : ceux déjà notés sur le compte gardé, puis ceux des identités reprises.
+  select coalesce(jsonb_agg(p order by first_seen), '[]'::jsonb) into providers
+  from (
+    select p, min(rank) as first_seen
+    from (
+      select x.p, x.n as rank
+      from jsonb_array_elements_text(coalesce(keep_user.raw_app_meta_data -> 'providers', '[]'::jsonb)) with ordinality as x(p, n)
+      union all
+      select i.provider, 1000 from auth.identities i where i.user_id = p_keep
+    ) all_providers
+    where p <> 'anonymous'
+    group by p
+  ) t;
 
   update auth.users set
     email = case when take_email then gone.email else email end,
