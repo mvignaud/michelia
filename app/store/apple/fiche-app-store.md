@@ -5,6 +5,7 @@
 ## Captures d'écran (dans ce dossier)
 
 - **iPhone avec Dynamic Island (écran moyen)** (1206 × 2622) : `iphone-1-accueil.png`, `iphone-2-garbure.png`, `iphone-3-voisin.png`, `iphone-4-inflation.png`
+- **iPhone Duo** (2007 × 2853, facultatif) : `duo-1-accueil.png` … `duo-4-inflation.png`
 - **iPad 13 pouces** (2064 × 2752) : `ipad-1-accueil.png` … `ipad-4-inflation.png` (obligatoires, l'appli tourne aussi sur iPad)
 
 Glisse-les dans « Aperçus d'app et captures d'écran ». L'en-tête est facultatif, on peut laisser vide.
