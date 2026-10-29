@@ -9,6 +9,10 @@ on:
         description: ID d'un envoi EAS à détailler (facultatif)
         type: string
         default: ''
+      build:
+        description: ID d'un build EAS dont afficher les lignes d'erreur (facultatif)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -26,6 +30,7 @@ jobs:
       - name: Builds et envoi
         env:
           ENVOI: ${{ inputs.envoi }}
+          BUILD: ${{ inputs.build }}
         run: |
           node -e '
             const gql = (query, variables) =>
@@ -47,6 +52,18 @@ jobs:
                   { id: process.env.ENVOI },
                 );
                 console.log(JSON.stringify(envoi, null, 2));
+              }
+              if (process.env.BUILD) {
+                const b = await gql(`query($id: ID!) { builds { byId(buildId: $id) { status logFiles } } }`, { id: process.env.BUILD });
+                const fichiers = b.data?.builds?.byId?.logFiles ?? [];
+                if (!fichiers.length) console.log(JSON.stringify(b, null, 2));
+                for (const url of fichiers) {
+                  const lignes = (await (await fetch(url)).text()).split("\n").map((l) => {
+                    try { return JSON.parse(l).msg ?? l; } catch { return l; }
+                  });
+                  const utiles = lignes.filter((l) => /pod|error|requir|depend|compatib|deployment/i.test(l));
+                  console.log(utiles.slice(-80).join("\n"));
+                }
               }
             })();
           '
