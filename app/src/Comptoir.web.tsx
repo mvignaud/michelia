@@ -45,7 +45,9 @@ export function Comptoir() {
         });
         if (cancelled) return checkout.destroy();
         checkout.mount(`#${CHECKOUT_ID}`);
-      } catch {
+      } catch (e) {
+        // Le détail reste dans la console du navigateur, pour le diagnostic.
+        console.error('Comptoir : paiement impossible', e);
         if (!cancelled) {
           setProblem(true);
           setPaying(null);

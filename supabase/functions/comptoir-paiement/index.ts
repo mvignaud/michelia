@@ -6,8 +6,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
-// Version de l'API Stripe qui introduit ui_mode=embedded_page (2026-03-25.dahlia, voir le changelog Stripe).
-const STRIPE_VERSION = "2026-03-25.dahlia";
+// Même version que Stripe.js chargé par la page (@stripe/stripe-js 10.x = « endive ») :
+// la session et le formulaire intégré doivent parler la même version de l'API.
+const STRIPE_VERSION = "2026-09-30.endive";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
