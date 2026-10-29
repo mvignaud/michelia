@@ -12,10 +12,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { Session } from '@supabase/supabase-js';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { AccountScreen, type AccountMode } from './src/AccountScreen';
+import { isMember, loadProfile } from './src/auth';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadMemory, saveMemory } from './src/memory';
 import { RichText } from './src/RichText';
+import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
 
 function welcome(name?: string) {
@@ -52,7 +56,29 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState<string>();
   const [loaded, setLoaded] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [account, setAccount] = useState<AccountMode | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
+  const member = isMember(session);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data } = supabase.auth.onAuthStateChange((event, next) => {
+      setSession(next);
+      if (event === 'PASSWORD_RECOVERY') setAccount('reset');
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  // Membre connecté : Michel prend le prénom du profil ; s'il manque l'âge (Google, Facebook), on le demande.
+  const memberId = member ? session?.user.id : undefined;
+  useEffect(() => {
+    if (!memberId) return;
+    loadProfile(memberId).then((profile) => {
+      if (profile.firstName) setName(profile.firstName);
+      if (!profile.birthYear) setAccount((current) => current ?? 'profile');
+    });
+  }, [memberId]);
 
   useEffect(() => {
     loadMemory().then((memory) => {
@@ -126,6 +152,13 @@ export default function App() {
                 <Text style={styles.status}>Coincé dans la machine</Text>
               </View>
             </View>
+            <Pressable
+              onPress={() => setAccount(member ? 'profile' : 'signin')}
+              style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.newChatText}>{member ? 'Compte' : 'Connexion'}</Text>
+            </Pressable>
             {bubbles.length > 0 && !busy && (
               <Pressable
                 onPress={() => setBubbles([])}
@@ -248,6 +281,14 @@ export default function App() {
             </View>
           </SafeAreaView>
         </KeyboardAvoidingView>
+        {account && (
+          <AccountScreen
+            session={session}
+            initialMode={account}
+            onClose={() => setAccount(null)}
+            onProfile={(profile) => profile.firstName && setName(profile.firstName)}
+          />
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );

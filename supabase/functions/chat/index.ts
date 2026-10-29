@@ -151,7 +151,11 @@ Deno.serve(async (req) => {
     return reply(500, "Michel n'est pas encore installé dans la machine.", origin);
   }
 
-  const limit = Number(config.daily_limit ?? 30);
+  // Quota du jour : plus large pour les membres inscrits que pour les visiteurs anonymes.
+  const guest = auth.user.is_anonymous ?? true;
+  const limit = guest
+    ? Number(config.daily_limit_guest ?? config.daily_limit ?? 10)
+    : Number(config.daily_limit_member ?? 100);
   const { data: quota, error: quotaError } = await admin.rpc("consume_message", {
     p_user: auth.user.id,
     p_limit: limit,
@@ -164,7 +168,10 @@ Deno.serve(async (req) => {
   if (quota === "user_limit") {
     return reply(
       429,
-      `Boudu, ${limit} questions aujourd'hui, tu m'as vidé ! Reviens demain, je serai requinqué.`,
+      guest
+        ? `Boudu, ${limit} questions sans te connaître, c'est mon maximum ! Crée-toi un compte ` +
+          "(bouton « Connexion » en haut) et on pourra causer bien plus, sinon reviens demain."
+        : `Boudu, ${limit} questions aujourd'hui, tu m'as vidé ! Reviens demain, je serai requinqué.`,
       origin,
     );
   }

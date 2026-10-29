@@ -51,6 +51,17 @@ La référence du projet est dans l'adresse du tableau de bord Supabase.
 
 Chaque fusion sur `main` republie le site automatiquement.
 
+## Comptes (e-mail, Google, Facebook)
+
+Exécuter d'abord la migration `20261029050000_comptes.sql` (profils, suppression de compte, quotas 10 / 100).
+
+1. **Authentication > URL Configuration** : Site URL `https://michel.beer` ; Redirect URLs `https://michel.beer/**`, `https://michelia.pages.dev/**`, `http://localhost:8081/**`.
+2. **Authentication > Sign In / Providers > Email** : activé, « Confirm email » activé.
+3. **Google** : sur [console.cloud.google.com](https://console.cloud.google.com), créer un projet, configurer l'écran de consentement OAuth (nom MichelIA, liens vers les pages légales), puis **Identifiants > Créer un ID client OAuth > Application Web**. Origine autorisée `https://michel.beer` ; URI de redirection : l'adresse « Callback URL » affichée par Supabase dans le fournisseur Google (`https://<ref>.supabase.co/auth/v1/callback`). Coller l'ID et le secret client dans Supabase > Providers > Google.
+4. **Facebook** : sur [developers.facebook.com](https://developers.facebook.com), créer une app de type « Consommateur », ajouter « Facebook Login », renseigner la même Callback URL Supabase dans « URI de redirection OAuth valides », l'URL de la politique de confidentialité et celle de suppression des données (`https://michel.beer/confidentialite.html`). Coller l'ID et la clé secrète de l'app dans Supabase > Providers > Facebook, puis passer l'app en mode « Live ».
+
+Les secrets Google et Facebook restent dans Supabase, jamais dans ce dépôt.
+
 ## 5. Tester en local
 
 ```bash
