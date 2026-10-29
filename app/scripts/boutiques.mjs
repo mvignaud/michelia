@@ -270,7 +270,7 @@ async function google() {
   // Sert aussi de vérification des droits, même en essai.
   // Attention à la casse : liste et mise en vente sous « oneTimeProducts », création sous « onetimeproducts ».
   const liste = base.replace('onetimeproducts', 'oneTimeProducts');
-  const existants = (await http(`${liste}?pageSize=100`, { token })).oneTimeProducts ?? [];
+  const existants = (await http(`${liste}?pageSize=100`, { token }))?.oneTimeProducts ?? [];
   const euros = (prix) => {
     const [u, c = '0'] = String(prix).split('.');
     return { currencyCode: 'EUR', units: u, nanos: Number(c.padEnd(2, '0')) * 10_000_000 };
