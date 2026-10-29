@@ -12,16 +12,21 @@ import {
 } from 'react-native';
 import {
   PAGE_SIZE,
+  deleteUser,
   exportMembers,
   listBroadcasts,
   listUsers,
+  loadCosts,
   loadStats,
+  mergeUsers,
   resumeBroadcast,
   sendBroadcast,
   userUsage,
   type AdminUser,
   type Broadcast,
+  type Costs,
   type Stats,
+  type UserDay,
   type UserOrder,
 } from './admin';
 import { SWITCH_COLORS, colors, serif } from './theme';
@@ -37,6 +42,14 @@ const TABS: { id: Tab; label: string }[] = [
 const number = (n: number | null | undefined) => (n ?? 0).toLocaleString('fr-FR');
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 const shortDay = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
+// Coût Claude en dollars : quatre décimales sous le dollar, les montants sont minuscules.
+const dollars = (n: number | null | undefined) => {
+  const value = Number(n ?? 0);
+  const digits = value < 1 ? 4 : 2;
+  return value.toLocaleString('fr-FR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + ' $';
+};
+const contactOf = (u: AdminUser) =>
+  u.email || (u.phone ? `+${u.phone.replace(/^\+/, '')}` : u.is_anonymous ? 'Visiteur anonyme' : '—');
 
 // Back-office de MichelIA, ouvert depuis « Mon compte » pour les administrateurs.
 export function AdminScreen({ onClose }: { onClose: () => void }) {
@@ -74,12 +87,17 @@ export function AdminScreen({ onClose }: { onClose: () => void }) {
 
 function StatsTab() {
   const [stats, setStats] = useState<Stats>();
+  const [costs, setCosts] = useState<Costs>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     loadStats()
       .then(setStats)
       .catch((e) => setError(e.message));
+    // Absent tant que le SQL des coûts n'est pas lancé : le reste du tableau de bord s'affiche quand même.
+    loadCosts()
+      .then(setCosts)
+      .catch(() => undefined);
   }, []);
 
   if (error) return <Text style={[styles.error, styles.padded]}>{error}</Text>;
@@ -99,6 +117,13 @@ function StatsTab() {
           hint={stats.push_devices === null ? 'Notifications pas encore branchées' : undefined}
         />
         <Tile label="Réponses en cache" value={stats.cache_answers} hint={`${number(stats.cache_hits)} fois resservies`} />
+        {costs && (
+          <Tile
+            label="Coût Claude aujourd'hui"
+            text={dollars(costs.cost_today)}
+            hint={`${dollars(costs.cost_7d)} en 7 j · ${dollars(costs.cost_30d)} en 30 j`}
+          />
+        )}
       </View>
 
       <Section title="Questions par jour (30 jours)">
@@ -110,6 +135,16 @@ function StatsTab() {
       <Section title="Inscriptions par jour">
         <Bars days={stats.days} value={(d) => d.signups} />
       </Section>
+      {costs && (
+        <Section title="Coût Claude par jour (indicatif)">
+          <Bars days={costs.days} value={(d) => d.cost} format={dollars} />
+          <Text style={styles.small}>
+            Estimation d'après les jetons de chaque réponse et les prix réglés dans app_config
+            {costs.since ? `, mesurée depuis le ${date(costs.since)}` : ', pas encore de réponse mesurée'}. La facture qui fait foi
+            reste celle de la console Claude.
+          </Text>
+        </Section>
+      )}
 
       <Section title="Moyens de connexion">
         <Breakdown values={stats.providers} labels={{ email: 'E-mail', phone: 'SMS', google: 'Google', facebook: 'Facebook', apple: 'Apple' }} />
@@ -124,10 +159,10 @@ function StatsTab() {
   );
 }
 
-function Tile({ label, value, hint }: { label: string; value: number | null; hint?: string }) {
+function Tile({ label, value, text, hint }: { label: string; value?: number | null; text?: string; hint?: string }) {
   return (
     <View style={styles.tile}>
-      <Text style={styles.tileValue}>{value === null ? '—' : number(value)}</Text>
+      <Text style={styles.tileValue}>{text ?? (value === null || value === undefined ? '—' : number(value))}</Text>
       <Text style={styles.tileLabel}>{label}</Text>
       {hint && <Text style={styles.tileHint}>{hint}</Text>}
     </View>
@@ -144,21 +179,31 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 // Histogramme simple en barres verticales, sans bibliothèque de graphiques.
-function Bars<T extends { day: string }>({ days, value }: { days: T[]; value: (d: T) => number }) {
-  const max = Math.max(1, ...days.map(value));
+function Bars<T extends { day: string }>({
+  days,
+  value,
+  format = number,
+}: {
+  days: T[];
+  value: (d: T) => number;
+  format?: (n: number) => string;
+}) {
+  const max = Math.max(0, ...days.map(value));
   const total = days.reduce((sum, d) => sum + value(d), 0);
   return (
     <View>
       <View style={styles.bars}>
         {days.map((d) => (
-          <View key={d.day} style={styles.barSlot} accessibilityLabel={`${shortDay(d.day)} : ${value(d)}`}>
-            <View style={[styles.barFill, { height: `${(value(d) / max) * 100}%` }]} />
+          <View key={d.day} style={styles.barSlot} accessibilityLabel={`${shortDay(d.day)} : ${format(value(d))}`}>
+            <View style={[styles.barFill, { height: `${max ? (value(d) / max) * 100 : 0}%` }]} />
           </View>
         ))}
       </View>
       <View style={styles.barLegend}>
         <Text style={styles.small}>{days.length ? shortDay(days[0].day) : ''}</Text>
-        <Text style={styles.small}>max {number(max)} · total {number(total)}</Text>
+        <Text style={styles.small}>
+          max {format(max)} · total {format(total)}
+        </Text>
         <Text style={styles.small}>{days.length ? shortDay(days[days.length - 1].day) : ''}</Text>
       </View>
     </View>
@@ -188,6 +233,7 @@ const ORDERS: { id: UserOrder; label: string }[] = [
   { id: 'recent', label: 'Récents' },
   { id: 'usage', label: 'Plus actifs' },
   { id: 'active', label: 'Vus récemment' },
+  { id: 'cost', label: 'Plus coûteux' },
 ];
 
 function MembersTab() {
@@ -201,6 +247,7 @@ function MembersTab() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [exporting, setExporting] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     setUsers(undefined);
@@ -208,7 +255,14 @@ function MembersTab() {
     listUsers({ search: query, membersOnly, order, page })
       .then(setUsers)
       .catch((e) => setError(e.message));
-  }, [query, membersOnly, order, page]);
+  }, [query, membersOnly, order, page, reload]);
+
+  // Après une suppression ou une liaison : message, fiche refermée, liste rechargée.
+  function changed(message: string) {
+    setNotice(message);
+    setOpen(undefined);
+    setReload((n) => n + 1);
+  }
 
   const total = users?.[0]?.total_count ?? 0;
 
@@ -278,7 +332,14 @@ function MembersTab() {
       {users && users.length > 0 && (
         <View style={styles.card}>
           {users.map((u, i) => (
-            <MemberRow key={u.id} user={u} last={i === users.length - 1} open={open === u.id} onPress={() => setOpen(open === u.id ? undefined : u.id)} />
+            <MemberRow
+              key={u.id}
+              user={u}
+              last={i === users.length - 1}
+              open={open === u.id}
+              onPress={() => setOpen(open === u.id ? undefined : u.id)}
+              onChanged={changed}
+            />
           ))}
         </View>
       )}
@@ -296,9 +357,21 @@ function MembersTab() {
   );
 }
 
-function MemberRow({ user, last, open, onPress }: { user: AdminUser; last: boolean; open: boolean; onPress: () => void }) {
+function MemberRow({
+  user,
+  last,
+  open,
+  onPress,
+  onChanged,
+}: {
+  user: AdminUser;
+  last: boolean;
+  open: boolean;
+  onPress: () => void;
+  onChanged: (message: string) => void;
+}) {
   const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
-  const contact = user.email || (user.phone ? `+${user.phone.replace(/^\+/, '')}` : user.is_anonymous ? 'Visiteur anonyme' : '—');
+  const contact = contactOf(user);
   return (
     <View style={[styles.member, !last && styles.memberBorder]}>
       <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [styles.memberHead, pressed && styles.pressed]}>
@@ -315,24 +388,25 @@ function MemberRow({ user, last, open, onPress }: { user: AdminUser; last: boole
         <View style={styles.memberUsage}>
           <Text style={styles.memberCount}>{number(user.messages_7d)}</Text>
           <Text style={styles.small}>questions / 7 j</Text>
+          {user.cost_90d > 0 && <Text style={styles.small}>{dollars(user.cost_90d)} / 90 j</Text>}
         </View>
       </Pressable>
-      {open && <MemberDetail user={user} />}
+      {open && <MemberDetail user={user} onChanged={onChanged} />}
     </View>
   );
 }
 
-function MemberDetail({ user }: { user: AdminUser }) {
-  const [days, setDays] = useState<{ day: string; messages: number }[]>();
+function MemberDetail({ user, onChanged }: { user: AdminUser; onChanged: (message: string) => void }) {
+  const [days, setDays] = useState<UserDay[]>();
 
   useEffect(() => {
     userUsage(user.id)
       .then((rows) => {
         // Trente derniers jours, jours sans question compris.
-        const byDay = new Map(rows.map((r) => [r.day, r.messages]));
+        const byDay = new Map(rows.map((r) => [r.day, r]));
         const list = Array.from({ length: 30 }, (_, i) => {
           const d = new Date(Date.now() - (29 - i) * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
-          return { day: d, messages: byDay.get(d) ?? 0 };
+          return { day: d, messages: byDay.get(d)?.messages ?? 0, cost: Number(byDay.get(d)?.cost ?? 0) };
         });
         setDays(list);
       })
@@ -350,6 +424,8 @@ function MemberDetail({ user }: { user: AdminUser }) {
     ["Questions aujourd'hui", number(user.messages_today)],
     ['Questions sur 90 j', number(user.messages_90d)],
     ['Messages dans sa conversation', number(user.conversation_messages)],
+    ['Coût Claude sur 7 j', dollars(user.cost_7d)],
+    ['Coût Claude sur 90 j', dollars(user.cost_90d)],
     ['Identifiant', user.id],
   ];
   return (
@@ -364,6 +440,156 @@ function MemberDetail({ user }: { user: AdminUser }) {
       ))}
       <Text style={[styles.factLabel, styles.detailChart]}>Questions par jour (30 jours)</Text>
       {days ? <Bars days={days} value={(d) => d.messages} /> : <ActivityIndicator color={colors.accent} />}
+      {days && days.some((d) => d.cost > 0) && (
+        <>
+          <Text style={[styles.factLabel, styles.detailChart]}>Coût Claude par jour (indicatif)</Text>
+          <Bars days={days} value={(d) => d.cost} format={dollars} />
+        </>
+      )}
+      <AccountActions user={user} onChanged={onChanged} />
+    </View>
+  );
+}
+
+// Relier un autre compte de la même personne à celui-ci, ou supprimer ce compte.
+function AccountActions({ user, onChanged }: { user: AdminUser; onChanged: (message: string) => void }) {
+  const [mode, setMode] = useState<'link' | 'delete'>();
+  const [search, setSearch] = useState('');
+  const [found, setFound] = useState<AdminUser[]>();
+  const [other, setOther] = useState<AdminUser>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  function reset(next?: 'link' | 'delete') {
+    setMode(next);
+    setSearch('');
+    setFound(undefined);
+    setOther(undefined);
+    setError(undefined);
+  }
+
+  async function find() {
+    if (!search.trim()) return;
+    setError(undefined);
+    setOther(undefined);
+    try {
+      const rows = await listUsers({ search, membersOnly: false, order: 'recent', page: 0 });
+      setFound(rows.filter((u) => u.id !== user.id).slice(0, 5));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'La recherche a planté.');
+    }
+  }
+
+  async function run(action: () => Promise<string>) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      onChanged(await action());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ça a planté.');
+      setBusy(false);
+    }
+  }
+
+  const link = () =>
+    run(async () => {
+      const result = await mergeUsers(user.id, other!.id);
+      const moved = [result.email_moved && "l'e-mail", result.phone_moved && 'le numéro'].filter(Boolean).join(' et ');
+      return `Comptes reliés : ${contactOf(user)} se connecte maintenant avec ${result.providers.join(', ') || 'aucun moyen de connexion'}${
+        moved ? ` (${moved} de l'autre compte récupéré${result.email_moved && result.phone_moved ? 's' : ''})` : ''
+      }.`;
+    });
+
+  const remove = () =>
+    run(async () => {
+      await deleteUser(user.id);
+      return `Compte ${contactOf(user)} supprimé, avec son usage et sa conversation.`;
+    });
+
+  if (!mode) {
+    return (
+      <View style={[styles.row, styles.detailChart]}>
+        <Pressable onPress={() => reset('link')} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
+          <Text style={styles.secondaryText}>Relier un autre compte…</Text>
+        </Pressable>
+        <Pressable onPress={() => reset('delete')} style={({ pressed }) => [styles.secondary, styles.dangerOutline, pressed && styles.pressed]}>
+          <Text style={[styles.secondaryText, styles.dangerText]}>Supprimer le compte…</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (mode === 'delete') {
+    return (
+      <View style={[styles.actions, styles.detailChart]}>
+        <Text style={styles.switchLabel}>Supprimer {contactOf(user)} ?</Text>
+        <Text style={styles.small}>
+          Le compte, son profil, son usage, sa conversation et ses appareils sont effacés pour de bon. La personne pourra se
+          réinscrire. La suppression est notée dans le journal du back-office.
+        </Text>
+        {error && <Text style={styles.error}>{error}</Text>}
+        <View style={styles.row}>
+          <Chip label="Annuler" active={false} onPress={() => reset()} />
+          <Pressable onPress={remove} disabled={busy} style={({ pressed }) => [styles.danger, (pressed || busy) && styles.pressed]}>
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>Supprimer pour de bon</Text>}
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.actions, styles.detailChart]}>
+      <Text style={styles.switchLabel}>Relier un autre compte à {contactOf(user)}</Text>
+      <Text style={styles.small}>
+        Pour une même personne inscrite deux fois (par exemple Facebook et Google). Ce compte-ci est gardé : il récupère les
+        connexions Google, Facebook et Apple de l'autre, son usage, ses appareils et la conversation la plus récente. L'autre
+        compte disparaît. Son e-mail et son numéro ne suivent que si ce compte-ci n'en a pas.
+      </Text>
+      <View style={styles.card}>
+        <TextInput
+          style={styles.search}
+          value={search}
+          onChangeText={setSearch}
+          onSubmitEditing={find}
+          placeholder="E-mail, numéro ou nom de l'autre compte (Entrée)"
+          placeholderTextColor={colors.tertiary}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
+      </View>
+      {found?.length === 0 && <Text style={styles.small}>Aucun autre compte ne correspond.</Text>}
+      {found && found.length > 0 && !other && (
+        <View style={styles.card}>
+          {found.map((u) => (
+            <Pressable key={u.id} onPress={() => setOther(u)} style={({ pressed }) => [styles.pick, pressed && styles.pressed]}>
+              <Text style={styles.memberName} numberOfLines={1}>
+                {contactOf(u)}
+              </Text>
+              <Text style={styles.small} numberOfLines={1}>
+                {[u.first_name, u.last_name].filter(Boolean).join(' ') || 'Sans nom'} · {u.providers ?? 'anonyme'} · inscrit le{' '}
+                {date(u.created_at)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+      {other && (
+        <Text style={styles.small}>
+          On garde <Text style={styles.strong}>{contactOf(user)}</Text> ({user.providers ?? 'anonyme'}) et on y relie{' '}
+          <Text style={styles.strong}>{contactOf(other)}</Text> ({other.providers ?? 'anonyme'}), qui disparaît.
+          {user.email && other.email ? ` L'adresse ${other.email} ne servira plus à se connecter.` : ''}
+        </Text>
+      )}
+      {error && <Text style={styles.error}>{error}</Text>}
+      <View style={styles.row}>
+        <Chip label="Annuler" active={false} onPress={() => reset()} />
+        {other && (
+          <Pressable onPress={link} disabled={busy} style={({ pressed }) => [styles.danger, (pressed || busy) && styles.pressed]}>
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>Relier les deux comptes</Text>}
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -705,4 +931,9 @@ const styles = StyleSheet.create({
   primaryText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   history: { gap: 2, paddingVertical: 4 },
   resume: { color: colors.accent, fontSize: 13, fontWeight: '600', marginTop: 2 },
+  actions: { gap: 8 },
+  pick: { gap: 2, paddingVertical: 4 },
+  strong: { color: colors.text, fontWeight: '600' },
+  dangerOutline: { borderColor: colors.failed },
+  dangerText: { color: colors.failed },
 });

@@ -154,6 +154,26 @@ async function loadConfig(): Promise<Record<string, string>> {
   return Object.fromEntries(data.map((row) => [row.key, row.value]));
 }
 
+type Usage = Anthropic.Messages.Usage;
+
+// Coût Claude indicatif du back-office : jetons de chaque réponse, par compte et par jour.
+async function recordTokens(userId: string, usage: Usage) {
+  const { error } = await admin.rpc("record_tokens", {
+    p_user: userId,
+    p_input: usage.input_tokens,
+    p_output: usage.output_tokens,
+    p_cache_read: usage.cache_read_input_tokens ?? 0,
+    p_cache_write: usage.cache_creation_input_tokens ?? 0,
+  });
+  if (error) console.error("jetons: enregistrement", error);
+}
+
+// Laisse finir une écriture après la fin de la réponse, sans la faire attendre.
+function keepAlive(task: Promise<unknown>) {
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+  if (runtime) runtime.waitUntil(task);
+}
+
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin");
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(origin) });
@@ -162,6 +182,7 @@ Deno.serve(async (req) => {
   const jwt = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
   const { data: auth } = jwt ? await admin.auth.getUser(jwt) : { data: { user: null } };
   if (!auth.user) return reply(401, "Session manquante, recharge la page.", origin);
+  const userId = auth.user.id;
 
   let messages: ChatMessage[] | null = null;
   let name: string | undefined;
@@ -289,6 +310,7 @@ Deno.serve(async (req) => {
       let held = false;
       let answer = "";
       let complete = false;
+      let usage: Usage | undefined;
       const flush = (text: string) => {
         if (!text) return;
         answer += text;
@@ -314,6 +336,7 @@ Deno.serve(async (req) => {
         flush(pending.replace(NAME_TAG, "").trimEnd());
 
         const final = await stream.finalMessage();
+        usage = final.usage;
         if (final.stop_reason === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
         } else if (final.stop_reason === "max_tokens") {
@@ -329,6 +352,9 @@ Deno.serve(async (req) => {
         console.error("anthropic", e);
         controller.enqueue(encoder.encode("\n\nMacarel, la machine a fait des siennes. Réessaie."));
       } finally {
+        // Jetons consommés, même si la réponse a été coupée en route (ils sont facturés quand même).
+        usage ??= stream.currentMessage?.usage;
+        if (usage) keepAlive(recordTokens(userId, usage).catch((e) => console.error("jetons", e)));
         controller.close();
       }
 
