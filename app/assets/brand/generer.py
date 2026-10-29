@@ -181,7 +181,7 @@ write(
 )
 
 # Écran de démarrage : symbole seul (Expo le pose sur la couleur de fond)
-write("splash.svg", svg(head()))
+write("splash.svg", svg(placer(head(), 512, 548, 1.5)))
 
 # --- Illustrations d'accueil (3 écrans), format 1080 x 1080, paysage gersois ---
 COLLINES = (
@@ -215,7 +215,7 @@ main = (
     f'<path d="M-40 -20h-20" stroke="{ENCRE}" stroke-width="14" stroke-linecap="round"/></g>'
 )
 bulle_adieu = (
-    f'<g transform="translate(700 150)"><rect x="0" y="0" width="300" height="130" rx="65" fill="{BRIQUE}"/>'
+    f'<g transform="translate(650 150)"><rect x="0" y="0" width="300" height="130" rx="65" fill="{BRIQUE}"/>'
     f'<path d="M60 120l-30 50 70-40z" fill="{BRIQUE}"/>'
     f'<path fill="{CREME}" d="{text_path("Adieu !", 70, 52, 90)[0]}"/></g>'
 )
