@@ -42,6 +42,18 @@ const GUEST_LIMIT = [
     "que je sache à qui j'ai affaire. Tes données restent au chaud, le patron y comprend rien de toute façon.",
 ];
 
+// Quota de l'heure atteint : Michel demande une pause.
+const GUEST_HOUR_LIMIT = [
+  "Holà, tu mitrailles ! Laisse-moi souffler une heure. Ou inscris-toi (bouton « Connexion » en haut) : " +
+    "promis, le patron fait rien de tes données, et moi je te laisserai causer bien plus.",
+  "Boudu, cinq questions d'affilée, j'ai les fils qui fument ! Reviens dans une heure, ou crée-toi un compte " +
+    "et je te fais un tarif d'ami.",
+];
+const MEMBER_HOUR_LIMIT = [
+  "Oh, tu me chauffes la carafe, là ! Va boire un café, reviens dans une heure, je serai d'attaque.",
+  "Macarel, pause syndicale ! J'ai besoin d'une heure pour refroidir les fusibles, après on reprend.",
+];
+
 // Quota du jour atteint, avec un compte : Michel rend son tablier jusqu'à demain.
 const MEMBER_LIMIT = [
   "Oh, tu me chauffes la carafe, là ! Laisse-moi un peu tranquille et reviens demain me poser tes questions bêtes.",
@@ -172,16 +184,23 @@ Deno.serve(async (req) => {
   // Quota du jour : plus large pour les membres inscrits que pour les visiteurs anonymes.
   const guest = auth.user.is_anonymous ?? true;
   const limit = guest
-    ? Number(config.daily_limit_guest ?? config.daily_limit ?? 10)
-    : Number(config.daily_limit_member ?? 100);
+    ? Number(config.daily_limit_guest ?? config.daily_limit ?? 20)
+    : Number(config.daily_limit_member ?? 200);
+  const hourLimit = guest
+    ? Number(config.hourly_limit_guest ?? 5)
+    : Number(config.hourly_limit_member ?? 30);
   const { data: quota, error: quotaError } = await admin.rpc("consume_message", {
     p_user: auth.user.id,
     p_limit: limit,
     p_global_limit: Number(config.global_daily_limit ?? 5000),
+    p_hour_limit: hourLimit,
   });
   if (quotaError) {
     console.error("quota", quotaError);
     return reply(500, "Michel est parti chercher du pain, réessaie dans un moment.", origin);
+  }
+  if (quota === "hour_limit") {
+    return reply(429, pick(guest ? GUEST_HOUR_LIMIT : MEMBER_HOUR_LIMIT), origin);
   }
   if (quota === "user_limit") {
     return reply(

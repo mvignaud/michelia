@@ -53,7 +53,7 @@ Chaque fusion sur `main` republie le site automatiquement.
 
 ## Comptes (e-mail, Google, Facebook)
 
-Exécuter d'abord la migration `20261029050000_comptes.sql` (profils, suppression de compte, quotas 10 / 100).
+Exécuter d'abord la migration `20261029050000_comptes.sql` (profils, suppression de compte), puis `20261029060000_quotas_horaires.sql` (sans compte 5 par heure et 20 par jour, avec compte 30 et 200 ; réglables dans `app_config`).
 
 1. **Authentication > URL Configuration** : Site URL `https://michel.beer` ; Redirect URLs `https://michel.beer/**`, `https://michelia.pages.dev/**`, `http://localhost:8081/**`.
 2. **Authentication > Sign In / Providers > Email** : activé, « Confirm email » activé.
