@@ -162,6 +162,7 @@ Deno.serve(async (req) => {
   const jwt = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
   const { data: auth } = jwt ? await admin.auth.getUser(jwt) : { data: { user: null } };
   if (!auth.user) return reply(401, "Session manquante, recharge la page.", origin);
+  const userId = auth.user.id;
 
   let messages: ChatMessage[] | null = null;
   let name: string | undefined;
@@ -289,6 +290,7 @@ Deno.serve(async (req) => {
       let held = false;
       let answer = "";
       let complete = false;
+      let usage: Awaited<ReturnType<typeof stream.finalMessage>>["usage"] | undefined;
       const flush = (text: string) => {
         if (!text) return;
         answer += text;
@@ -314,6 +316,7 @@ Deno.serve(async (req) => {
         flush(pending.replace(NAME_TAG, "").trimEnd());
 
         const final = await stream.finalMessage();
+        usage = final.usage;
         if (final.stop_reason === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
         } else if (final.stop_reason === "max_tokens") {
@@ -330,6 +333,18 @@ Deno.serve(async (req) => {
         controller.enqueue(encoder.encode("\n\nMacarel, la machine a fait des siennes. Réessaie."));
       } finally {
         controller.close();
+      }
+
+      // Jetons consommés, pour le coût Claude indicatif du back-office.
+      if (usage) {
+        const { error } = await admin.rpc("record_tokens", {
+          p_user: userId,
+          p_input: usage.input_tokens,
+          p_output: usage.output_tokens,
+          p_cache_read: usage.cache_read_input_tokens ?? 0,
+          p_cache_write: usage.cache_creation_input_tokens ?? 0,
+        });
+        if (error) console.error("jetons: enregistrement", error);
       }
 
       if (embedding && complete && answer.trim()) {

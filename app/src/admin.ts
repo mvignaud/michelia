@@ -44,10 +44,23 @@ export type AdminUser = {
   messages_90d: number;
   last_active: string | null;
   conversation_messages: number;
+  cost_7d: number;
+  cost_90d: number;
   total_count: number;
 };
 
-export type UserOrder = 'recent' | 'usage' | 'active';
+export type UserOrder = 'recent' | 'usage' | 'active' | 'cost';
+
+// Coût Claude indicatif, en dollars, calculé avec les prix de app_config.
+export type Costs = {
+  cost_today: number;
+  cost_7d: number;
+  cost_30d: number;
+  since: string | null;
+  days: { day: string; cost: number }[];
+};
+
+export type UserDay = { day: string; messages: number; cost: number };
 
 export type Broadcast = {
   id: number;
@@ -87,6 +100,12 @@ export async function loadStats(): Promise<Stats> {
   return data as Stats;
 }
 
+export async function loadCosts(): Promise<Costs> {
+  const { data, error } = await supabase.rpc('admin_costs');
+  if (error) fail(error);
+  return data as Costs;
+}
+
 export const PAGE_SIZE = 50;
 
 export async function listUsers(options: {
@@ -106,10 +125,23 @@ export async function listUsers(options: {
   return (data ?? []) as AdminUser[];
 }
 
-export async function userUsage(userId: string): Promise<{ day: string; messages: number }[]> {
+export async function userUsage(userId: string): Promise<UserDay[]> {
   const { data, error } = await supabase.rpc('admin_user_usage', { p_user: userId });
   if (error) fail(error);
   return data ?? [];
+}
+
+// Supprime un compte et tout ce qui lui est rattaché. Journalisé.
+export async function deleteUser(userId: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_delete_user', { p_user: userId });
+  if (error) fail(error);
+}
+
+// Relie deux comptes d'une même personne : « remove » rejoint « keep » puis disparaît. Journalisé.
+export async function mergeUsers(keep: string, remove: string): Promise<{ email_moved: boolean; phone_moved: boolean; providers: string[] }> {
+  const { data, error } = await supabase.rpc('admin_merge_users', { p_keep: keep, p_remove: remove });
+  if (error) fail(error);
+  return data;
 }
 
 export async function listBroadcasts(): Promise<Broadcast[]> {
@@ -159,11 +191,18 @@ const COLUMNS: [keyof AdminUser, string][] = [
   ['messages_7d', 'questions_7j'],
   ['messages_90d', 'questions_90j'],
   ['last_active', 'dernier_jour_actif'],
+  ['cost_7d', 'cout_claude_7j_usd'],
+  ['cost_90d', 'cout_claude_90j_usd'],
 ];
 
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const text = typeof value === 'boolean' ? (value ? 'oui' : 'non') : String(value);
+  const text =
+    typeof value === 'boolean'
+      ? value ? 'oui' : 'non'
+      : typeof value === 'number'
+        ? String(value).replace('.', ',') // virgule décimale pour Excel en français
+        : String(value);
   // Une cellule qui commence par = + - @ serait exécutée comme formule par le tableur.
   const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
   return /[;"\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;

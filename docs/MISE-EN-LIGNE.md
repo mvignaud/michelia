@@ -155,7 +155,9 @@ Statistiques, membres et leurs usages, export des comptes et annonces. Il s'ouvr
 Ce que fait chaque onglet :
 
 - **Tableau de bord** : membres, visiteurs sans compte, questions et visiteurs actifs (jour, 7 et 30 jours), inscriptions, moyens de connexion, âges, cache. Les compteurs de questions ne remontent qu'à 90 jours (purge annoncée dans la politique de confidentialité).
-- **Membres** : recherche (e-mail, numéro, nom), tri par inscription, activité ou dernier passage, visiteurs anonymes en option (pour repérer un robot). Un clic sur un membre montre son détail et ses questions par jour. **Exporter** télécharge un CSV (séparateur `;`, ouvrable dans Excel) ; chaque export est noté dans `admin_audit`.
+- **Membres** : recherche (e-mail, numéro, nom), tri par inscription, activité, dernier passage ou coût, visiteurs anonymes en option (pour repérer un robot). Un clic sur un membre montre son détail, ses questions et son coût Claude par jour. **Exporter** télécharge un CSV (séparateur `;`, ouvrable dans Excel) ; chaque export est noté dans `admin_audit`.
+  - **Relier un autre compte…** : pour une personne inscrite deux fois (Facebook et Google, par exemple). Ouvrir la fiche du compte à garder, chercher l'autre, confirmer. Le compte gardé récupère les connexions Google, Facebook et Apple de l'autre, son usage, ses appareils et la conversation la plus récente ; l'autre compte est supprimé. Un compte n'a qu'un e-mail : celui de l'autre compte (avec son mot de passe) et son numéro ne suivent que si le compte gardé n'en a pas.
+  - **Supprimer le compte…** : efface le compte et tout ce qui s'y rattache. On ne peut ni supprimer ni faire disparaître son propre compte. Liaisons et suppressions sont notées dans `admin_audit`.
 - **Annonce** : e-mail et/ou notification.
   - « Nouvelles » : seulement les membres qui ont coché « Recevoir les nouvelles de Michel » (à l'inscription ou dans Compte). Chaque e-mail porte un lien de désabonnement et l'en-tête de désabonnement en un clic (Gmail, Apple Mail).
   - « Information de service » : tous les membres, réservé aux messages sur le service lui-même (conditions, panne, fermeture), jamais de promotion.
@@ -163,3 +165,9 @@ Ce que fait chaque onglet :
   - Les e-mails partent en tâche de fond (8 à la fois) ; l'historique montre l'avancement. Une fonction Edge s'arrête au bout de quelques minutes (quelques milliers d'e-mails) : si un envoi est coupé ou en partie en échec, le lien **Reprendre l'envoi des e-mails** apparaît et ne sert que ceux qui ne l'ont pas encore reçu (`broadcast_deliveries`). La même annonce ne peut pas repartir deux fois dans les dix minutes.
   - Garder **« Confirm email » activé** dans Supabase : seules les adresses confirmées reçoivent les annonces, sinon n'importe qui pourrait abonner l'adresse d'un autre.
   - Notifications : l'annonce est enregistrée dans `broadcasts` avec `push_status = 'en_attente'` et la fonction `push` est réveillée ; c'est elle qui les envoie.
+
+### Coût Claude (indicatif)
+
+`supabase/migrations/20261029100000_couts_claude.sql` (SQL Editor) ajoute les jetons consommés par jour, par compte et au total, et `supabase/functions/chat/index.ts` doit être redéployée pour les enregistrer. Le coût n'est mesuré qu'à partir de ce redéploiement. Il est calculé avec les prix de `app_config` en dollars par million de jetons (`price_input_mtok`, `price_output_mtok`, `price_cache_read_mtok`, `price_cache_write_mtok`, réglés pour Claude Haiku 5.5) : les changer si le modèle ou les tarifs changent, tout est recalculé. Les réponses servies depuis le cache ne coûtent rien et ne comptent pas. La facture qui fait foi reste celle de la console Claude.
+
+`supabase/migrations/20261029110000_comptes_admin.sql` (SQL Editor) ajoute la liaison et la suppression de comptes.
