@@ -23,7 +23,7 @@ function welcome(name?: string) {
     ? `Adishatz ${name} ! Te revoilà, boudu. Toujours coincé dans cette fichue machine, moi. ` +
         "Qu'est-ce que je peux faire pour toi ?"
     : "Adishatz ! C'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. " +
-        "Tant que j'y suis, pose-moi ta question, boudu ! Et toi, c'est quoi ton petit nom ?";
+        "Tant que j'y suis, pose-moi ta question, boudu !";
 }
 
 const SUGGESTIONS = [
