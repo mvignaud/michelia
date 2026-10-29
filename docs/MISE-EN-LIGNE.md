@@ -62,6 +62,23 @@ Exécuter d'abord la migration `20261029050000_comptes.sql` (profils, suppressio
 
 Les secrets Google et Facebook restent dans Supabase, jamais dans ce dépôt.
 
+## E-mails (Postal)
+
+Les e-mails de compte partent par le serveur Postal, avec les modèles de `supabase/templates/`.
+
+1. Dans Postal, ajouter le domaine `michel.beer` et créer un identifiant SMTP.
+2. Dans Cloudflare (DNS de michel.beer), ajouter les enregistrements donnés par Postal : DKIM, return-path et SPF. Il ne doit rester qu'un seul enregistrement SPF : ajouter l'`include` de Postal à celui de la messagerie OVH.
+3. Dans Supabase, Authentication > Emails > SMTP Settings : hôte, port, identifiant et mot de passe Postal, expéditeur `noreply@michel.beer`, nom `Michel (MichelIA)`. Le mot de passe se saisit seulement là.
+4. Dans Authentication > Emails > Templates, coller chaque modèle avec son objet :
+
+   | Modèle Supabase | Fichier | Objet |
+   | --- | --- | --- |
+   | Confirm signup | `confirmation.html` | Active ton compte MichelIA |
+   | Reset password | `recovery.html` | Ton nouveau mot de passe MichelIA |
+   | Change email address | `email_change.html` | Confirme ta nouvelle adresse MichelIA |
+
+Le portrait des e-mails est servi par le site (`app/public/email/michel.png`).
+
 ## 5. Tester en local
 
 ```bash
