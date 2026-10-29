@@ -17,9 +17,11 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AccountScreen, type AccountMode } from './src/AccountScreen';
 import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
+import { ANALYTICS_ENABLED } from './src/analytics';
+import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
-import { loadMemory, saveMemory } from './src/memory';
+import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
 import { RichText } from './src/RichText';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
@@ -62,6 +64,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountMode | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
+  const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
 
   useEffect(() => {
@@ -69,6 +72,11 @@ export default function App() {
     const { data } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
       if (event === 'PASSWORD_RECOVERY') setAccount('reset');
+      // Déconnexion : la conversation reste sur le compte, on l'efface de l'appareil.
+      if (event === 'SIGNED_OUT') {
+        setBubbles([]);
+        setName(undefined);
+      }
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         // Hors du rappel de Supabase, pour ne pas le bloquer pendant la lecture du stockage.
         setTimeout(() => {
@@ -99,6 +107,29 @@ export default function App() {
     });
   }, []);
 
+  // Membre : on reprend la conversation gardée sur le compte. S'il n'y en a pas encore,
+  // celle de l'appareil y sera envoyée à la prochaine sauvegarde.
+  const [syncedFor, setSyncedFor] = useState<string>();
+  useEffect(() => {
+    setSyncedFor(undefined);
+    if (!memberId || !loaded) return;
+    let cancelled = false;
+    loadAccountMemory(memberId).then((remote) => {
+      if (cancelled) return;
+      if (remote?.messages.length) {
+        setBubbles((current) => [
+          ...remote.messages.map((m) => ({ ...m, id: newId() })),
+          ...current.filter((b) => b.local),
+        ]);
+      }
+      if (remote?.name) setName((current) => current ?? remote.name);
+      setSyncedFor(memberId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [memberId, loaded]);
+
   // On sauvegarde une fois la réponse terminée, sans les échanges en échec.
   useEffect(() => {
     if (!loaded || busy) return;
@@ -107,7 +138,8 @@ export default function App() {
       .filter((b, i, all) => !b.failed && !all[i + 1]?.failed)
       .map(({ role, content }) => ({ role, content }));
     saveMemory({ name, messages });
-  }, [bubbles, name, busy, loaded]);
+    if (memberId && syncedFor === memberId) saveAccountMemory(memberId, { name, messages });
+  }, [bubbles, name, busy, loaded, memberId, syncedFor]);
 
   async function send(input = draft) {
     const text = input.trim();
@@ -290,6 +322,14 @@ export default function App() {
                   </Text>
                 </Text>
               ))}
+              {ANALYTICS_ENABLED && (
+                <Text style={styles.legalText}>
+                  {' · '}
+                  <Text style={styles.legalLink} onPress={() => cookiesRef.current?.reopen()} accessibilityRole="link">
+                    Cookies
+                  </Text>
+                </Text>
+              )}
             </View>
           </SafeAreaView>
         </KeyboardAvoidingView>
@@ -302,6 +342,7 @@ export default function App() {
           />
         )}
         <CaptchaHost />
+        <CookieBanner ref={cookiesRef} />
       </SafeAreaView>
     </SafeAreaProvider>
   );
