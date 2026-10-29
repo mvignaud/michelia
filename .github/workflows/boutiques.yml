@@ -1,0 +1,42 @@
+# Produits du comptoir dans les boutiques (App Store, Google Play, RevenueCat) : app/scripts/boutiques.mjs.
+# Se lance à la main : GitHub > Actions > « Boutiques » > Run workflow. Par défaut, un essai qui ne change rien.
+# Secrets du dépôt : ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, PLAY_SERVICE_ACCOUNT_JSON, REVENUECAT_API_KEY
+# (une boutique sans sa clé est simplement ignorée).
+name: Boutiques
+
+on:
+  workflow_dispatch:
+    inputs:
+      appliquer:
+        description: Appliquer pour de vrai (sinon essai)
+        type: boolean
+        default: false
+      seulement:
+        description: "Boutiques (apple,google,revenuecat), vide = toutes"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  boutiques:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Produits
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
+          APPLIQUER: ${{ inputs.appliquer && '--appliquer' || '' }}
+          SEULEMENT: ${{ inputs.seulement }}
+        run: node scripts/boutiques.mjs $APPLIQUER ${SEULEMENT:+--seulement "$SEULEMENT"}
