@@ -6,6 +6,9 @@ export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 // Séparateur placé par la fonction avant ses informations de fin de réponse (le prénom retenu).
 const TRAILER = '\u001e';
 
+// Sans nouvelles de la fonction pendant ce temps, on coupe et on affiche une erreur.
+const SILENCE_MS = 60_000;
+
 // Envoie l'historique à la fonction « chat » et transmet la réponse au fil de l'eau.
 // Renvoie le prénom si la personne vient de le donner à Michel.
 export async function askMichel(
@@ -15,6 +18,32 @@ export async function askMichel(
   signal?: AbortSignal,
 ): Promise<{ name?: string }> {
   const token = await getAccessToken();
+  const controller = new AbortController();
+  signal?.addEventListener('abort', () => controller.abort());
+  let silence: ReturnType<typeof setTimeout> | undefined;
+  const wait = () => {
+    clearTimeout(silence);
+    silence = setTimeout(() => controller.abort(), SILENCE_MS);
+  };
+  wait();
+  try {
+    return await read(token, messages, name, onText, controller.signal, wait);
+  } catch (e) {
+    if (controller.signal.aborted && !signal?.aborted) throw new Error('Michel s’est endormi sur sa chaise. Réessaie, con.');
+    throw e;
+  } finally {
+    clearTimeout(silence);
+  }
+}
+
+async function read(
+  token: string,
+  messages: ChatMessage[],
+  name: string | undefined,
+  onText: (chunk: string) => void,
+  signal: AbortSignal,
+  alive: () => void,
+): Promise<{ name?: string }> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
     method: 'POST',
     headers: {
@@ -37,6 +66,7 @@ export async function askMichel(
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    alive();
     const chunk = decoder.decode(value, { stream: true });
     if (trailer !== null) {
       trailer += chunk;

@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, StyleSheet, Text, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { colors } from './theme';
 
 // Sur iOS et Android, le captcha Turnstile tourne dans une petite page de michel.beer
-// (le domaine déclaré chez Cloudflare), affichée dans une vue web seulement si Cloudflare a un doute.
+// (le domaine déclaré chez Cloudflare), affichée dans une petite carte le temps de la vérification.
+// La carte reste visible : sur iOS, une vue web transparente peut être mise en pause et ne jamais répondre.
 const SITE_KEY = process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 const PAGE = `https://michel.beer/captcha?k=${encodeURIComponent(SITE_KEY)}`;
+
+// Au-delà, on abandonne plutôt que de laisser Michel chercher ses lunettes pour toujours.
+const TIMEOUT_MS = 30_000;
 
 type Pending = { resolve: (token: string) => void; reject: (error: Error) => void };
 
@@ -21,7 +25,8 @@ export async function getCaptchaToken(): Promise<string | undefined> {
 // À placer une fois dans l'écran principal : c'est lui qui affiche la vérification.
 export function CaptchaHost() {
   const [pending, setPending] = useState<Pending | null>(null);
-  const [visible, setVisible] = useState(false);
+  const [challenge, setChallenge] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     request = (next) => setPending(next);
@@ -30,33 +35,48 @@ export function CaptchaHost() {
     };
   }, []);
 
+  // Le délai ne court que tant que Cloudflare ne demande rien : une vraie case à cocher laisse le temps.
+  useEffect(() => {
+    if (!pending || challenge) return;
+    timer.current = setTimeout(() => finish(), TIMEOUT_MS);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [pending, challenge]);
+
   function finish(token?: string) {
     if (!pending) return;
     if (token) pending.resolve(token);
     else pending.reject(new Error('Vérification anti-robot échouée, réessaie.'));
     setPending(null);
-    setVisible(false);
+    setChallenge(false);
   }
 
   function onMessage(event: WebViewMessageEvent) {
     const data = event.nativeEvent.data;
     if (data.startsWith('token:')) finish(data.slice('token:'.length));
-    else if (data === 'show') setVisible(true);
+    else if (data === 'show') setChallenge(true);
     else finish();
   }
 
   if (!pending) return null;
   return (
     <Modal transparent animationType="fade" onRequestClose={() => finish()}>
-      <View style={[styles.backdrop, !visible && styles.hidden]}>
+      <View style={styles.backdrop}>
         <View style={styles.card}>
-          <WebView
-            source={{ uri: PAGE }}
-            onMessage={onMessage}
-            onError={() => finish()}
-            style={styles.web}
-            originWhitelist={['https://*']}
-          />
+          <Text style={styles.caption}>
+            {challenge ? 'Coche la case, que je sache que t’es pas un robot.' : 'Michel vérifie que t’es pas un robot…'}
+          </Text>
+          <View style={styles.frame}>
+            <WebView
+              source={{ uri: PAGE }}
+              onMessage={onMessage}
+              onError={() => finish()}
+              onHttpError={() => finish()}
+              style={styles.web}
+              originWhitelist={['https://*']}
+            />
+          </View>
         </View>
       </View>
     </Modal>
@@ -70,7 +90,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(43, 36, 32, 0.35)',
   },
-  hidden: { opacity: 0 },
-  card: { width: 320, height: 90, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.surface },
+  card: { width: 320, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.surface, paddingTop: 14 },
+  caption: { color: colors.secondary, fontSize: 15, textAlign: 'center', paddingHorizontal: 16 },
+  frame: { height: 80 },
   web: { flex: 1, backgroundColor: colors.surface },
 });
