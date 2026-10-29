@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import { getCaptchaToken } from './captcha';
 
 // Valeurs publiques (URL et clé publique du projet), fournies au build via .env.
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -16,10 +17,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 // Chaque visiteur reçoit un compte anonyme : c'est lui qui porte le quota du jour.
+// Sur le web, sa création passe par le captcha Turnstile (si la clé de site est configurée).
 export async function getAccessToken(): Promise<string> {
   const { data } = await supabase.auth.getSession();
   if (data.session) return data.session.access_token;
-  const { data: created, error } = await supabase.auth.signInAnonymously();
+  const captchaToken = await getCaptchaToken();
+  const { data: created, error } = await supabase.auth.signInAnonymously({
+    options: { captchaToken },
+  });
   if (error || !created.session) throw error ?? new Error('Connexion impossible');
   return created.session.access_token;
 }
