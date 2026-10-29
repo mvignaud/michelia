@@ -29,7 +29,7 @@
       "bundler": "metro",
       "output": "single",
       "name": "MichelIA",
-      "themeColor": "#7A2E1D"
+      "lang": "fr"
     },
     "scheme": "michelia",
     "plugins": [
