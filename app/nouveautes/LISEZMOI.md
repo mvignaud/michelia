@@ -1,6 +1,6 @@
 # Nouveautés de Michel
 
-Chaque évolution visible par les gens ajoute **un fichier** ici, dans la même PR que le code. Ces fichiers font la page publique [michel.beer/nouveautes](https://michel.beer/nouveautes) (générée par `npm run build:web`) et les notes des stores (`npm run notes-stores -- <build>`).
+Chaque évolution visible par les gens ajoute **un fichier** ici, dans la même PR que le code. Ces fichiers font la page publique [michel.beer/confit-de-canard](https://michel.beer/confit-de-canard) (générée par `npm run build:web`) et les notes des stores (`npm run notes-stores -- <build>`).
 
 Un fichier par évolution, jamais un gros fichier commun : les PR menées en parallèle ne se marchent pas dessus.
 

@@ -47,7 +47,7 @@ function welcome(name?: string) {
 // Sur le web les pages légales et les nouveautés sont servies par le même site ; dans les applis, par michel.beer.
 const SITE = Platform.OS === 'web' ? '' : 'https://michel.beer';
 const LEGAL_LINKS = [
-  { label: 'Nouveautés', path: '/nouveautes' },
+  { label: 'Nouveautés', path: '/confit-de-canard' },
   { label: 'Mentions légales', path: '/mentions-legales.html' },
   { label: 'Confidentialité', path: '/confidentialite.html' },
   { label: 'Conditions', path: '/conditions.html' },

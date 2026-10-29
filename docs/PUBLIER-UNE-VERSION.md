@@ -1,6 +1,6 @@
 # Publier une version des applis
 
-Le site se met à jour tout seul à chaque fusion (Cloudflare Pages), page [michel.beer/nouveautes](https://michel.beer/nouveautes) comprise. Les applis, elles, demandent un nouveau build : pas d'`expo-updates`, chaque correctif d'appli passe par EAS puis par les stores.
+Le site se met à jour tout seul à chaque fusion (Cloudflare Pages), page [michel.beer/confit-de-canard](https://michel.beer/confit-de-canard) comprise. Les applis, elles, demandent un nouveau build : pas d'`expo-updates`, chaque correctif d'appli passe par EAS puis par les stores.
 
 ## 1. Préparer les notes (Claude ou à la main)
 

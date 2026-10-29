@@ -1,4 +1,4 @@
-// Génère la page https://michel.beer/nouveautes à partir de app/nouveautes/*.md.
+// Génère la page https://michel.beer/confit-de-canard (et /nouveautes, redirigée) à partir de app/nouveautes/*.md.
 // Lancé après « expo export » par npm run build:web : node scripts/nouveautes.mjs [dossier de sortie, dist par défaut]
 // Sans dossier de sortie existant (vérification seule) : node scripts/nouveautes.mjs --verifier
 import fs from 'node:fs';
@@ -76,12 +76,12 @@ function page(entrees) {
 <main>
 <h1>Les nouveautés de Michel</h1>
 <p class="maj">Dernière mise à jour : ${entrees.length ? dateLongue(entrees[0].date) : '—'}</p>
-<p class="michel">« On m'a demandé de tenir le carnet de ce qui change chez moi. Comme si j'avais que ça à faire, con. Bon, c'est noté là, le plus récent en haut. »</p>
+<p class="michel">« On m'a demandé de tenir le carnet de ce qui change chez moi. Comme si j'avais que ça à faire, con. Bon, c'est noté là, le plus récent en haut. Et pourquoi « confit de canard » ? Parce que ça se garde longtemps et que ça s'améliore avec le temps, comme moi. »</p>
 ${parJour
   .map((j) => `<h3 class="jour">${dateLongue(j.date)}</h3>\n${j.entrees.map(carte).join('\n')}`)
   .join('\n')}
 </main>
-<footer><a href="/nouveautes">Nouveautés</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>
+<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>
 </body>
 </html>
 `;
@@ -95,9 +95,9 @@ if (arg === '--verifier') {
 } else {
   const sortie = path.resolve(arg ?? 'dist');
   if (!fs.existsSync(sortie)) throw new Error(`Dossier de sortie absent : ${sortie} (lancer expo export d'abord)`);
-  fs.writeFileSync(path.join(sortie, 'nouveautes.html'), page(entrees));
+  fs.writeFileSync(path.join(sortie, 'confit-de-canard.html'), page(entrees));
   // Même contenu en JSON, pour un futur écran « Quoi de neuf » dans l'appli.
   const json = entrees.map(({ fichier, nom, corps, ...e }) => ({ ...e, texte: corps }));
   fs.writeFileSync(path.join(sortie, 'nouveautes.json'), JSON.stringify(json, null, 1));
-  console.log(`Nouveautés : ${entrees.length} entrées → ${path.join(sortie, 'nouveautes.html')}`);
+  console.log(`Nouveautés : ${entrees.length} entrées → ${path.join(sortie, 'confit-de-canard.html')}`);
 }
