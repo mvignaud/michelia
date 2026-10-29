@@ -48,6 +48,11 @@
       ],
       "expo-web-browser",
       "expo-apple-authentication"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "071f33b5-c576-4db2-bc57-cdf39a04e048"
+      }
+    }
   }
 }
