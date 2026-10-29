@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { askMichel, type ChatMessage } from './src/chat';
+import { RichText } from './src/RichText';
 import { colors, serif } from './src/theme';
 
 const WELCOME =
@@ -157,12 +158,10 @@ export default function App() {
                   item.failed && styles.failed,
                 ]}
               >
-                {item.content ? (
-                  <Text
-                    style={item.role === 'user' || item.failed ? styles.userText : styles.michelText}
-                  >
-                    {item.content}
-                  </Text>
+                {item.role === 'user' || item.failed ? (
+                  <Text style={styles.userText}>{item.content}</Text>
+                ) : item.content ? (
+                  <RichText text={item.content} style={styles.michelText} />
                 ) : (
                   <Text style={styles.thinking}>Michel cherche ses lunettes…</Text>
                 )}
@@ -183,6 +182,14 @@ export default function App() {
                 maxLength={2000}
                 onSubmitEditing={() => send()}
                 submitBehavior="submit"
+                onKeyPress={(e) => {
+                  // Sur le web, Entrée envoie et Maj+Entrée passe à la ligne.
+                  const { key, shiftKey } = e.nativeEvent as { key: string; shiftKey?: boolean };
+                  if (Platform.OS === 'web' && key === 'Enter' && !shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
                 editable={!busy}
               />
               <Pressable
