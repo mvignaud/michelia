@@ -130,3 +130,35 @@ Le site s'installe sur l'écran d'accueil (Android, iPhone, ordinateur) et s'ouv
 - Icônes et écrans de démarrage : `python3 assets/brand/pwa.py` depuis `app/` après un changement de logo.
 - `app/public/_headers` : Cloudflare ne garde jamais `sw.js` en cache, sinon les mises à jour traînent.
 - Après une grosse refonte du cache, changer `VERSION` dans `sw.js` pour vider l'ancien.
+
+## Back-office
+
+Statistiques, membres et leurs usages, export des comptes et annonces. Il s'ouvre dans l'appli : **Compte > Back-office**, visible seulement pour les administrateurs.
+
+1. **SQL Editor** : exécuter `supabase/migrations/20261029080000_back_office.sql` **avant** de fusionner le code de l'appli (rejouable sans risque).
+2. Se déclarer administrateur, avec l'e-mail de son compte MichelIA :
+
+   ```sql
+   insert into public.admins (user_id)
+   select id from auth.users where email = 'ton-adresse@exemple.fr'
+   on conflict do nothing;
+   ```
+
+   Pour retirer quelqu'un : `delete from public.admins where user_id = '…';`.
+3. **Edge Functions > Deploy a new function** : nom `annonces`, coller `supabase/functions/annonces/index.ts`, puis dans ses réglages **décocher « Enforce JWT verification »** (le désabonnement en un clic des messageries arrive sans connexion ; le droit d'administrateur est vérifié dans la fonction).
+4. **Postal** (serveur de michel.beer) : **Credentials > Add** de type **API**, puis dans Supabase **Edge Functions > Secrets** :
+   - `POSTAL_API_URL` : adresse de l'interface Postal (celle où l'on se connecte, sans `/api`) ;
+   - `POSTAL_API_KEY` : la clé de l'identifiant API ;
+   - `UNSUBSCRIBE_SECRET` : une longue chaîne au hasard (`openssl rand -hex 32`), qui signe les liens de désabonnement. Ne plus la changer ensuite, sinon les anciens liens ne marchent plus ;
+   - facultatif : `MAIL_FROM` (par défaut `Michel (MichelIA) <noreply@michel.beer>`) et `SITE_URL` (par défaut `https://michel.beer`).
+
+Ce que fait chaque onglet :
+
+- **Tableau de bord** : membres, visiteurs sans compte, questions et visiteurs actifs (jour, 7 et 30 jours), inscriptions, moyens de connexion, âges, cache. Les compteurs de questions ne remontent qu'à 90 jours (purge annoncée dans la politique de confidentialité).
+- **Membres** : recherche (e-mail, numéro, nom), tri par inscription, activité ou dernier passage, visiteurs anonymes en option (pour repérer un robot). Un clic sur un membre montre son détail et ses questions par jour. **Exporter** télécharge un CSV (séparateur `;`, ouvrable dans Excel) ; chaque export est noté dans `admin_audit`.
+- **Annonce** : e-mail et/ou notification.
+  - « Nouvelles » : seulement les membres qui ont coché « Recevoir les nouvelles de Michel » (à l'inscription ou dans Compte). Chaque e-mail porte un lien de désabonnement et l'en-tête de désabonnement en un clic (Gmail, Apple Mail).
+  - « Information de service » : tous les membres, réservé aux messages sur le service lui-même (conditions, panne, fermeture), jamais de promotion.
+  - Toujours faire **M'envoyer un test** avant. `{prenom}` est remplacé par le prénom du membre.
+  - Les e-mails partent en tâche de fond (8 à la fois) ; l'historique montre l'avancement. Une fonction Edge s'arrête au bout de quelques minutes : au-delà de quelques milliers de destinataires, prévoir un envoi par lots.
+  - Notifications : l'annonce est enregistrée dans `broadcasts` avec `push_status = 'en_attente'` et la fonction `push` est réveillée ; c'est elle qui les envoie.

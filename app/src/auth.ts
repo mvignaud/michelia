@@ -5,7 +5,7 @@ import type { Session, UserIdentity } from '@supabase/supabase-js';
 import { getCaptchaToken } from './captcha';
 import { supabase } from './supabase';
 
-export type Profile = { firstName?: string; lastName?: string; birthYear?: number };
+export type Profile = { firstName?: string; lastName?: string; birthYear?: number; newsOptIn?: boolean };
 
 // Adresse où reviennent les liens des e-mails et les connexions Google / Facebook.
 const SITE = Platform.OS === 'web' ? window.location.origin : 'https://michel.beer';
@@ -52,6 +52,7 @@ export async function signUpWithEmail(input: {
   age: number;
   email: string;
   password: string;
+  newsOptIn: boolean;
 }) {
   const captchaToken = await getCaptchaToken();
   const { data, error } = await supabase.auth.signUp({
@@ -64,6 +65,7 @@ export async function signUpWithEmail(input: {
         first_name: input.firstName.trim(),
         last_name: input.lastName.trim(),
         birth_year: birthYearFromAge(input.age),
+        news_opt_in: input.newsOptIn,
       },
     },
   });
@@ -258,16 +260,25 @@ export async function setNewPassword(password: string) {
 }
 
 export async function loadProfile(userId: string): Promise<Profile> {
-  const { data } = await supabase
-    .from('profiles')
-    .select('first_name, last_name, birth_year')
-    .eq('id', userId)
-    .maybeSingle();
+  const columns = 'first_name, last_name, birth_year';
+  const query = (select: string) => supabase.from('profiles').select(select).eq('id', userId).maybeSingle();
+  // Sans la migration du back-office, la colonne news_opt_in n'existe pas encore : on s'en passe.
+  let { data, error } = await query(`${columns}, news_opt_in`);
+  if (error) ({ data } = await query(columns));
+  const row = data as { first_name?: string; last_name?: string; birth_year?: number; news_opt_in?: boolean } | null;
   return {
-    firstName: data?.first_name ?? undefined,
-    lastName: data?.last_name ?? undefined,
-    birthYear: data?.birth_year ?? undefined,
+    firstName: row?.first_name ?? undefined,
+    lastName: row?.last_name ?? undefined,
+    birthYear: row?.birth_year ?? undefined,
+    newsOptIn: row?.news_opt_in ?? false,
   };
+}
+
+// Nouvelles de Michel : enregistré tout de suite, la base note la date du consentement.
+export async function setNewsOptIn(userId: string, value: boolean) {
+  const { error } = await supabase.from('profiles').update({ news_opt_in: value }).eq('id', userId);
+  const failure = explain(error);
+  if (failure) throw failure;
 }
 
 export async function saveProfile(userId: string, profile: Profile) {

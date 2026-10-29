@@ -15,6 +15,8 @@ import {
 import type { Session } from '@supabase/supabase-js';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AccountScreen, type AccountMode } from './src/AccountScreen';
+import { AdminScreen } from './src/AdminScreen';
+import { unsubscribeFromNews } from './src/admin';
 import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
@@ -69,6 +71,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountMode | null>(null);
+  const [admin, setAdmin] = useState(false);
   const listRef = useRef<FlatList<Bubble>>(null);
   const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
@@ -110,6 +113,21 @@ export default function App() {
       if (!profile.birthYear) setAccount((current) => current ?? 'profile');
     });
   }, [memberId]);
+
+  // Lien « Ne plus recevoir les nouvelles » des e-mails : michel.beer/?desabonnement=…
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get('desabonnement');
+    if (!token) return;
+    url.searchParams.delete('desabonnement');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    const say = (content: string) =>
+      setBubbles((all) => [...all, { id: newId(), role: 'assistant', content, local: true }]);
+    unsubscribeFromNews(token)
+      .then(() => say("C'est noté, plus de nouvelles de Michel dans ta boîte aux lettres. Mais tu peux toujours venir causer, hè !"))
+      .catch(() => say('Boudu, ce lien de désabonnement ne marche pas. Coupe les nouvelles dans « Compte », ou écris à contact@michel.beer.'));
+  }, []);
 
   useEffect(() => {
     loadMemory().then((memory) => {
@@ -357,8 +375,13 @@ export default function App() {
             initialMode={account}
             onClose={() => setAccount(null)}
             onProfile={(profile) => profile.firstName && setName(profile.firstName)}
+            onAdmin={() => {
+              setAccount(null);
+              setAdmin(true);
+            }}
           />
         )}
+        {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
         <CaptchaHost />
         <CookieBanner ref={cookiesRef} />
       </SafeAreaView>

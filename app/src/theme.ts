@@ -23,3 +23,10 @@ export const serif = Platform.select({
   android: 'serif',
   default: 'ui-serif, "New York", Georgia, serif',
 });
+
+// Interrupteurs aux couleurs de Michel (sur le web, la pastille active serait verte sinon).
+export const SWITCH_COLORS = {
+  trackColor: { true: colors.accent, false: colors.disabled },
+  thumbColor: colors.surface,
+  activeThumbColor: colors.surface,
+} as const;
