@@ -1,6 +1,7 @@
 // Génère la page https://michel.beer/confit-de-canard (et /nouveautes, redirigée) à partir de app/nouveautes/*.md.
 // Lancé après « expo export » par npm run build:web : node scripts/nouveautes.mjs [dossier de sortie, dist par défaut]
 // Sans dossier de sortie existant (vérification seule) : node scripts/nouveautes.mjs --verifier
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dateLongue, enLigne, lireNouveautes, PIED, TETE, PLATEFORMES, TYPES, versHtml } from './nouveautes-lib.mjs';
@@ -18,14 +19,22 @@ function carte(e) {
     .map((n) => `<a href="https://github.com/mvignaud/michelia/pull/${n}">#${n}</a>`)
     .join(', ');
   return `<section class="nouveaute">
-<p class="etiquettes"><span class="type type-${e.type}">${TYPES[e.type]}</span>${e.plateformes
+<p class="etiquettes"><span class="type type-${e.type}">${TYPES[e.type]}</span> ${e.plateformes
     .map((p) => `<span class="plateforme">${PLATEFORMES[p]}</span>`)
-    .join('')}</p>
+    .join(' ')}</p>
 <h2>${enLigne(e.titre)}</h2>
 ${versHtml(e.corps)}
 <p class="dispo">${disponibilite(e)}${prs ? ` · ${prs}` : ''}</p>
 </section>`;
 }
+
+// La feuille de style change avec la page : son empreinte dans l'adresse évite qu'un navigateur
+// ou le service worker serve l'ancienne version, sans les étiquettes.
+const CSS_VERSION = crypto
+  .createHash('sha256')
+  .update(fs.readFileSync(new URL('../public/legal.css', import.meta.url)))
+  .digest('hex')
+  .slice(0, 8);
 
 function page(entrees) {
   const parJour = [];
@@ -41,7 +50,7 @@ function page(entrees) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nouveautés · MichelIA</title>
 <meta name="description" content="Ce qui change chez Michel, le papi du Gers coincé dans la machine : nouveautés du site et des applis MichelIA.">
-<link rel="stylesheet" href="/legal.css">
+<link rel="stylesheet" href="/legal.css?v=${CSS_VERSION}">
 </head>
 <body>
 ${TETE}
