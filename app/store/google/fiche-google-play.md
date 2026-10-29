@@ -15,7 +15,7 @@ Play Console > MichelIA > **Développer l'audience > Présence sur le Play Store
 MichelIA
 
 **Description courte** (80 car. max)
-Michel, papi gersois coincé dans la machine, répond à tout. Gratuit, sans pub.
+Michel, papi gersois coincé dans l'ordi, répond à tout. Gratuit, sans pub.
 
 **Description complète** (4000 car. max)
 Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, boudu !
