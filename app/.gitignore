@@ -42,3 +42,7 @@ yarn-error.*
 
 # variables locales (même publiques, on ne les versionne pas)
 .env
+
+# Générateur du logo (police téléchargée, sorties temporaires)
+assets/brand/fonts/
+assets/brand/out/
