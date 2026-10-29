@@ -84,10 +84,11 @@ async function apple() {
   const { ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 } = process.env;
   if (!ASC_KEY_ID || !ASC_ISSUER_ID || !ASC_KEY_P8) return dire('Apple : clés absentes, ignoré.');
   dire('Apple (App Store Connect)');
+  // Apple refuse un jeton qui vit plus de 20 min : on garde de la marge (horloges, espaces collés en trop).
   const now = Math.floor(Date.now() / 1000);
   const token = jwt(
-    { alg: 'ES256', kid: ASC_KEY_ID, typ: 'JWT' },
-    { iss: ASC_ISSUER_ID, iat: now, exp: now + 1200, aud: 'appstoreconnect-v1' },
+    { alg: 'ES256', kid: ASC_KEY_ID.trim(), typ: 'JWT' },
+    { iss: ASC_ISSUER_ID.trim(), iat: now - 60, exp: now + 600, aud: 'appstoreconnect-v1' },
     ASC_KEY_P8,
     'ES256',
   );
