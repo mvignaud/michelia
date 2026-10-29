@@ -10,7 +10,7 @@ Pourboires **sur le web uniquement** (michel.beer/comptoir), avec **Stripe Embed
    - `STRIPE_SECRET_KEY` : de préférence une clé restreinte `rk_live_…` (Stripe > Développeurs > Clés API > clé restreinte) avec la seule permission « Checkout Sessions : écriture ».
    - `STRIPE_WEBHOOK_SECRET` : le secret de signature `whsec_…` de l'étape 4.
    - Rien de tout ça dans le dépôt. `ALLOWED_ORIGINS` et `SITE_URL` sont déjà utilisés par les autres fonctions (`https://michel.beer`).
-4. **Stripe > Développeurs > Webhooks** : endpoint `https://nuulykhqaeecqerfwdsn.supabase.co/functions/v1/stripe-webhook`, événement `checkout.session.completed` (inchangé).
+4. **Stripe > Développeurs > Webhooks** : endpoint `https://nuulykhqaeecqerfwdsn.supabase.co/functions/v1/stripe-webhook`, événements `checkout.session.completed` et `checkout.session.async_payment_succeeded` (le second pour les paiements différés, comme le prélèvement SEPA).
 5. **Clé publiable** (`pk_live_…`, publique par nature) dans `app_config` :
    ```sql
    update public.app_config set value = 'pk_live_…' where key = 'stripe_cle_publique';

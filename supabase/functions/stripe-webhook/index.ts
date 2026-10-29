@@ -1,5 +1,6 @@
 // Fonction « stripe-webhook » : enregistre les pourboires du comptoir (voir docs/COMPTOIR.md).
-// Stripe appelle cette adresse à chaque paiement (événement checkout.session.completed).
+// Stripe appelle cette adresse à chaque paiement (checkout.session.completed, et
+// checkout.session.async_payment_succeeded pour un paiement différé comme le prélèvement SEPA).
 // La signature Stripe-Signature est vérifiée avec STRIPE_WEBHOOK_SECRET, sans SDK Stripe :
 // HMAC-SHA256 de « {t}.{corps brut} », comparé en temps constant, à 5 minutes près.
 // L'enregistrement est idempotent (une ligne par session de paiement) : Stripe peut rappeler.
@@ -96,7 +97,8 @@ Deno.serve(async (req) => {
   }
 
   // Les autres événements sont accusés réception sans rien faire.
-  if (event.type !== "checkout.session.completed") return reply(200, "ok");
+  const handled = ["checkout.session.completed", "checkout.session.async_payment_succeeded"];
+  if (!handled.includes(event.type)) return reply(200, "ok");
   const session = event.data?.object;
   if (!session?.id || session.payment_status !== "paid") return reply(200, "ok");
 
