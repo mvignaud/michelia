@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -23,6 +24,7 @@ import {
   sendPasswordReset,
   sendPhoneCode,
   setNewPassword,
+  setNewsOptIn,
   signInWithApple,
   signInWithEmail,
   signInWithProvider,
@@ -31,9 +33,10 @@ import {
   verifyPhoneCode,
   type Profile,
 } from './auth';
+import { isAdmin } from './admin';
 import { LinkedAccounts } from './LinkedAccounts';
 import { COUNTRIES, PhoneField, fullPhone } from './PhoneField';
-import { colors, serif } from './theme';
+import { SWITCH_COLORS, colors, serif } from './theme';
 
 export type AccountMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'profile' | 'phone';
 
@@ -42,11 +45,12 @@ type Props = {
   initialMode: AccountMode;
   onClose: () => void;
   onProfile: (profile: Profile) => void;
+  onAdmin?: () => void;
 };
 
 const MIN_AGE = 18;
 
-export function AccountScreen({ session, initialMode, onClose, onProfile }: Props) {
+export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmin }: Props) {
   const member = isMember(session);
   const [mode, setMode] = useState<AccountMode>(member && initialMode !== 'reset' ? 'profile' : initialMode);
   const [firstName, setFirstName] = useState('');
@@ -64,6 +68,8 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
   const [notice, setNotice] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [apple, setApple] = useState(false);
+  const [news, setNews] = useState(false);
+  const [admin, setAdmin] = useState(false);
 
   useEffect(() => {
     appleSignInAvailable().then(setApple);
@@ -75,8 +81,13 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
       setFirstName(p.firstName ?? '');
       setLastName(p.lastName ?? '');
       setAge(String(ageFromBirthYear(p.birthYear) ?? ''));
+      setNews(!!p.newsOptIn);
     });
   }, [mode, session]);
+
+  useEffect(() => {
+    if (member) isAdmin().then(setAdmin);
+  }, [member]);
 
   function go(next: AccountMode) {
     setMode(next);
@@ -108,7 +119,14 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
     run(async () => {
       if (!firstName.trim()) throw new Error('Il me faut au moins ton prénom.');
       const years = checkAge();
-      const { needsConfirmation } = await signUpWithEmail({ firstName, lastName, age: years, email, password });
+      const { needsConfirmation } = await signUpWithEmail({
+        firstName,
+        lastName,
+        age: years,
+        email,
+        password,
+        newsOptIn: news,
+      });
       if (needsConfirmation) {
         setNotice(`C'est presque bon ! Clique sur le lien envoyé à ${email.trim()} pour activer ton compte.`);
       } else {
@@ -157,6 +175,20 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
       onProfile(profile);
       setNotice('Profil enregistré.');
     });
+
+  const toggleNews = (value: boolean) => {
+    setNews(value);
+    if (mode !== 'profile' || !session) return;
+    run(async () => {
+      try {
+        await setNewsOptIn(session.user.id, value);
+        setNotice(value ? 'Noté, Michel te donnera des nouvelles.' : "Noté, plus de nouvelles de Michel.");
+      } catch (e) {
+        setNews(!value);
+        throw e;
+      }
+    });
+  };
 
   const remove = () =>
     run(async () => {
@@ -272,6 +304,15 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
           )}
         </View>
 
+        {(mode === 'signup' || mode === 'profile') && (
+          <View style={styles.newsRow}>
+            <Text style={styles.newsText}>
+              Recevoir les nouvelles de Michel par e-mail, une ou deux fois par mois au plus. Désabonnement en un clic.
+            </Text>
+            <Switch value={news} onValueChange={toggleNews} disabled={busy} {...SWITCH_COLORS} />
+          </View>
+        )}
+
         {error && <Text style={styles.error}>{error}</Text>}
         {notice && <Text style={styles.notice}>{notice}</Text>}
 
@@ -317,6 +358,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
           )}
           {mode === 'profile' && (
             <>
+              {admin && onAdmin && <Link label="Back-office" onPress={onAdmin} />}
               <Link label="Se déconnecter" onPress={() => run(async () => { await signOut(); onClose(); })} />
               {confirmDelete ? (
                 <Link label="Confirmer : supprimer définitivement mon compte" danger onPress={remove} />
@@ -419,6 +461,8 @@ const styles = StyleSheet.create({
   label: { color: colors.secondary, fontSize: 12 },
   input: { color: colors.text, fontSize: 17, paddingVertical: 4 },
   email: { color: colors.secondary, fontSize: 13, paddingVertical: 10 },
+  newsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4 },
+  newsText: { flex: 1, color: colors.secondary, fontSize: 13, lineHeight: 18 },
   error: { color: colors.failed, fontSize: 14, textAlign: 'center' },
   notice: { color: colors.online, fontSize: 14, textAlign: 'center' },
   primary: {

@@ -9,3 +9,8 @@ verify_jwt = true
 # N'importe quel utilisateur peut déclencher l'envoi des annonces en attente ;
 # un envoi libre (titre et texte fournis) exige la clé service_role.
 verify_jwt = true
+
+[functions.annonces]
+# Annonces du back-office et désabonnement en un clic depuis les messageries :
+# le droit d'administrateur est vérifié dans la fonction elle-même.
+verify_jwt = false
