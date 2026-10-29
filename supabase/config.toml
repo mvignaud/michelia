@@ -29,3 +29,8 @@ verify_jwt = false
 # Appelée par Stripe, qui n'a pas de JWT Supabase : l'authenticité vient de la signature
 # Stripe-Signature, vérifiée dans la fonction avec STRIPE_WEBHOOK_SECRET.
 verify_jwt = false
+
+[functions.comptoir-paiement]
+# Les visiteurs du comptoir n'ont pas forcément de session : la fonction ne crée qu'une session de
+# paiement Stripe, au prix lu dans app_config (jamais fourni par le client), et vérifie l'origine.
+verify_jwt = false

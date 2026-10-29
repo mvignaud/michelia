@@ -1,14 +1,19 @@
+import { loadStripe, type StripeEmbeddedCheckout } from '@stripe/stripe-js';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { euros, loadComptoir, type Comptoir as Data } from './comptoir';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
+import { supabase } from './supabase';
 import { colors, serif } from './theme';
 
-// Page /comptoir (web seulement) : les pourboires, par Stripe Payment Links.
+// Page /comptoir (web seulement) : les pourboires, payés dans la page avec Stripe Embedded Checkout.
 export function Comptoir() {
   const [data, setData] = useState<Data>();
   const [failed, setFailed] = useState(false);
-  // Retour de Stripe : /comptoir?merci=<id du palier>.
-  const [thanks] = useState(() => new URLSearchParams(window.location.search).get('merci'));
+  // Palier en cours de paiement (le formulaire Stripe est monté dessous) et message d'erreur.
+  const [paying, setPaying] = useState<string | null>(null);
+  const [problem, setProblem] = useState(false);
+  // Merci à afficher : au retour de Stripe (/comptoir?merci=<id du palier>) ou à la fin du paiement intégré.
+  const [thanks, setThanks] = useState<string | null>(() => new URLSearchParams(window.location.search).get('merci'));
 
   useEffect(() => {
     loadComptoir()
@@ -16,9 +21,51 @@ export function Comptoir() {
       .catch(() => setFailed(true));
   }, []);
 
+  // Le formulaire de paiement : session créée par la fonction comptoir-paiement (prix lu côté serveur),
+  // puis montée dans le conteneur CHECKOUT_ID. Le nettoyage détruit le formulaire (Changer d'avis, merci).
+  const cle = data?.stripe_cle_publique;
+  useEffect(() => {
+    if (!paying || !cle) return;
+    let cancelled = false;
+    let checkout: StripeEmbeddedCheckout | undefined;
+    (async () => {
+      try {
+        const { data: session, error } = await supabase.functions.invoke('comptoir-paiement', { body: { palier: paying } });
+        const clientSecret = session?.clientSecret;
+        if (error || typeof clientSecret !== 'string') throw new Error('Session refusée');
+        const stripe = await loadStripe(cle);
+        if (!stripe || cancelled) return;
+        checkout = await stripe.createEmbeddedCheckoutPage({
+          fetchClientSecret: async () => clientSecret,
+          onComplete: () => {
+            setThanks(paying);
+            setPaying(null);
+            reloadComptoir().then(setData).catch(() => {});
+          },
+        });
+        if (cancelled) return checkout.destroy();
+        checkout.mount(`#${CHECKOUT_ID}`);
+      } catch {
+        if (!cancelled) {
+          setProblem(true);
+          setPaying(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      checkout?.destroy();
+    };
+  }, [paying, cle]);
+
+  const choose = (id: string) => {
+    setProblem(false);
+    setThanks(null);
+    setPaying(id);
+  };
+
   const merci = data?.paliers.find((p) => p.id === thanks)?.merci;
-  const paliers = data?.paliers.filter((p) => p.url) ?? [];
-  const open = (url: string) => Linking.openURL(url);
+  const paliers = data?.paliers ?? [];
 
   return (
     <View style={styles.screen}>
@@ -63,14 +110,36 @@ export function Comptoir() {
                 {paliers.map((p) => (
                   <Pressable
                     key={p.id}
-                    onPress={() => open(p.url)}
-                    style={({ pressed }) => [styles.palier, pressed && styles.pressed]}
-                    accessibilityRole="link"
+                    onPress={() => choose(p.id)}
+                    disabled={paying !== null}
+                    style={({ pressed }) => [
+                      styles.palier,
+                      paying !== null && paying !== p.id && styles.dimmed,
+                      pressed && styles.pressed,
+                    ]}
+                    accessibilityRole="button"
                   >
                     <Text style={styles.palierName}>{p.nom}</Text>
                     <Text style={styles.palierPrice}>{euros(p.prix_cents)}</Text>
                   </Pressable>
                 ))}
+              </View>
+            )}
+
+            {problem && (
+              <View style={styles.card}>
+                <Text style={styles.text}>Ça a coincé à la caisse, réessaie dans un moment.</Text>
+              </View>
+            )}
+
+            {paying && (
+              <View style={styles.card}>
+                <View nativeID={CHECKOUT_ID} style={styles.checkout}>
+                  <ActivityIndicator color={colors.accent} style={styles.padded} />
+                </View>
+                <Pressable onPress={() => setPaying(null)} accessibilityRole="button">
+                  <Text style={styles.changed}>Changer d'avis</Text>
+                </Pressable>
               </View>
             )}
 
@@ -110,6 +179,7 @@ export function Comptoir() {
   );
 }
 
+const CHECKOUT_ID = 'comptoir-checkout';
 const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
 
 const styles = StyleSheet.create({
@@ -133,6 +203,9 @@ const styles = StyleSheet.create({
   content: { ...COLUMN, padding: 16, paddingBottom: 48, gap: 14 },
   padded: { margin: 24 },
   pressed: { opacity: 0.6 },
+  dimmed: { opacity: 0.4 },
+  checkout: { minHeight: 120 },
+  changed: { color: colors.tertiary, fontSize: 14, textDecorationLine: 'underline', textAlign: 'center' },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 16,
