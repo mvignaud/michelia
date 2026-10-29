@@ -31,6 +31,8 @@ import {
   verifyPhoneCode,
   type Profile,
 } from './auth';
+import { LinkedAccounts } from './LinkedAccounts';
+import { COUNTRIES, PhoneField, fullPhone } from './PhoneField';
 import { colors, serif } from './theme';
 
 export type AccountMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'profile' | 'phone';
@@ -53,6 +55,8 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
+  const [country, setCountry] = useState(COUNTRIES[0]);
+  const number = fullPhone(country, phone);
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -129,11 +133,11 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
   const phoneStep = () =>
     run(async () => {
       if (!codeSent) {
-        await sendPhoneCode(phone);
+        await sendPhoneCode(number);
         setCodeSent(true);
         setNotice('Code envoyé par SMS. Il est valable quelques minutes.');
       } else {
-        await verifyPhoneCode(phone, code);
+        await verifyPhoneCode(number, code);
         onClose();
       }
     });
@@ -219,16 +223,17 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
             </Text>
           )}
           {mode === 'phone' && (
-            <Field
-              label="Numéro de portable"
+            <PhoneField
+              country={country}
+              onCountry={(value) => {
+                setCountry(value);
+                setCodeSent(false);
+              }}
               value={phone}
               onChangeText={(value) => {
                 setPhone(value);
                 setCodeSent(false);
               }}
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              placeholder="06 12 34 56 78"
               last={!codeSent}
             />
           )}
@@ -292,6 +297,8 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
           )}
         </Pressable>
 
+        {mode === 'profile' && session && <LinkedAccounts session={session} apple={apple} />}
+
         <View style={styles.links}>
           {mode === 'signin' && (
             <>
@@ -304,7 +311,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
           )}
           {mode === 'phone' && (
             <>
-              {codeSent && <Link label="Renvoyer le code" onPress={() => run(() => sendPhoneCode(phone))} />}
+              {codeSent && <Link label="Renvoyer le code" onPress={() => run(() => sendPhoneCode(number))} />}
               <Link label="Plutôt avec un e-mail" onPress={() => go('signin')} />
             </>
           )}

@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
-import type { Session } from '@supabase/supabase-js';
+import type { Session, UserIdentity } from '@supabase/supabase-js';
 import { getCaptchaToken } from './captcha';
 import { supabase } from './supabase';
 
@@ -38,6 +38,10 @@ function explain(error: { message?: string; code?: string } | null): Error | nul
     over_sms_send_rate_limit: 'Trop de SMS envoyés, réessaie dans quelques minutes.',
     sms_send_failed: "Le SMS n'est pas parti, vérifie le numéro.",
     phone_provider_disabled: 'La connexion par SMS est coupée pour le moment.',
+    identity_already_exists: 'Ce compte est déjà relié à quelqu\'un d\'autre.',
+    manual_linking_disabled: 'Relier plusieurs connexions n\'est pas encore activé.',
+    single_identity_not_deletable: 'Garde au moins un moyen de te connecter.',
+    phone_exists: 'Ce numéro est déjà utilisé par un autre compte.',
   };
   return new Error((error.code && known[error.code]) || error.message || 'Ça a planté, réessaie.');
 }
@@ -90,7 +94,12 @@ export async function signInWithProvider(provider: 'google' | 'facebook') {
   if (failure) throw failure;
   if (!native || !data.url) return;
 
-  const result = await WebBrowser.openAuthSessionAsync(data.url, APP_RETURN);
+  await finishNativeOAuth(data.url);
+}
+
+// Ouvre la page du fournisseur dans l'appli, puis récupère la session au retour.
+async function finishNativeOAuth(authUrl: string) {
+  const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_RETURN);
   if (result.type !== 'success') return;
   // Le retour porte soit un code à échanger, soit les jetons dans l'ancre de l'adresse.
   const url = new URL(result.url);
@@ -102,7 +111,7 @@ export async function signInWithProvider(provider: 'google' | 'facebook') {
     ? await supabase.auth.exchangeCodeForSession(code)
     : access_token && refresh_token
       ? await supabase.auth.setSession({ access_token, refresh_token })
-      : { error: { message: url.searchParams.get('error_description') ?? 'Connexion annulée.' } };
+      : { error: { message: url.searchParams.get('error_description') ?? params.get('error_description') ?? 'Connexion annulée.' } };
   const returned = explain(outcome.error);
   if (returned) throw returned;
 }
@@ -112,19 +121,23 @@ export async function signInWithProvider(provider: 'google' | 'facebook') {
 export const appleSignInAvailable = () =>
   Platform.OS === 'ios' ? AppleAuthentication.isAvailableAsync() : Promise.resolve(false);
 
-export async function signInWithApple() {
-  let credential: AppleAuthentication.AppleAuthenticationCredential;
+async function askApple() {
   try {
-    credential = await AppleAuthentication.signInAsync({
+    return await AppleAuthentication.signInAsync({
       requestedScopes: [
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
         AppleAuthentication.AppleAuthenticationScope.EMAIL,
       ],
     });
   } catch (e) {
-    if ((e as { code?: string }).code === 'ERR_REQUEST_CANCELED') return;
+    if ((e as { code?: string }).code === 'ERR_REQUEST_CANCELED') return null;
     throw e;
   }
+}
+
+export async function signInWithApple() {
+  const credential = await askApple();
+  if (!credential) return;
   if (!credential.identityToken) throw new Error('Apple ne nous a rien renvoyé, réessaie.');
   const { data, error } = await supabase.auth.signInWithIdToken({
     provider: 'apple',
@@ -168,6 +181,63 @@ export async function verifyPhoneCode(phone: string, code: string) {
     token: code.replace(/\s/g, ''),
     type: 'sms',
   });
+  const failure = explain(error);
+  if (failure) throw failure;
+}
+
+// Moyens de connexion reliés au compte (Google, Facebook, Apple, e-mail, téléphone).
+export async function listIdentities(): Promise<UserIdentity[]> {
+  const { data, error } = await supabase.auth.getUserIdentities();
+  const failure = explain(error);
+  if (failure) throw failure;
+  return data?.identities ?? [];
+}
+
+export async function linkProvider(provider: 'google' | 'facebook' | 'apple') {
+  if (provider === 'apple') {
+    const credential = await askApple();
+    if (!credential?.identityToken) return;
+    const failure = explain((await supabase.auth.linkIdentity({ provider: 'apple', token: credential.identityToken })).error);
+    if (failure) throw failure;
+    return;
+  }
+  const native = Platform.OS !== 'web';
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider,
+    options: { redirectTo: native ? APP_RETURN : SITE, skipBrowserRedirect: native },
+  });
+  const failure = explain(error);
+  if (failure) throw failure;
+  if (native && data.url) await finishNativeOAuth(data.url);
+}
+
+export async function unlinkProvider(identity: UserIdentity) {
+  const failure = explain((await supabase.auth.unlinkIdentity(identity)).error);
+  if (failure) throw failure;
+}
+
+// Ajoute un numéro au compte : un code part par SMS, à confirmer avec confirmPhone.
+export async function addPhone(phone: string) {
+  const failure = explain((await supabase.auth.updateUser({ phone: normalizePhone(phone) })).error);
+  if (failure) throw failure;
+}
+
+export async function confirmPhone(phone: string, code: string) {
+  const { error } = await supabase.auth.verifyOtp({
+    phone: normalizePhone(phone),
+    token: code.replace(/\s/g, ''),
+    type: 'phone_change',
+  });
+  const failure = explain(error);
+  if (failure) throw failure;
+}
+
+// Ajoute un e-mail et un mot de passe : l'adresse est active après le clic sur le lien reçu.
+export async function addEmail(email: string, password: string) {
+  const { error } = await supabase.auth.updateUser(
+    { email: email.trim(), password },
+    { emailRedirectTo: SITE },
+  );
   const failure = explain(error);
   if (failure) throw failure;
 }

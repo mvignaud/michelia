@@ -86,6 +86,10 @@ Le portrait des e-mails est servi par le site (`app/public/email/michel.png`).
 3. Twilio > Messaging > Settings > Geo permissions : n'autoriser que la France (et les pays voulus), contre la fraude au « SMS pumping ».
 4. Le captcha Turnstile protège déjà l'envoi des codes. Rate Limits : garder un plafond bas de SMS par heure.
 
+## Relier plusieurs connexions
+
+Dans « Mon compte », chacun peut relier Google, Facebook, Apple, un e-mail ou un numéro au même compte. Pour que ça marche, il faut activer « Allow manual linking » dans Supabase > Authentication > Sign In / Providers (section « User Signups »). Pour les numéros hors de France, il faut aussi autoriser les pays voulus dans Twilio (Geo permissions).
+
 ## 5. Tester en local
 
 ```bash
