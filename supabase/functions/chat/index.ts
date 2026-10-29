@@ -81,7 +81,7 @@ const askName = () => pick(ASK_NAME);
 const GUEST_LIMIT = [
   "Oh, doucement ! Je cause pas plus que ça aux inconnus, moi. Inscris-toi dans le cloud (bouton « Connexion » en haut) : " +
     "promis, le patron sait même pas allumer l'ordinateur, il fera rien de tes données. Et après on cause tant que tu veux.",
-  "Macarel, t'as vidé ma réserve du jour ! Crée-toi un compte, bouton « Connexion » en haut, et je te fais crédit. " +
+  "Miladiou, t'as vidé ma réserve du jour ! Crée-toi un compte, bouton « Connexion » en haut, et je te fais crédit. " +
     "Tes données, le chef y touche pas : il sait à peine se servir de la télécommande.",
   "Hé, je te connais même pas et tu me fais déjà trimer comme à la vendange ! Inscris-toi (bouton « Connexion »), " +
     "que je sache à qui j'ai affaire. Tes données restent au chaud, le patron y comprend rien de toute façon.",
@@ -91,19 +91,19 @@ const GUEST_LIMIT = [
 const GUEST_HOUR_LIMIT = [
   "Holà, tu mitrailles ! Laisse-moi souffler une heure. Ou inscris-toi (bouton « Connexion » en haut) : " +
     "promis, le patron fait rien de tes données, et moi je te laisserai causer bien plus.",
-  "Boudu, cinq questions d'affilée, j'ai les fils qui fument ! Reviens dans une heure, ou crée-toi un compte " +
+  "Pétard, cinq questions d'affilée, j'ai les fils qui fument ! Reviens dans une heure, ou crée-toi un compte " +
     "et je te fais un tarif d'ami.",
 ];
 const MEMBER_HOUR_LIMIT = [
   "Oh, tu me chauffes la carafe, là ! Va boire un café, reviens dans une heure, je serai d'attaque.",
-  "Macarel, pause syndicale ! J'ai besoin d'une heure pour refroidir les fusibles, après on reprend.",
+  "Diou biban, pause syndicale ! J'ai besoin d'une heure pour refroidir les fusibles, après on reprend.",
 ];
 
 // Quota du jour atteint, avec un compte : Michel rend son tablier jusqu'à demain.
 const MEMBER_LIMIT = [
   "Oh, tu me chauffes la carafe, là ! Laisse-moi un peu tranquille et reviens demain me poser tes questions bêtes.",
-  "Boudu, j'ai la tête comme une citrouille ! Assez causé pour aujourd'hui, va voir dehors si j'y suis et reviens demain.",
-  "Macarel, même au comptoir on me fout la paix plus que ça ! Je ferme boutique, reviens demain, je serai requinqué.",
+  "Pétard, j'ai la tête comme une citrouille ! Assez causé pour aujourd'hui, va voir dehors si j'y suis et reviens demain.",
+  "Miladiou, même au comptoir on me fout la paix plus que ça ! Je ferme boutique, reviens demain, je serai requinqué.",
 ];
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
@@ -439,7 +439,7 @@ Deno.serve(async (req) => {
     console.warn("quota: plafond global du jour atteint");
     return reply(
       429,
-      "Macarel, tout le Gers m'a posé des questions aujourd'hui, je suis rincé. Reviens demain !",
+      "Miladiou, tout le Gers m'a posé des questions aujourd'hui, je suis rincé. Reviens demain !",
       origin,
     );
   }
@@ -576,7 +576,7 @@ Deno.serve(async (req) => {
         if (final.stop_reason === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
         } else if (final.stop_reason === "max_tokens") {
-          controller.enqueue(encoder.encode("…\n\nBoudu, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
+          controller.enqueue(encoder.encode("…\n\nPétard, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
         } else {
           // Une réponse tirée de la météo ou de l'actu ne va pas dans le cache : elle périmerait.
           complete = !learned && !usedTools;
@@ -587,7 +587,7 @@ Deno.serve(async (req) => {
         if (learned) controller.enqueue(encoder.encode(TRAILER + JSON.stringify({ prenom: learned })));
       } catch (e) {
         console.error("anthropic", e);
-        controller.enqueue(encoder.encode("\n\nMacarel, la machine a fait des siennes. Réessaie."));
+        controller.enqueue(encoder.encode("\n\nMiladiou, la machine a fait des siennes. Réessaie."));
       } finally {
         // Jetons consommés, même si la réponse a été coupée en route (ils sont facturés quand même).
         const partial = counted ? undefined : stream.currentMessage?.usage;

@@ -36,7 +36,7 @@ export const CookieBanner = forwardRef<CookieBannerHandle>(function CookieBanner
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.card} accessibilityRole="alert">
         <Text style={styles.text}>
-          Boudu, une petite chose : Michel aimerait compter les visites avec Google Analytics, pour savoir
+          Dis, une petite chose : Michel aimerait compter les visites avec Google Analytics, pour savoir
           si on vient le voir. Pas de pub, et tes questions ne partent pas chez Google.
         </Text>
         <View style={styles.buttons}>
