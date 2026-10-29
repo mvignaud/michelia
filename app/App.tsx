@@ -31,6 +31,8 @@ import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
+import { makeCard, type Card } from './src/shareCard';
+import { ShareSheet } from './src/ShareSheet';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
 
@@ -68,6 +70,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountMode | null>(null);
   const [admin, setAdmin] = useState(false);
+  const [sharing, setSharing] = useState<Card | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
   const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
@@ -292,6 +295,7 @@ export default function App() {
           <FlatList
             ref={listRef}
             data={bubbles}
+            extraData={busy}
             keyExtractor={(b) => b.id}
             contentContainerStyle={styles.list}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
@@ -324,23 +328,43 @@ export default function App() {
                 </View>
               ) : undefined
             }
-            renderItem={({ item }) => (
-              <View
-                style={[
-                  styles.bubble,
-                  item.role === 'user' ? styles.user : styles.michel,
-                  item.failed && styles.failed,
-                ]}
-              >
-                {item.role === 'user' || item.failed ? (
-                  <Text style={styles.userText}>{item.content}</Text>
-                ) : item.content ? (
-                  <RichText text={item.content} style={styles.michelText} />
-                ) : (
-                  <Text style={styles.thinking}>Michel cherche ses lunettes…</Text>
-                )}
-              </View>
-            )}
+            renderItem={({ item, index }) => {
+              const bubble = (
+                <View
+                  style={[
+                    styles.bubble,
+                    item.role === 'user' ? styles.user : styles.michel,
+                    item.failed && styles.failed,
+                  ]}
+                >
+                  {item.role === 'user' || item.failed ? (
+                    <Text style={styles.userText}>{item.content}</Text>
+                  ) : item.content ? (
+                    <RichText text={item.content} style={styles.michelText} />
+                  ) : (
+                    <Text style={styles.thinking}>Michel cherche ses lunettes…</Text>
+                  )}
+                </View>
+              );
+              // Une réponse terminée se partage en carte image, avec la question qui l'a amenée.
+              const done = !(busy && index === bubbles.length - 1);
+              if (item.role === 'user' || item.failed || !item.content || !done) return bubble;
+              const asked = bubbles[index - 1];
+              return (
+                <View>
+                  {bubble}
+                  <Pressable
+                    onPress={() => setSharing(makeCard(item.content, asked?.role === 'user' ? asked.content : undefined))}
+                    style={({ pressed }) => [styles.shareLink, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Partager cette réponse en image"
+                    hitSlop={8}
+                  >
+                    <Text style={styles.shareLinkText}>Partager</Text>
+                  </Pressable>
+                </View>
+              );
+            }}
           />
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
@@ -417,6 +441,7 @@ export default function App() {
           />
         )}
         {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
+        {sharing && <ShareSheet card={sharing} onClose={() => setSharing(null)} />}
         <CaptchaHost />
         <CookieBanner ref={cookiesRef} />
       </SafeAreaView>
@@ -499,6 +524,8 @@ const styles = StyleSheet.create({
   failed: { backgroundColor: colors.failed },
   michelText: { color: colors.text, fontSize: 16, lineHeight: 23 },
   userText: { color: colors.onAccent, fontSize: 16, lineHeight: 23 },
+  shareLink: { alignSelf: 'flex-start', marginTop: 4, marginLeft: 6 },
+  shareLinkText: { color: colors.secondary, fontSize: 13, fontWeight: '600' },
   thinking: { color: colors.secondary, fontSize: 15, fontStyle: 'italic' },
   suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   chip: {
