@@ -1,0 +1,6 @@
+# Configuration minimale pour la CLI et l'intégration GitHub de Supabase.
+project_id = "michelia"
+
+[functions.chat]
+# La fonction exige un utilisateur connecté (compte anonyme compris).
+verify_jwt = true
