@@ -4,7 +4,10 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+// Seule la dernière question peut porter une photo (en base64) ; les plus anciennes
+// gardent juste la mention « photo », l'image n'est jamais renvoyée ni enregistrée.
+type ChatImage = { media_type: "image/jpeg" | "image/png" | "image/webp"; data: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; photo?: boolean; image?: ChatImage };
 
 // Modèle d'embeddings gratuit fourni par le runtime des Edge Functions Supabase.
 declare const Supabase: {
@@ -17,6 +20,16 @@ declare const Supabase: {
 
 const MAX_HISTORY = 20;
 const MAX_CHARS = 4000;
+// L'appli réduit les photos à 1 024 px en JPEG (≈ 150 Ko) ; au-delà de ~1,1 Mo on refuse.
+const MAX_IMAGE_BASE64 = 1_500_000;
+// Signature en base64 du début de chaque format accepté.
+const IMAGE_SIGNATURES: Record<ChatImage["media_type"], string> = {
+  "image/jpeg": "/9j/",
+  "image/png": "iVBORw0KGgo",
+  "image/webp": "UklGR",
+};
+const PHOTO_ALONE = "(Photo envoyée sans commentaire.)";
+const PHOTO_BEFORE = "[Ici la personne t'avait montré une photo, que tu ne vois plus.]";
 // Seules les questions d'ouverture courtes et sans chiffres ni adresse vont dans le cache.
 const CACHE_MAX_CHARS = 200;
 // Séparateur avant les informations de fin de réponse, lu par l'appli.
@@ -46,6 +59,21 @@ const GUEST_LIMIT = [
   "Hé, je te connais même pas et tu me fais déjà trimer comme à la vendange ! Inscris-toi (bouton « Connexion »), " +
     "que je sache à qui j'ai affaire. Tes données restent au chaud, le patron y comprend rien de toute façon.",
 ];
+
+// Quota de photos du jour atteint.
+const GUEST_PHOTO_LIMIT = [
+  "Oh, je suis pas photographe de mariage, moi ! Trois photos par jour aux inconnus, pas plus. " +
+    "Inscris-toi (bouton « Connexion » en haut) et je regarderai tes images tant que tu veux, ou presque. Écris-moi en attendant.",
+  "Encore une photo ? Diu vivant, j'ai les yeux qui piquent. Crée-toi un compte (bouton « Connexion ») " +
+    "et je te fais crédit. En attendant, raconte-moi avec des mots, con.",
+];
+const MEMBER_PHOTO_LIMIT = [
+  "Hè, assez d'images pour aujourd'hui, j'ai les lunettes qui fument ! Reviens demain avec tes photos, " +
+    "ou écris-moi, ça je sais encore lire.",
+  "Oh, tu me prends pour l'album de famille ! Plus de photos pour aujourd'hui, mais on peut causer.",
+];
+const PHOTOS_CLOSED =
+  "Les photos, c'est fermé pour le moment : le patron a débranché l'appareil. Écris-moi plutôt, con.";
 
 // Quota de l'heure atteint : Michel demande une pause.
 const GUEST_HOUR_LIMIT = [
@@ -98,20 +126,53 @@ function reply(status: number, text: string, origin: string | null): Response {
   });
 }
 
+function parseImage(value: unknown): ChatImage | null {
+  const { media_type, data } = (value ?? {}) as { media_type?: unknown; data?: unknown };
+  if (typeof media_type !== "string" || !(media_type in IMAGE_SIGNATURES)) return null;
+  if (typeof data !== "string" || data.length > MAX_IMAGE_BASE64) return null;
+  const type = media_type as ChatImage["media_type"];
+  if (!data.startsWith(IMAGE_SIGNATURES[type]) || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null;
+  return { media_type: type, data };
+}
+
 // Garde un historique propre : rôles alternés, se terminant par l'utilisateur.
 function parseMessages(body: unknown): ChatMessage[] | null {
   const raw = (body as { messages?: unknown })?.messages;
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const messages = raw.slice(-MAX_HISTORY);
   while (messages.length && messages[0]?.role !== "user") messages.shift();
+  const parsed: ChatMessage[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     const expected = i % 2 === 0 ? "user" : "assistant";
     if (m?.role !== expected || typeof m.content !== "string") return null;
-    if (!m.content.trim() || m.content.length > MAX_CHARS) return null;
+    if (m.content.length > MAX_CHARS) return null;
+    const last = i === messages.length - 1;
+    const image = last && m.image != null ? parseImage(m.image) : undefined;
+    if (image === null) return null;
+    const photo = expected === "user" && (m.photo === true || !!image);
+    if (!m.content.trim() && !photo) return null;
+    parsed.push({ role: m.role, content: m.content, ...(photo && { photo }), ...(image && { image }) });
   }
-  if (messages.length === 0 || messages.length % 2 === 0) return null;
-  return messages.map((m) => ({ role: m.role, content: m.content }));
+  if (parsed.length === 0 || parsed.length % 2 === 0) return null;
+  return parsed;
+}
+
+// Messages au format de l'API : la photo de la dernière question passe avant son texte.
+function toApi(messages: ChatMessage[]): Anthropic.Messages.MessageParam[] {
+  return messages.map((m) => {
+    const text = m.content.trim();
+    if (m.image) {
+      return {
+        role: m.role,
+        content: [
+          { type: "image", source: { type: "base64", media_type: m.image.media_type, data: m.image.data } },
+          { type: "text", text: text || PHOTO_ALONE },
+        ],
+      };
+    }
+    return { role: m.role, content: m.photo ? `${PHOTO_BEFORE} ${text}`.trim() : m.content };
+  });
 }
 
 // Prénom affichable : lettres, espaces, tirets et apostrophes, 30 caractères au plus.
@@ -122,7 +183,7 @@ function cleanName(value: unknown): string | undefined {
 }
 
 function cacheable(messages: ChatMessage[]): string | null {
-  if (messages.length !== 1) return null;
+  if (messages.length !== 1 || messages[0].photo) return null;
   const question = messages[0].content.trim();
   if (question.length > CACHE_MAX_CHARS || /[0-9@]/.test(question)) return null;
   return question;
@@ -194,6 +255,7 @@ Deno.serve(async (req) => {
     // corps illisible : traité comme invalide juste en dessous
   }
   if (!messages) return reply(400, "Message invalide ou trop long.", origin);
+  const photo = messages[messages.length - 1].image;
 
   let config: Record<string, string>;
   try {
@@ -215,15 +277,33 @@ Deno.serve(async (req) => {
   const hourLimit = guest
     ? Number(config.hourly_limit_guest ?? 5)
     : Number(config.hourly_limit_member ?? 30);
-  const { data: quota, error: quotaError } = await admin.rpc("consume_message", {
+  if (photo && config.photos_enabled === "false") return reply(403, PHOTOS_CLOSED, origin);
+  const counter = {
     p_user: auth.user.id,
     p_limit: limit,
     p_global_limit: Number(config.global_daily_limit ?? 5000),
     p_hour_limit: hourLimit,
-  });
+  };
+  // Une photo a son propre quota du jour, compté en plus du message qui la porte.
+  const { data: quota, error: quotaError } = photo
+    ? await admin.rpc("consume_photo", {
+        ...counter,
+        p_photo_limit: guest
+          ? Number(config.daily_photo_limit_guest ?? 3)
+          : Number(config.daily_photo_limit_member ?? 20),
+        p_global_photo_limit: Number(config.global_daily_photo_limit ?? 1000),
+      })
+    : await admin.rpc("consume_message", counter);
   if (quotaError) {
     console.error("quota", quotaError);
     return reply(500, "Michel est parti chercher du pain, réessaie dans un moment.", origin);
+  }
+  if (quota === "photo_limit") {
+    return reply(429, pick(guest ? GUEST_PHOTO_LIMIT : MEMBER_PHOTO_LIMIT), origin);
+  }
+  if (quota === "global_photo_limit") {
+    console.warn("quota: plafond global de photos du jour atteint");
+    return reply(429, "Pétard, tout le Gers m'a montré ses photos aujourd'hui, j'ai les yeux en compote. Écris-moi plutôt !", origin);
   }
   if (quota === "hour_limit") {
     return reply(429, pick(guest ? GUEST_HOUR_LIMIT : MEMBER_HOUR_LIMIT), origin);
@@ -288,6 +368,13 @@ Deno.serve(async (req) => {
       "réponse par la balise <prenom>Prénom</prenom>, sans rien après. N'utilise jamais cette balise autrement.",
     // Rappel de personnage relu à chaque message, pour que Michel ne s'affadisse pas
     // au fil de la conversation. Réglable dans app_config (persona_reminder, vide = aucun).
+    photo
+      ? "La personne t'envoie une photo : regarde-la vraiment et commente ce que tu vois avec ton caractère, " +
+        "puis réponds à sa question s'il y en a une. N'essaie jamais de reconnaître une personne réelle " +
+        "ni de deviner son nom, son âge, son origine ou sa santé à partir de son visage ou de son corps. " +
+        "Si l'image est sexuelle, violente ou met un enfant en danger, refuse en une phrase sans la décrire. " +
+        "Pour une ordonnance, un médicament ou une blessure, reste prudent et renvoie vers un professionnel."
+      : "",
     config.persona_reminder ?? PERSONA_REMINDER,
   ].filter(Boolean).join("\n");
 
@@ -299,7 +386,7 @@ Deno.serve(async (req) => {
       { type: "text", text: config.system_prompt, cache_control: { type: "ephemeral" } },
       { type: "text", text: context },
     ],
-    messages,
+    messages: toApi(messages),
   });
 
   const encoder = new TextEncoder();

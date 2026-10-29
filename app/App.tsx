@@ -26,6 +26,7 @@ import { NotifyCard } from './src/NotifyCard';
 import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
+import { pickPhoto, photoUri, type Photo } from './src/photo';
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
@@ -66,6 +67,7 @@ const newId = () => String(nextId++);
 export default function App() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState('');
+  const [attached, setAttached] = useState<Photo>();
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState<string>();
   const [loaded, setLoaded] = useState(false);
@@ -166,16 +168,17 @@ export default function App() {
     const messages = bubbles
       .filter((b) => !b.local)
       .filter((b, i, all) => !b.failed && !all[i + 1]?.failed)
-      .map(({ role, content }) => ({ role, content }));
+      .map(({ role, content, photo }) => ({ role, content, photo }));
     saveMemory({ name, messages });
     if (memberId && syncedFor === memberId) saveAccountMemory(memberId, { name, messages });
   }, [bubbles, name, busy, loaded, memberId, syncedFor]);
 
   async function send(input = draft) {
     const text = input.trim();
-    if (!text || busy) return;
+    const image = attached;
+    if ((!text && !image) || busy) return;
 
-    const question: Bubble = { id: newId(), role: 'user', content: text };
+    const question: Bubble = { id: newId(), role: 'user', content: text, ...(image && { photo: true, image }) };
     const answerId = newId();
     // Les bulles vont par paires question / réponse ; une paire en échec n'est pas renvoyée à Michel.
     const history = [
@@ -184,6 +187,7 @@ export default function App() {
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
     setDraft('');
+    setAttached(undefined);
     setBusy(true);
 
     const updateAnswer = (change: (b: Bubble) => Bubble) =>
@@ -191,7 +195,13 @@ export default function App() {
 
     try {
       const learned = await askMichel(
-        history.map(({ role, content }) => ({ role, content })),
+        // Seule la dernière photo repart vers Michel ; les précédentes restent une simple mention.
+        history.map(({ role, content, photo }, i) => ({
+          role,
+          content,
+          photo,
+          image: i === history.length - 1 ? image : undefined,
+        })),
         name,
         (chunk) => updateAnswer((b) => ({ ...b, content: b.content + chunk })),
       );
@@ -208,7 +218,17 @@ export default function App() {
     }
   }
 
-  const canSend = !busy && draft.trim().length > 0;
+  async function attach() {
+    try {
+      const photo = await pickPhoto();
+      if (photo) setAttached(photo);
+    } catch (e) {
+      const content = e instanceof Error && e.message ? e.message : 'Hòu, la photo est restée coincée dans le tuyau, con.';
+      setBubbles((all) => [...all, { id: newId(), role: 'assistant', content, local: true }]);
+    }
+  }
+
+  const canSend = !busy && (draft.trim().length > 0 || !!attached);
 
   return (
     <SafeAreaProvider>
@@ -297,8 +317,17 @@ export default function App() {
                   item.failed && styles.failed,
                 ]}
               >
+                {item.image ? (
+                  <Image
+                    source={{ uri: photoUri(item.image) }}
+                    style={[styles.photo, { aspectRatio: item.image.width / item.image.height }]}
+                    accessibilityLabel="Photo montrée à Michel"
+                  />
+                ) : item.photo ? (
+                  <Text style={styles.photoNote}>📷 Photo</Text>
+                ) : null}
                 {item.role === 'user' || item.failed ? (
-                  <Text style={styles.userText}>{item.content}</Text>
+                  !!item.content && <Text style={styles.userText}>{item.content}</Text>
                 ) : item.content ? (
                   <RichText text={item.content} style={styles.michelText} />
                 ) : (
@@ -309,12 +338,38 @@ export default function App() {
           />
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
+            {attached && (
+              <View style={styles.preview}>
+                <Image
+                  source={{ uri: photoUri(attached) }}
+                  style={styles.previewImage}
+                  accessibilityLabel="Photo à envoyer"
+                />
+                <Pressable
+                  onPress={() => setAttached(undefined)}
+                  style={({ pressed }) => [styles.previewRemove, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retirer la photo"
+                >
+                  <Text style={styles.previewRemoveText}>✕</Text>
+                </Pressable>
+              </View>
+            )}
             <View style={styles.composer}>
+              <Pressable
+                style={({ pressed }) => [styles.attach, pressed && styles.pressed]}
+                onPress={attach}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel="Montrer une photo à Michel"
+              >
+                <Text style={styles.attachText}>📷</Text>
+              </Pressable>
               <TextInput
                 style={styles.input}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder="Pose ta question à Michel…"
+                placeholder={attached ? 'Un mot sur ta photo ? (facultatif)' : 'Pose ta question à Michel…'}
                 placeholderTextColor={colors.tertiary}
                 multiline
                 numberOfLines={1}
@@ -451,6 +506,8 @@ const styles = StyleSheet.create({
   failed: { backgroundColor: colors.failed },
   michelText: { color: colors.text, fontSize: 16, lineHeight: 23 },
   userText: { color: colors.onAccent, fontSize: 16, lineHeight: 23 },
+  photo: { width: 220, maxWidth: '100%', borderRadius: 12, marginVertical: 2 },
+  photoNote: { color: colors.onAccent, fontSize: 14, fontStyle: 'italic', opacity: 0.85 },
   thinking: { color: colors.secondary, fontSize: 15, fontStyle: 'italic' },
   suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   chip: {
@@ -489,6 +546,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
   },
+  attach: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachText: { fontSize: 19 },
+  preview: { ...COLUMN, flexDirection: 'row', paddingHorizontal: 12, paddingTop: 10 },
+  previewImage: { width: 64, height: 64, borderRadius: 10, backgroundColor: colors.accentSoft },
+  previewRemove: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    marginLeft: -12,
+    marginTop: -6,
+    backgroundColor: colors.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewRemoveText: { color: colors.onAccent, fontSize: 12, fontWeight: '700' },
   send: {
     width: 40,
     height: 40,
