@@ -128,6 +128,21 @@ create table if not exists public.broadcasts (
 
 alter table public.broadcasts enable row level security;
 
+-- Début du dernier lancement d'envoi, pour reprendre un envoi coupé par la limite de durée des fonctions.
+alter table public.broadcasts add column if not exists email_started_at timestamptz;
+
+-- Un e-mail par membre et par annonce : une reprise n'écrit qu'à ceux qui ne l'ont pas encore reçu.
+create table if not exists public.broadcast_deliveries (
+  broadcast_id bigint not null references public.broadcasts (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  ok boolean not null,
+  sent_at timestamptz not null default now(),
+  primary key (broadcast_id, user_id)
+);
+
+alter table public.broadcast_deliveries enable row level security;
+revoke all on public.broadcast_deliveries from anon, authenticated;
+
 drop policy if exists "Admins lisent les annonces" on public.broadcasts;
 create policy "Admins lisent les annonces" on public.broadcasts
   for select to authenticated using ((select public.is_admin()));

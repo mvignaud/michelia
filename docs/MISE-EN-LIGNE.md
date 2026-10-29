@@ -160,5 +160,6 @@ Ce que fait chaque onglet :
   - « Nouvelles » : seulement les membres qui ont coché « Recevoir les nouvelles de Michel » (à l'inscription ou dans Compte). Chaque e-mail porte un lien de désabonnement et l'en-tête de désabonnement en un clic (Gmail, Apple Mail).
   - « Information de service » : tous les membres, réservé aux messages sur le service lui-même (conditions, panne, fermeture), jamais de promotion.
   - Toujours faire **M'envoyer un test** avant. `{prenom}` est remplacé par le prénom du membre.
-  - Les e-mails partent en tâche de fond (8 à la fois) ; l'historique montre l'avancement. Une fonction Edge s'arrête au bout de quelques minutes : au-delà de quelques milliers de destinataires, prévoir un envoi par lots.
+  - Les e-mails partent en tâche de fond (8 à la fois) ; l'historique montre l'avancement. Une fonction Edge s'arrête au bout de quelques minutes (quelques milliers d'e-mails) : si un envoi est coupé ou en partie en échec, le lien **Reprendre l'envoi des e-mails** apparaît et ne sert que ceux qui ne l'ont pas encore reçu (`broadcast_deliveries`). La même annonce ne peut pas repartir deux fois dans les dix minutes.
+  - Garder **« Confirm email » activé** dans Supabase : seules les adresses confirmées reçoivent les annonces, sinon n'importe qui pourrait abonner l'adresse d'un autre.
   - Notifications : l'annonce est enregistrée dans `broadcasts` avec `push_status = 'en_attente'` et la fonction `push` est réveillée ; c'est elle qui les envoie.

@@ -16,6 +16,7 @@ import {
   listBroadcasts,
   listUsers,
   loadStats,
+  resumeBroadcast,
   sendBroadcast,
   userUsage,
   type AdminUser,
@@ -452,6 +453,18 @@ function MessageTab() {
     }
   }
 
+  async function resume(id: number) {
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const result = await resumeBroadcast(id);
+      setNotice(`Envoi repris pour ${number(result.emails)} destinataires (ceux déjà servis sont sautés).`);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'La reprise a planté.');
+    }
+  }
+
   const ready = subject.trim().length > 0 && body.trim().length > 0 && channels.length > 0;
 
   return (
@@ -549,12 +562,20 @@ function MessageTab() {
                   (b.email_failed ? ` (${number(b.email_failed)} échecs)` : '')}
               {b.channels.includes('push') && ` · notification ${STATUS[b.push_status ?? ''] ?? b.push_status ?? ''}` + (b.push_sent ? ` (${number(b.push_sent)})` : '')}
             </Text>
+            {interrupted(b) && <Text style={styles.resume} onPress={() => resume(b.id)} accessibilityRole="button">Reprendre l'envoi des e-mails</Text>}
           </View>
         ))}
       </Section>
     </ScrollView>
   );
 }
+
+// Envoi en échec, partiel, ou « en cours » depuis plus longtemps qu'une fonction ne peut tourner.
+const interrupted = (b: Broadcast) =>
+  b.channels.includes('email') &&
+  (b.email_status === 'partiel' ||
+    b.email_status === 'echec' ||
+    (b.email_status === 'envoi' && !!b.email_started_at && Date.now() - Date.parse(b.email_started_at) > 7 * 60000));
 
 function Option({ selected, onPress, title, text }: { selected: boolean; onPress: () => void; title: string; text: string }) {
   return (
@@ -683,4 +704,5 @@ const styles = StyleSheet.create({
   danger: { paddingHorizontal: 18, paddingVertical: 11, borderRadius: 10, backgroundColor: colors.failed, minWidth: 180, alignItems: 'center' },
   primaryText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   history: { gap: 2, paddingVertical: 4 },
+  resume: { color: colors.accent, fontSize: 13, fontWeight: '600', marginTop: 2 },
 });

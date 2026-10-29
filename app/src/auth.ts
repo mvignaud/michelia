@@ -264,7 +264,7 @@ export async function loadProfile(userId: string): Promise<Profile> {
   const query = (select: string) => supabase.from('profiles').select(select).eq('id', userId).maybeSingle();
   // Sans la migration du back-office, la colonne news_opt_in n'existe pas encore : on s'en passe.
   let { data, error } = await query(`${columns}, news_opt_in`);
-  if (error) ({ data } = await query(columns));
+  if (error?.code === '42703') ({ data } = await query(columns));
   const row = data as { first_name?: string; last_name?: string; birth_year?: number; news_opt_in?: boolean } | null;
   return {
     firstName: row?.first_name ?? undefined,

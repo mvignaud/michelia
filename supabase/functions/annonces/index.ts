@@ -78,8 +78,11 @@ const escapeHtml = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // {prenom} dans le texte devient le prénom du membre (ou disparaît s'il n'en a pas).
-const personalize = (text: string, firstName: string | null) =>
-  text.replace(/ ?\{prenom\}/g, firstName ? ` ${firstName}` : "");
+// Le prénom est réduit aux lettres, pour qu'un membre ne glisse pas un lien dans l'objet ou le texte.
+const personalize = (text: string, firstName: string | null) => {
+  const name = (firstName ?? "").replace(/[^\p{L}\s'’-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 30);
+  return text.replace(/ ?\{prenom\}/g, name ? ` ${name}` : "");
+};
 
 function htmlBody(message: Message, firstName: string | null, unsubscribeUrl: string | null): string {
   const paragraphs = personalize(message.body, firstName)
@@ -163,32 +166,63 @@ async function sendEmail(message: Message, to: Recipient): Promise<boolean> {
   }
 }
 
+// Envoie l'annonce aux destinataires qui ne l'ont pas encore reçue (chaque envoi est noté
+// dans broadcast_deliveries), puis recompte. Relancée telle quelle pour reprendre un envoi coupé.
 async function sendAll(id: number, message: Message, recipients: Recipient[]) {
-  let sent = 0;
+  const { data: done } = await db.from("broadcast_deliveries").select("user_id").eq("broadcast_id", id).eq("ok", true);
+  const already = new Set((done ?? []).map((d) => d.user_id));
+  const todo = recipients.filter((r) => !already.has(r.user_id));
+  let sent = already.size;
   let failed = 0;
   let next = 0;
-  const progress = () =>
-    db.from("broadcasts").update({ email_sent: sent, email_failed: failed }).eq("id", id);
+  let handled = 0;
 
   async function worker() {
-    while (next < recipients.length) {
-      const to = recipients[next++];
-      if (await sendEmail(message, to)) sent++;
+    while (next < todo.length) {
+      const to = todo[next++];
+      const ok = await sendEmail(message, to);
+      if (ok) sent++;
       else failed++;
-      if ((sent + failed) % PROGRESS_EVERY === 0) await progress();
+      await db.from("broadcast_deliveries").upsert({ broadcast_id: id, user_id: to.user_id, ok, sent_at: new Date().toISOString() });
+      if (++handled % PROGRESS_EVERY === 0) {
+        await db.from("broadcasts").update({ email_sent: sent, email_failed: failed }).eq("id", id);
+      }
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(PARALLEL, recipients.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, todo.length) }, worker));
   await db
     .from("broadcasts")
     .update({
+      email_total: recipients.length,
       email_sent: sent,
       email_failed: failed,
       email_status: failed === 0 ? "envoye" : sent === 0 ? "echec" : "partiel",
       finished_at: new Date().toISOString(),
     })
     .eq("id", id);
+}
+
+// Une fonction Edge est coupée au bout de quelques minutes : passé ce délai, un envoi
+// resté « en cours » est considéré comme interrompu et peut être repris.
+const STALE_MINUTES = 7;
+
+async function resume(id: number, origin: string | null): Promise<Response> {
+  const staleBefore = new Date(Date.now() - STALE_MINUTES * 60000).toISOString();
+  const { data: row } = await db
+    .from("broadcasts")
+    .update({ email_status: "envoi", email_started_at: new Date().toISOString(), finished_at: null })
+    .eq("id", id)
+    .contains("channels", ["email"])
+    .or(`email_status.in.(partiel,echec),and(email_status.eq.envoi,email_started_at.lt.${staleBefore})`)
+    .select("id, subject, body, audience")
+    .maybeSingle();
+  if (!row) return json(409, { error: "Cet envoi tourne encore ou est déjà terminé." }, origin);
+  const { data, error } = await db.rpc("broadcast_recipients", { p_audience: row.audience });
+  if (error) return json(500, { error: "Lecture des destinataires impossible." }, origin);
+  const recipients: Recipient[] = data ?? [];
+  EdgeRuntime.waitUntil(sendAll(row.id, row as Message, recipients));
+  return json(200, { id: row.id, emails: recipients.length, resumed: true }, origin);
 }
 
 // Réveille la fonction « push » (fil des notifications) ; sans elle, l'annonce reste en attente.
@@ -247,6 +281,8 @@ Deno.serve(async (req) => {
   const { data: admin } = await db.from("admins").select("user_id").eq("user_id", user.id).maybeSingle();
   if (!admin) return json(403, { error: "Réservé aux administrateurs." }, origin);
 
+  if (typeof body.resume === "number") return resume(body.resume, origin);
+
   const message = parseMessage(body);
   if (typeof message === "string") return json(400, { error: message }, origin);
 
@@ -266,6 +302,17 @@ Deno.serve(async (req) => {
       : json(502, { error: "Postal a refusé le test, voir les journaux de la fonction." }, origin);
   }
 
+  // Double clic ou nouvel essai : la même annonce n'est pas renvoyée dans les dix minutes.
+  const { data: twin } = await db
+    .from("broadcasts")
+    .select("id")
+    .eq("subject", message.subject)
+    .eq("body", message.body)
+    .gt("created_at", new Date(Date.now() - 10 * 60000).toISOString())
+    .limit(1)
+    .maybeSingle();
+  if (twin) return json(409, { error: "Cette annonce vient déjà de partir." }, origin);
+
   let recipients: Recipient[] = [];
   if (wantsEmail) {
     const { data, error } = await db.rpc("broadcast_recipients", { p_audience: message.audience });
@@ -284,6 +331,7 @@ Deno.serve(async (req) => {
       created_by: user.id,
       email_status: wantsEmail ? (recipients.length ? "envoi" : "envoye") : null,
       email_total: recipients.length,
+      email_started_at: wantsEmail ? new Date().toISOString() : null,
       push_status: wantsPush ? "en_attente" : null,
       finished_at: wantsEmail && recipients.length ? null : new Date().toISOString(),
     })

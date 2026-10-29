@@ -59,6 +59,7 @@ export type Broadcast = {
   email_total: number;
   email_sent: number;
   email_failed: number;
+  email_started_at: string | null;
   push_status: string | null;
   push_sent: number;
 };
@@ -114,7 +115,7 @@ export async function userUsage(userId: string): Promise<{ day: string; messages
 export async function listBroadcasts(): Promise<Broadcast[]> {
   const { data, error } = await supabase
     .from('broadcasts')
-    .select('id, subject, audience, channels, created_at, email_status, email_total, email_sent, email_failed, push_status, push_sent')
+    .select('id, subject, audience, channels, created_at, email_status, email_total, email_sent, email_failed, email_started_at, push_status, push_sent')
     .order('created_at', { ascending: false })
     .limit(20);
   if (error) fail(error);
@@ -134,6 +135,9 @@ async function invokeAnnonces<T>(body: Record<string, unknown>): Promise<T> {
 
 export const sendBroadcast = (input: BroadcastInput) =>
   invokeAnnonces<{ id?: number; emails?: number; push?: boolean; test?: boolean; email?: string }>({ ...input });
+
+// Reprend un envoi d'e-mails coupé : seuls ceux qui ne l'ont pas reçu sont servis.
+export const resumeBroadcast = (id: number) => invokeAnnonces<{ emails?: number }>({ resume: id });
 
 // Lien « Ne plus recevoir les nouvelles » des e-mails : michel.beer/?desabonnement=<id>.<jeton>
 export async function unsubscribeFromNews(token: string): Promise<void> {
