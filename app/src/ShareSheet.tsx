@@ -16,7 +16,7 @@ export function ShareSheet({ card, onClose }: { card: Card; onClose: () => void 
     try {
       await share();
     } catch {
-      setError("Boudu, l'image veut pas partir. Réessaie, con.");
+      setError("Miladiou, l'image veut pas partir. Réessaie, con.");
     } finally {
       setBusy(false);
     }
