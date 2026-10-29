@@ -72,7 +72,7 @@ function page(entrees) {
 <link rel="stylesheet" href="/legal.css">
 </head>
 <body>
-<header><div><span class="logo">MichelIA</span><a href="/">Parler à Michel</a></div></header>
+<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/">Parler à Michel</a></div></header>
 <main>
 <h1>Les nouveautés de Michel</h1>
 <p class="maj">Dernière mise à jour : ${entrees.length ? dateLongue(entrees[0].date) : '—'}</p>

@@ -26,7 +26,8 @@ header {
 header div, main, footer { max-width: 720px; margin: 0 auto; padding: 0 16px; }
 header div { display: flex; align-items: center; justify-content: space-between; height: 56px; }
 header a { color: var(--brique); text-decoration: none; font-weight: 600; }
-.logo { font-family: ui-serif, "New York", Georgia, serif; font-size: 20px; color: var(--encre); }
+.logo { display: flex; align-items: center; }
+.logo img { display: block; height: 40px; width: auto; }
 main { padding-top: 32px; padding-bottom: 48px; }
 h1 { font-family: ui-serif, "New York", Georgia, serif; font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
 .maj { color: var(--gris); font-size: 14px; margin: 0 0 32px; }
