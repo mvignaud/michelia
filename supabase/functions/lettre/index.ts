@@ -39,6 +39,8 @@ const PARALLEL = 8;
 const PROGRESS_EVERY = 50;
 // Passé ce délai, une lettre restée « en cours » a été coupée : on la reprend.
 const STALE_MINUTES = 7;
+// Une lettre partie en partie (ou pas du tout) est retentée chaque matin pendant ces jours-là.
+const RETRY_DAYS = 3;
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -371,9 +373,11 @@ async function sendAll(id: number, l: Lettre) {
 // Rebâtit une lettre déjà réservée à partir des clés enregistrées (pour une reprise).
 async function rebuild(row: { id: number; created_at: string; subject: string; entrees: string[] }): Promise<Lettre> {
   const carnet = await lireCarnet();
-  const keys = new Set(row.entrees);
+  // Dans l'ordre enregistré, pour raconter les mêmes nouveautés qu'aux premiers servis.
+  const parCle = new Map(carnet.map((e) => [cle(e), e]));
+  const entrees = row.entrees.map((k) => parCle.get(k)).filter((e): e is Entree => !!e);
   const { count } = await db.from("lettres").select("id", { count: "exact", head: true }).lt("id", row.id);
-  const lettre = composer(carnet.filter((e) => keys.has(cle(e))), !count, row.id);
+  const lettre = composer(entrees, !count, row.id);
   return { ...lettre, subject: row.subject, date: new Date(row.created_at) };
 }
 
@@ -384,16 +388,18 @@ async function tick(origin: string | null): Promise<Response> {
   if (config.lettre_enabled !== "true") return json(200, { skipped: "lettre_enabled" }, origin);
   if (!configured()) return json(500, { error: "Secrets POSTAL_API_URL, POSTAL_API_KEY et UNSUBSCRIBE_SECRET manquants." }, origin);
 
-  // Une lettre coupée en route : on la termine avant toute chose.
+  // Une lettre coupée en route, ou que Postal a refusée en partie : on la termine avant toute
+  // chose (ceux qui l'ont reçue sont sautés). Un échec est retenté chaque matin pendant RETRY_DAYS jours.
   const staleBefore = new Date(Date.now() - STALE_MINUTES * 60000).toISOString();
-  const { data: stale } = await db
+  const retryAfter = new Date(Date.now() - RETRY_DAYS * 86400000).toISOString();
+  const { data: reprises } = await db
     .from("lettres")
-    .update({ email_started_at: new Date().toISOString() })
-    .eq("email_status", "envoi")
-    .lt("email_started_at", staleBefore)
+    .update({ email_status: "envoi", email_started_at: new Date().toISOString(), finished_at: null })
+    .or(`and(email_status.eq.envoi,email_started_at.lt.${staleBefore}),and(email_status.in.(partiel,echec),finished_at.gt.${retryAfter})`)
     .select("id, created_at, subject, entrees")
-    .limit(1)
-    .maybeSingle();
+    .order("id");
+  // Une à la fois ; une autre, rare, sera « coupée » au prochain passage et reprise alors.
+  const stale = reprises?.[0];
   if (stale) {
     EdgeRuntime.waitUntil(rebuild(stale).then((l) => sendAll(stale.id, l)).catch((e) => console.error("Reprise :", e)));
     return json(200, { resumed: stale.id }, origin);
