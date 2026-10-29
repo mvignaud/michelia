@@ -59,9 +59,15 @@ async function http(url, { method = 'GET', token, body, form } = {}) {
     body: body ? JSON.stringify(body) : form ? new URLSearchParams(form) : undefined,
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // Page HTML (404, adresse inconnue…) : on garde le statut, pas la page.
+    if (res.ok) throw new Error(`réponse illisible de ${new URL(url).pathname}`);
+  }
   if (!res.ok) {
-    const detail = data?.errors?.[0]?.detail ?? data?.error?.message ?? data?.message ?? text.slice(0, 300);
+    const detail = data?.errors?.[0]?.detail ?? data?.error?.message ?? data?.message ?? (data ? text.slice(0, 300) : `page HTML sur ${new URL(url).pathname}`);
     const err = new Error(`${res.status} ${detail}`);
     err.status = res.status;
     throw err;
@@ -262,7 +268,9 @@ async function google() {
   const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/onetimeproducts`;
   const api = (path, opts) => http(`${base}${path}`, { token, ...opts });
   // Sert aussi de vérification des droits, même en essai.
-  const existants = (await api('?pageSize=100')).oneTimeProducts ?? [];
+  // Attention à la casse : liste et mise en vente sous « oneTimeProducts », création sous « onetimeproducts ».
+  const liste = base.replace('onetimeproducts', 'oneTimeProducts');
+  const existants = (await http(`${liste}?pageSize=100`, { token })).oneTimeProducts ?? [];
   const euros = (prix) => {
     const [u, c = '0'] = String(prix).split('.');
     return { currencyCode: 'EUR', units: u, nanos: Number(c.padEnd(2, '0')) * 10_000_000 };
@@ -302,7 +310,7 @@ async function google() {
     if (actif) dire('  déjà en vente');
     else
       await agir('mise en vente', () =>
-        http(`${base.replace('onetimeproducts', 'oneTimeProducts')}/${sku}/purchaseOptions:batchUpdateStates`, {
+        http(`${liste}/${sku}/purchaseOptions:batchUpdateStates`, {
           method: 'POST',
           token,
           body: { requests: [{ activatePurchaseOptionRequest: { packageName: PACKAGE, productId: sku, purchaseOptionId: OPTION } }] },
