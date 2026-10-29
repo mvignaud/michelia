@@ -25,18 +25,24 @@ const LINES: Record<string, string[]> = {
 
 const KEY = 'michelia:dernier-accueil';
 
-// Renvoie le mot d'accueil une seule fois par connexion (pas à chaque rechargement de la page).
+// Renvoie le mot d'accueil une seule fois par connexion : ni à chaque réouverture de l'appli, ni quand
+// Supabase rafraîchit la session (ce qui change last_sign_in_at). Le repère est effacé à la déconnexion.
 export async function loginGreeting(session: Session | null): Promise<string | undefined> {
   const user = session?.user;
-  if (!user || user.is_anonymous || !user.last_sign_in_at) return undefined;
-  const marker = `${user.id}:${user.last_sign_in_at}`;
+  if (!user || user.is_anonymous) return undefined;
   try {
-    if ((await AsyncStorage.getItem(KEY)) === marker) return undefined;
-    await AsyncStorage.setItem(KEY, marker);
+    // Les anciens repères valaient « id:date » : seul l'identifiant compte désormais.
+    if ((await AsyncStorage.getItem(KEY))?.split(':')[0] === user.id) return undefined;
+    await AsyncStorage.setItem(KEY, user.id);
   } catch {
     return undefined;
   }
   const provider = String(user.app_metadata?.provider ?? 'email');
   const lines = LINES[provider] ?? LINES.email;
   return lines[Math.floor(Math.random() * lines.length)];
+}
+
+// À la déconnexion : la prochaine connexion aura de nouveau droit à son petit mot.
+export function forgetLoginGreeting() {
+  AsyncStorage.removeItem(KEY).catch(() => undefined);
 }
