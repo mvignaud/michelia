@@ -74,7 +74,10 @@ export function CaptchaHost() {
               onError={() => finish()}
               onHttpError={() => finish()}
               style={styles.web}
-              originWhitelist={['https://*']}
+              // Turnstile charge ses cadres internes en about:blank : une liste « https://* » les bloquait.
+              // On laisse tout passer dans les cadres, mais la page elle-même ne quitte pas michel.beer.
+              originWhitelist={['*']}
+              onShouldStartLoadWithRequest={(r) => !r.isTopFrame || r.url.startsWith('https://michel.beer/')}
             />
           </View>
         </View>
