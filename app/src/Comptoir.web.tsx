@@ -12,6 +12,7 @@ export function Comptoir() {
   // Palier en cours de paiement (le formulaire Stripe est monté dessous) et message d'erreur.
   const [paying, setPaying] = useState<string | null>(null);
   const [problem, setProblem] = useState(false);
+  const [ready, setReady] = useState(false);
   // Merci à afficher : au retour de Stripe (/comptoir?merci=<id du palier>) ou à la fin du paiement intégré.
   const [thanks, setThanks] = useState<string | null>(() => new URLSearchParams(window.location.search).get('merci'));
 
@@ -25,6 +26,7 @@ export function Comptoir() {
   // puis montée dans le conteneur CHECKOUT_ID. Le nettoyage détruit le formulaire (Changer d'avis, merci).
   const cle = data?.stripe_cle_publique;
   useEffect(() => {
+    setReady(false);
     if (!paying || !cle) return;
     let cancelled = false;
     let checkout: StripeEmbeddedCheckout | undefined;
@@ -45,6 +47,7 @@ export function Comptoir() {
         });
         if (cancelled) return checkout.destroy();
         checkout.mount(`#${CHECKOUT_ID}`);
+        setReady(true);
       } catch (e) {
         // Le détail reste dans la console du navigateur, pour le diagnostic.
         console.error('Comptoir : paiement impossible', e);
@@ -136,9 +139,9 @@ export function Comptoir() {
 
             {paying && (
               <View style={styles.card}>
-                <View nativeID={CHECKOUT_ID} style={styles.checkout}>
-                  <ActivityIndicator color={colors.accent} style={styles.padded} />
-                </View>
+                {!ready && <ActivityIndicator color={colors.accent} style={styles.padded} />}
+                {/* Stripe exige un conteneur sans enfant : rien d'autre dedans. */}
+                <View nativeID={CHECKOUT_ID} style={styles.checkout} />
                 <Pressable onPress={() => setPaying(null)} accessibilityRole="button">
                   <Text style={styles.changed}>Changer d'avis</Text>
                 </Pressable>
