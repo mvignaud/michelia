@@ -69,12 +69,13 @@ async function findPalier(amount: number, metadata: Record<string, string> | nul
   try {
     paliers = JSON.parse(data?.value ?? "[]");
   } catch {
-    // JSON mal rempli : on retombe sur les métadonnées.
+    // JSON mal rempli : on retombe sur « autre ».
   }
-  const byAmount = paliers.find((p) => p.prix_cents === amount);
-  if (byAmount) return byAmount.id;
+  // D'abord le palier choisi sur la page (metadata.palier), puis, à défaut, le montant payé.
   const fromMetadata = metadata?.palier;
   if (fromMetadata && paliers.some((p) => p.id === fromMetadata)) return fromMetadata;
+  const byAmount = paliers.find((p) => p.prix_cents === amount);
+  if (byAmount) return byAmount.id;
   return "autre";
 }
 

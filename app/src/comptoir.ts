@@ -1,12 +1,14 @@
 import { supabase } from './supabase';
 
-// Le comptoir de Michel : pourboires sur le WEB UNIQUEMENT (règle Apple 3.1.1). Ce fichier n'est
+// Le comptoir de Michel : pourboires, payés dans la page par Stripe Embedded Checkout, sur le WEB UNIQUEMENT (règle Apple 3.1.1). Ce fichier n'est
 // importé que par les fichiers .web.tsx, jamais par les applis iOS et Android.
 
-export type Palier = { id: string; nom: string; prix_cents: number; url: string; merci: string };
+export type Palier = { id: string; nom: string; prix_cents: number; merci: string };
 
 export type Comptoir = {
   actif: boolean;
+  // Clé publiable Stripe (pk_…), publique par nature ; le secret reste dans les Edge Functions.
+  stripe_cle_publique: string;
   paliers: Palier[];
   note_du_mois: { cout_eur: number; recu_eur: number; pourcent: number };
   carnet: string[];
@@ -24,6 +26,12 @@ export function loadComptoir(): Promise<Comptoir> {
     return data as Comptoir;
   });
   return loading;
+}
+
+// Relecture après un paiement : la note du mois et le carnet ont bougé.
+export function reloadComptoir(): Promise<Comptoir> {
+  loading = null;
+  return loadComptoir();
 }
 
 export const euros = (cents: number) =>
