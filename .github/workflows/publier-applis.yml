@@ -66,7 +66,10 @@ jobs:
             const tmp = process.env.RUNNER_TEMP;
             const ci = { ios: { ...eas.submit.production.ios }, android: { track: process.env.PISTE, releaseStatus: "draft" } };
             if (fs.existsSync(tmp + "/asc.p8")) {
-              Object.assign(ci.ios, { ascApiKeyPath: tmp + "/asc.p8", ascApiKeyId: process.env.ASC_KEY_ID, ascApiKeyIssuerId: process.env.ASC_ISSUER_ID });
+              // ID de clé (10 caractères) et ID émetteur (UUID) remis dans le bon ordre si inversés.
+              let [id, iss] = [process.env.ASC_KEY_ID.trim(), process.env.ASC_ISSUER_ID.trim()];
+              if (id.includes("-") && !iss.includes("-")) [id, iss] = [iss, id];
+              Object.assign(ci.ios, { ascApiKeyPath: tmp + "/asc.p8", ascApiKeyId: id, ascApiKeyIssuerId: iss });
             }
             if (fs.existsSync(tmp + "/play.json")) ci.android.serviceAccountKeyPath = tmp + "/play.json";
             eas.submit.ci = ci;
