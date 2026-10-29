@@ -37,6 +37,8 @@ Vérifier sur expo.dev que les deux builds portent bien le numéro prévu. Sinon
 
 ## 3. Coller les notes et soumettre
 
+Les notes peuvent partir toutes seules : **GitHub > Actions > « Fiches des stores »**, avec le numéro de build (essai d'abord, puis « appliquer »). La même tâche remet aussi à jour les textes des fiches (`app/store/fiche.json`) et les images Google. Il reste à choisir le build et à l'envoyer en vérification dans chaque console :
+
 - **App Store Connect** > MichelIA > nouvelle version (+ en haut à gauche, le même numéro de version que celui passé au script, par ex. 1.0.1) > « Nouveautés de cette version » : coller les notes Apple. Choisir le build, puis « Ajouter pour vérification ».
 - **Play Console** > MichelIA > Tests ou Production > Créer une version > choisir le build envoyé par EAS > « Notes de version » : coller le bloc Google, balises `<fr-FR>` comprises.
 
@@ -50,6 +52,8 @@ Cocher la checklist du fichier `builds/<n>.md` au fil de l'eau.
 - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` : App Store Connect > Utilisateurs et accès > Intégrations > Clés d'API (rôle Admin ou App Manager). `ASC_KEY_P8` = le contenu complet du fichier `.p8`.
 - `PLAY_SERVICE_ACCOUNT_JSON` : le fichier JSON d'un compte de service Google Cloud invité dans la Play Console (droits « Gérer les versions » et « Gérer les produits intégrés »).
 - `REVENUECAT_API_KEY` : RevenueCat > Project settings > API keys > clé secrète v2 (`sk_…`), droits lecture/écriture sur les produits.
+
+La tâche **« Fiches des stores »** (`app/scripts/fiches.mjs`) met en ligne les textes de `app/store/fiche.json`, les images Google et les notes d'un build.
 
 La tâche **« Boutiques »** crée ou met à jour les produits du comptoir chez Apple, Google et RevenueCat (`app/scripts/boutiques.mjs`). La lancer d'abord sans cocher « appliquer » : elle affiche seulement ce qu'elle ferait.
 

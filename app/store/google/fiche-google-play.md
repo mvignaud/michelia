@@ -4,6 +4,8 @@ Play Console > MichelIA > **Développer l'audience > Présence sur le Play Store
 
 ## Images (dans ce dossier)
 
+Envoyées aussi par la tâche « Fiches des stores » (remplacées seulement si elles ont changé).
+
 - **Icône de l'appli** (512 × 512) : `icone-512.png`
 - **Image de présentation** (1024 × 500) : `banniere-1024x500.png`
 - **Captures d'écran pour téléphone** (1080 × 1920) : `android-1-accueil.png` … `android-4-inflation.png`
@@ -11,29 +13,7 @@ Play Console > MichelIA > **Développer l'audience > Présence sur le Play Store
 
 ## Textes
 
-**Nom de l'appli** (30 car. max)
-MichelIA
-
-**Description courte** (80 car. max)
-Michel, papi gersois coincé dans l'ordi, répond à tout. Gratuit, sans pub.
-
-**Description complète** (4000 car. max)
-Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, pardi !
-
-MichelIA est une intelligence artificielle gratuite qui parle comme un vrai papi du Gers : franc du collier, un avis sur tout, et l'accent qui va avec.
-
-Ce que Michel sait faire :
-• Répondre à tes questions de tous les jours, simplement
-• Écrire un mot, un message ou une lettre pour toi
-• Te donner une recette (la garbure, il connaît)
-• T'expliquer les choses compliquées avec des mots de chez nous
-• Se souvenir de ton prénom et de votre conversation
-
-Tu peux l'utiliser sans compte. Si tu veux retrouver tes conversations sur tous tes appareils, connecte-toi avec Google, Facebook, ton e-mail ou ton numéro de téléphone.
-
-Pas de pub, et tes questions ne servent pas à faire du ciblage.
-
-Michel est une IA qui joue un personnage : ce n'est pas un vrai humain, et il peut se tromper. Pour la santé, le droit ou l'argent, demande toujours à un professionnel.
+Les textes de la fiche sont dans [`app/store/fiche.json`](../fiche.json). Ils se mettent en ligne tout seuls avec **GitHub > Actions > « Fiches des stores »** : lancer d'abord en essai, puis cocher « appliquer ».
 
 ## Coordonnées (Présence sur le Play Store > Paramètres de la fiche)
 

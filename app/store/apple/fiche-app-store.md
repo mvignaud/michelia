@@ -8,48 +8,13 @@
 - **iPhone Duo** (2007 × 2853, facultatif) : `duo-1-accueil.png` … `duo-4-inflation.png`
 - **iPad 13 pouces** (2064 × 2752) : `ipad-1-accueil.png` … `ipad-4-inflation.png` (obligatoires, l'appli tourne aussi sur iPad)
 
-Glisse-les dans « Aperçus d'app et captures d'écran ». L'en-tête est facultatif, on peut laisser vide.
+Glisse-les dans « Aperçus d'app et captures d'écran » (les captures Apple restent à la main). L'en-tête est facultatif, on peut laisser vide.
 
 ## Textes
 
-**Nom** (30 car. max)
-MichelIA
+Les textes de la fiche sont dans [`app/store/fiche.json`](../fiche.json). Ils se mettent en ligne tout seuls avec **GitHub > Actions > « Fiches des stores »** : lancer d'abord en essai, puis cocher « appliquer ».
 
-**Sous-titre** (30 car. max)
-Le papi du Gers dans ta poche
-
-**Texte promotionnel** (170 car. max)
-Adishatz ! Michel, papi gersois coincé dans la machine, répond à toutes tes questions avec son franc-parler du Sud-Ouest. Gratuit, sans pub.
-
-**Description**
-Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, pardi !
-
-MichelIA est une intelligence artificielle gratuite qui parle comme un vrai papi du Gers : franc du collier, un avis sur tout, et l'accent qui va avec.
-
-Ce que Michel sait faire :
-• Répondre à tes questions de tous les jours, simplement
-• Écrire un mot, un message ou une lettre pour toi
-• Te donner une recette (la garbure, il connaît)
-• T'expliquer les choses compliquées avec des mots de chez nous
-• Se souvenir de ton prénom et de votre conversation
-
-Tu peux l'utiliser sans compte. Si tu veux retrouver tes conversations sur tous tes appareils, connecte-toi avec Apple, Google, Facebook, ton e-mail ou ton numéro de téléphone.
-
-Pas de pub, et tes questions ne servent pas à faire du ciblage.
-
-Michel est une IA qui joue un personnage : ce n'est pas un vrai humain, et il peut se tromper. Pour la santé, le droit ou l'argent, demande toujours à un professionnel.
-
-**Mots-clés** (100 car. max, séparés par des virgules, sans espace)
-ia,assistant,chat,gers,sud-ouest,papi,humour,gascon,questions,recette,occitan,intelligence
-
-**URL d'assistance**
-https://michel.beer
-
-**URL marketing** (facultatif)
-https://michel.beer
-
-**Copyright**
-2026 LEMBARRY
+**Copyright** (à la main, champ de la version) : 2026 LEMBARRY, à passer à GOLDEN PRINT quand le compte Apple aura changé d'entité.
 
 ## Informations générales de l'app
 
