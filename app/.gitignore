@@ -46,3 +46,6 @@ yarn-error.*
 # Générateur du logo (police téléchargée, sorties temporaires)
 assets/brand/fonts/
 assets/brand/out/
+
+# Firebase (appli Android) : variable EAS de type fichier GOOGLE_SERVICES_JSON, pas dans le dépôt public
+google-services.json

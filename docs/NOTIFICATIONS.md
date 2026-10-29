@@ -51,7 +51,7 @@ EAS crée la clé chez Apple et la garde. Rien d'autre à faire. (Pour le faire 
 ### 5. Android (Firebase)
 
 1. [console.firebase.google.com](https://console.firebase.google.com) > **Ajouter un projet** « MichelIA » (Google Analytics inutile).
-2. Dans le projet : **Ajouter une appli** > Android > nom du package `beer.michel.app` > **Enregistrer**, puis télécharger **google-services.json**. Ce fichier ne contient que des identifiants publics (Expo conseille de le versionner) : le déposer dans `app/` et le committer, ou me l'envoyer.
+2. Dans le projet : **Ajouter une appli** > Android > nom du package `beer.michel.app` > **Enregistrer**, puis télécharger **google-services.json**. Il ne contient que des identifiants publics, mais il contient une clé d'API Google que GitHub signalerait : il ne va pas dans le dépôt public. Sur expo.dev > projet michel-ia > **Environment variables** > « Add variable » : nom `GOOGLE_SERVICES_JSON`, type **File** (fichier), environnements preview et production, puis déposer le fichier. `app/app.config.js` le récupère au build. Copie privée : `/mnt/project-files/michelia/google-services.json`.
 3. **Paramètres du projet > Comptes de service > Générer une nouvelle clé privée** : un fichier JSON secret. **Ne jamais le committer.**
 4. expo.dev > projet michel-ia > **Credentials** > Android > `beer.michel.app` > **FCM V1 service account key** > **Add a service account key** > envoyer ce JSON secret.
 
