@@ -1,7 +1,7 @@
 import { Asset } from 'expo-asset';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { CARD_LOGO, CARD_LOGO_RATIO, CARD_RATIO, CARD_SITE, CARD_TAGLINE, CARD_WIDTH, type Card } from './shareCard';
+import { CARD_LOGO, CARD_LOGO_RATIO, CARD_RATIO, CARD_SITE, CARD_TAGLINE, CARD_WIDTH, type Card } from './shareCardModel';
 import { colors } from './theme';
 
 // Web : la carte est dessinée sur un canvas, en 1080 px de large, puis partagée
