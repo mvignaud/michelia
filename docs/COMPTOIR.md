@@ -1,6 +1,8 @@
 # Le comptoir de Michel
 
-Pourboires **sur le web uniquement** (michel.beer/comptoir), avec **Stripe Elements** (session Checkout en `ui_mode: elements`) : notre propre formulaire aux couleurs de Michel, seuls les champs de carte viennent de Stripe, sans redirection. Rien dans les applis iOS et Android (règle Apple 3.1.1) : le code du comptoir est dans des fichiers `.web.tsx`, les applis n'en contiennent rien.
+Pourboires sur le web (michel.beer/comptoir), avec **Stripe Elements** (session Checkout en `ui_mode: elements`) : notre propre formulaire aux couleurs de Michel, seuls les champs de carte viennent de Stripe, sans redirection. Le code web est dans des fichiers `.web.tsx`.
+
+Dans les applis iOS et Android, **jamais Stripe** (règle Apple 3.1.1) : achat intégré Apple / Google, géré par **RevenueCat** (`react-native-purchases`, fichier `app/src/Comptoir.tsx`, lien « Le comptoir » en bas du chat). Voir « Applis » plus bas. Les deux alimentent la même table `pourboires` (colonne `canal` : `web`, `ios`, `android`), donc la même note du mois et le même carnet.
 
 ## Mise en route
 
@@ -20,6 +22,24 @@ Pourboires **sur le web uniquement** (michel.beer/comptoir), avec **Stripe Eleme
 8. **Ouvrir** : `update public.app_config set value = 'true' where key = 'comptoir_actif';` (remettre `'false'` pour fermer : la page affiche « le comptoir ouvre bientôt » et le rappel dans le chat disparaît). Le comptoir reste fermé tant que `stripe_cle_publique` est vide.
 
 Les noms et prix des paliers se changent dans `comptoir_paliers` (le prix est lu côté serveur, jamais envoyé par le navigateur).
+
+## Applis (achat intégré)
+
+1. **SQL** : lancer `supabase/migrations/20261029170000_comptoir_applis.sql` (rejouable) dans le SQL Editor.
+2. **App Store Connect** > MichelIA > Monétisation > Achats intégrés : créer 4 achats **consommables**, identifiants `pourboire_cafe`, `pourboire_croustade`, `pourboire_garbure`, `pourboire_fete`, aux prix 1,99 / 2,99 / 4,99 / 9,99 € (France), nom et description en français, capture d'écran de l'écran du comptoir pour la revue. Signer le contrat « Applis payantes » (Accords, taxes et banque) si ce n'est pas fait, et s'inscrire au **Small Business Program** (commission 15 %).
+3. **Google Play Console** > MichelIA > Monétiser > Produits intégrés : les 4 mêmes identifiants, produits ponctuels, mêmes prix. Il faut un compte marchand Google Payments (profil de paiement) relié à la console.
+4. **RevenueCat** (gratuit jusqu'à 2 500 $/mois) : créer le projet MichelIA, ajouter l'appli iOS (identifiant `beer.michel.app`, clé In-App Purchase d'App Store Connect) et l'appli Android (`beer.michel.app`, compte de service Google), importer les 4 produits.
+5. **Clés SDK publiques** (`appl_…` et `goog_…`, RevenueCat > Project settings > API keys), dans le SQL Editor :
+   ```sql
+   update public.app_config set value = 'appl_…' where key = 'revenuecat_cle_ios';
+   update public.app_config set value = 'goog_…' where key = 'revenuecat_cle_android';
+   ```
+6. **Webhook** : déployer la fonction `revenuecat-webhook` (`verify_jwt = false` déjà dans `supabase/config.toml`). Inventer un long secret, le mettre dans **Supabase > Edge Functions > Secrets** sous `REVENUECAT_WEBHOOK_AUTH`, puis dans RevenueCat > Integrations > Webhooks : URL `https://nuulykhqaeecqerfwdsn.supabase.co/functions/v1/revenuecat-webhook`, en-tête Authorization `Bearer <le secret>`.
+7. **Build** : nouveau build des applis (le module d'achat intégré est du code natif).
+8. **Tester** avec un compte sandbox Apple / un testeur de licence Google : passer `comptoir_sandbox` à `'true'` pour que ces achats de test soient enregistrés, puis le remettre à `'false'` et supprimer les lignes de test.
+9. **Ouvrir** : `update public.app_config set value = 'true' where key = 'comptoir_appli_actif';` Le lien « Le comptoir » n'apparaît que si le comptoir des applis est ouvert et que la clé de la boutique est remplie. Le comptoir web reste réglé à part (`comptoir_actif`).
+
+Le produit d'un palier s'appelle toujours `pourboire_<id du palier>`. Le prix affiché dans l'appli est celui de la boutique ; le montant enregistré est le prix payé TTC (avant la commission d'Apple ou de Google).
 
 ## Tester
 

@@ -34,3 +34,8 @@ verify_jwt = false
 # Les visiteurs du comptoir n'ont pas forcément de session : la fonction ne crée qu'une session de
 # paiement Stripe, au prix lu dans app_config (jamais fourni par le client), et vérifie l'origine.
 verify_jwt = false
+
+[functions.revenuecat-webhook]
+# Appelée par RevenueCat, qui n'a pas de JWT Supabase : l'authenticité vient de l'en-tête
+# Authorization, comparé dans la fonction à REVENUECAT_WEBHOOK_AUTH.
+verify_jwt = false

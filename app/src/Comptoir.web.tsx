@@ -8,7 +8,7 @@ import { colors, serif } from './theme';
 
 // Page /comptoir (web seulement) : les pourboires, payés dans notre propre formulaire. Seuls les champs
 // de paiement viennent de Stripe (Payment Element d'une session Checkout ui_mode elements).
-export function Comptoir() {
+export function Comptoir(_props: { onClose?: () => void }) {
   const [data, setData] = useState<Data>();
   const [failed, setFailed] = useState(false);
   // Palier en cours de paiement (le formulaire est affiché dessous) et message d'erreur.
