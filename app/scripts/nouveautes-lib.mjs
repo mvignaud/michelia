@@ -62,3 +62,36 @@ export function lireNouveautes() {
   const derniere = (e) => (e.prs.length ? Math.max(...e.prs) : Infinity);
   return entrees.sort((a, b) => b.date.localeCompare(a.date) || derniere(b) - derniere(a) || b.nom.localeCompare(a.nom));
 }
+
+// Rendu HTML partagé par les pages générées (nouveautés, « Ça mijote »).
+export const echapper = (s) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// Un Markdown réduit : paragraphes, listes « - », **gras**, *italique*, [lien](https://…).
+export function enLigne(s) {
+  return echapper(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g, '<a href="$2">$1</a>');
+}
+export function versHtml(md) {
+  return md
+    .split(/\n{2,}/)
+    .map((bloc) => {
+      const lignes = bloc.split('\n');
+      if (lignes.every((l) => /^- /.test(l)))
+        return `<ul>${lignes.map((l) => `<li>${enLigne(l.slice(2))}</li>`).join('')}</ul>`;
+      return `<p>${enLigne(lignes.join(' '))}</p>`;
+    })
+    .join('\n');
+}
+
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+export const dateLongue = (iso) => {
+  const [a, m, j] = iso.split('-').map(Number);
+  return `${j === 1 ? '1er' : j} ${MOIS[m - 1]} ${a}`;
+};
+
+
+// Pied de page commun aux pages générées.
+export const PIED = `<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/ca-mijote">Ça mijote</a> · <a href="/cahier-de-doleances">Améliore Michel</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>`;
