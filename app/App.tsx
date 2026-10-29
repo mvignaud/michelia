@@ -30,6 +30,7 @@ import { InstallCard } from './src/InstallCard';
 import { NotifyCard } from './src/NotifyCard';
 import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
+import { noterReponse, nouvelleCle } from './src/notes';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
 import { pickPhoto, photoUri, type Photo } from './src/photo';
 import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
@@ -63,7 +64,8 @@ const LEGAL_LINKS = [
 ];
 
 // « local » : mot de Michel affiché seulement ici, jamais renvoyé à l'IA ni gardé en mémoire.
-type Bubble = ChatMessage & { id: string; failed?: boolean; local?: boolean };
+// « note » : les étoiles données à une réponse de Michel (cle : son identifiant pour la base).
+type Bubble = ChatMessage & { id: string; failed?: boolean; local?: boolean; note?: number; cle?: string };
 
 registerServiceWorker();
 
@@ -71,7 +73,7 @@ let nextId = 0;
 const newId = () => String(nextId++);
 
 // Sur le web seulement, les adresses /comptoir (pourboires) et /cahier-de-doleances (idées pour Michel)
-// ouvrent leur page à la place du chat. Les applis ouvrent le cahier dans le navigateur.
+// ouvrent leur page à la place du chat. Partout, la bulle « Une idée ? » ouvre le cahier par-dessus le chat.
 const PAGES = { '/comptoir': Comptoir, '/cahier-de-doleances': Doleances } as const;
 
 export default function App() {
@@ -105,6 +107,8 @@ function Chat() {
   // Applis : comptoir par achat intégré, proposé seulement s'il est ouvert pour la boutique de l'appareil.
   const [comptoirAppli, setComptoirAppli] = useState(false);
   const [comptoir, setComptoir] = useState(false);
+  // Le cahier de doléances par-dessus le chat : 'idee' depuis la bulle flottante, 'bug' après une mauvaise note.
+  const [doleances, setDoleances] = useState<'idee' | 'bug' | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
   const cookiesRef = useRef<CookieBannerHandle>(null);
   const member = isMember(session);
@@ -272,6 +276,23 @@ function Chat() {
     }
   }
 
+  // Les étoiles : affichées tout de suite, remises comme avant si la base refuse.
+  function rate(index: number, note: number) {
+    const item = bubbles[index];
+    if (!item || item.note === note) return;
+    const cle = item.cle ?? nouvelleCle();
+    const before = item.note;
+    const asked = bubbles[index - 1];
+    setBubbles((all) => all.map((b) => (b.id === item.id ? { ...b, note, cle } : b)));
+    noterReponse({
+      cle,
+      note,
+      reponse: item.content,
+      question: asked?.role === 'user' ? asked.content : undefined,
+      mode,
+    }).catch(() => setBubbles((all) => all.map((b) => (b.id === item.id ? { ...b, note: before } : b))));
+  }
+
   async function attach() {
     try {
       const photo = await pickPhoto();
@@ -353,6 +374,7 @@ function Chat() {
           style={styles.body}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          <View style={styles.body}>
           <FlatList
             ref={listRef}
             data={bubbles}
@@ -423,19 +445,63 @@ function Chat() {
               return (
                 <View>
                   {bubble}
-                  <Pressable
-                    onPress={() => setSharing(makeCard(item.content, asked?.role === 'user' ? asked.content : undefined))}
-                    style={({ pressed }) => [styles.shareLink, pressed && styles.pressed]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Partager cette réponse en image"
-                    hitSlop={8}
-                  >
-                    <Text style={styles.shareLinkText}>Partager</Text>
-                  </Pressable>
+                  <View style={styles.answerTools}>
+                    <View style={styles.stars} accessibilityRole="radiogroup" accessibilityLabel="Note cette réponse">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Pressable
+                          key={n}
+                          onPress={() => rate(index, n)}
+                          style={({ pressed }) => pressed && styles.pressed}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: item.note === n }}
+                          accessibilityLabel={`${n} étoile${n > 1 ? 's' : ''}`}
+                          hitSlop={4}
+                        >
+                          <Text style={[styles.star, (item.note ?? 0) >= n && styles.starOn]}>
+                            {(item.note ?? 0) >= n ? '★' : '☆'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Pressable
+                      onPress={() => setSharing(makeCard(item.content, asked?.role === 'user' ? asked.content : undefined))}
+                      style={({ pressed }) => [styles.shareLink, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Partager cette réponse en image"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.shareLinkText}>Partager</Text>
+                    </Pressable>
+                  </View>
+                  {!!item.note && (
+                    <Text style={styles.rated}>
+                      {item.note >= 4 ? (
+                        'Merci, ça me fait chaud au cœur, con.'
+                      ) : item.note === 3 ? (
+                        'Bon, peut mieux faire. Noté.'
+                      ) : (
+                        <>
+                          {'Pétard, je me suis planté ? '}
+                          <Text style={styles.ratedLink} onPress={() => setDoleances('bug')} accessibilityRole="link">
+                            Dis-moi ce qui coince
+                          </Text>
+                        </>
+                      )}
+                    </Text>
+                  )}
                 </View>
               );
             }}
           />
+          <Pressable
+            onPress={() => setDoleances('idee')}
+            style={({ pressed }) => [styles.idea, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Améliore Michel : une idée, un truc qui coince"
+          >
+            <Text style={styles.ideaText}>💡 Une idée ?</Text>
+          </Pressable>
+          </View>
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
             <ComptoirCard member={member} tick={sentCount} />
@@ -547,6 +613,7 @@ function Chat() {
         )}
         {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
         {comptoir && <Comptoir onClose={() => setComptoir(false)} />}
+        {doleances && <Doleances initialCategorie={doleances} onClose={() => setDoleances(null)} />}
         {sharing && <ShareSheet card={sharing} onClose={() => setSharing(null)} />}
         <CaptchaHost />
         <CookieBanner ref={cookiesRef} />
@@ -610,7 +677,7 @@ const styles = StyleSheet.create({
   modeText: { color: colors.text, fontSize: 14 },
   modeTextActive: { color: colors.onAccent, fontWeight: '600' },
   body: { flex: 1 },
-  list: { ...COLUMN, paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
+  list: { ...COLUMN, paddingHorizontal: 16, paddingTop: 20, paddingBottom: 60, gap: 10 },
   intro: { gap: 16 },
   disclaimer: {
     color: colors.tertiary,
@@ -632,7 +699,27 @@ const styles = StyleSheet.create({
   userText: { color: colors.onAccent, fontSize: 16, lineHeight: 23 },
   photo: { width: 220, maxWidth: '100%', borderRadius: 12, marginVertical: 2 },
   photoNote: { color: colors.onAccent, fontSize: 14, fontStyle: 'italic', opacity: 0.85 },
-  shareLink: { alignSelf: 'flex-start', marginTop: 4, marginLeft: 6 },
+  answerTools: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4, marginLeft: 6 },
+  stars: { flexDirection: 'row', gap: 2 },
+  star: { color: colors.tertiary, fontSize: 18, lineHeight: 22 },
+  starOn: { color: colors.ochre },
+  rated: { color: colors.secondary, fontSize: 13, marginTop: 2, marginLeft: 6 },
+  ratedLink: { color: colors.accent, fontWeight: '600', textDecorationLine: 'underline' },
+  idea: {
+    position: 'absolute',
+    right: 14,
+    bottom: 12,
+    zIndex: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    boxShadow: '0 2px 8px rgba(60, 40, 20, 0.16)',
+  },
+  ideaText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  shareLink: {},
   shareLinkText: { color: colors.secondary, fontSize: 13, fontWeight: '600' },
   thinking: { color: colors.secondary, fontSize: 15, fontStyle: 'italic' },
   suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
