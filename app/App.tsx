@@ -295,6 +295,7 @@ export default function App() {
           <FlatList
             ref={listRef}
             data={bubbles}
+            extraData={busy}
             keyExtractor={(b) => b.id}
             contentContainerStyle={styles.list}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
