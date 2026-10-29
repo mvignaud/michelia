@@ -36,6 +36,8 @@ const PHOTO_BEFORE = "[Ici la personne t'avait montré une photo, que tu ne vois
 const CACHE_MAX_CHARS = 200;
 // Questions sur la météo ou l'actualité : jamais servies depuis le cache, la réponse change chaque jour.
 const FRESH = /m[ée]t[ée]o|temps|pleu|pluie|soleil|neige|orage|chaud|froid|actu|nouvelles|news|info|aujourd|demain|ce soir|week-end|match|score|résultat/i;
+// Demandes de blague : jamais servies depuis le cache, sinon Michel raconte toujours les mêmes.
+const JOKE = /blague|histoire dr[ôo]le|devinette|fais[- ]moi rire/i;
 // Séparateur avant les informations de fin de réponse, lu par l'appli.
 const TRAILER = "\u001e";
 const NAME_TAG = /<prenom>([^<]*)<\/prenom>/;
@@ -225,7 +227,7 @@ function cleanName(value: unknown): string | undefined {
 function cacheable(messages: ChatMessage[]): string | null {
   if (messages.length !== 1 || messages[0].photo) return null;
   const question = messages[0].content.trim();
-  if (question.length > CACHE_MAX_CHARS || /[0-9@]/.test(question) || FRESH.test(question)) return null;
+  if (question.length > CACHE_MAX_CHARS || /[0-9@]/.test(question) || FRESH.test(question) || JOKE.test(question)) return null;
   return question;
 }
 
