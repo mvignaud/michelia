@@ -21,17 +21,19 @@ import {
   loadProfile,
   saveProfile,
   sendPasswordReset,
+  sendPhoneCode,
   setNewPassword,
   signInWithApple,
   signInWithEmail,
   signInWithProvider,
   signOut,
   signUpWithEmail,
+  verifyPhoneCode,
   type Profile,
 } from './auth';
 import { colors, serif } from './theme';
 
-export type AccountMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'profile';
+export type AccountMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'profile' | 'phone';
 
 type Props = {
   session: Session | null;
@@ -50,6 +52,9 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
   const [age, setAge] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -121,6 +126,18 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
       setNotice(`Si un compte existe pour ${email.trim()}, un lien pour changer le mot de passe vient de partir.`);
     });
 
+  const phoneStep = () =>
+    run(async () => {
+      if (!codeSent) {
+        await sendPhoneCode(phone);
+        setCodeSent(true);
+        setNotice('Code envoyé par SMS. Il est valable quelques minutes.');
+      } else {
+        await verifyPhoneCode(phone, code);
+        onClose();
+      }
+    });
+
   const reset = () =>
     run(async () => {
       await setNewPassword(password);
@@ -150,6 +167,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
     forgot: 'Mot de passe oublié',
     reset: 'Nouveau mot de passe',
     profile: 'Mon compte',
+    phone: 'Par SMS',
   };
 
   return (
@@ -182,6 +200,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
             )}
             <ProviderButton label="Continuer avec Google" onPress={() => run(() => signInWithProvider('google'))} />
             <ProviderButton label="Continuer avec Facebook" onPress={() => run(() => signInWithProvider('facebook'))} />
+            <ProviderButton label="Continuer avec mon numéro" onPress={() => go('phone')} />
             <Text style={styles.or}>ou avec ton e-mail</Text>
           </>
         )}
@@ -194,8 +213,36 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
               <Field label="Âge" value={age} onChangeText={setAge} keyboardType="number-pad" maxLength={3} />
             </>
           )}
-          {mode === 'profile' && session?.user.email && (
-            <Text style={styles.email}>Connecté avec {session.user.email}</Text>
+          {mode === 'profile' && (session?.user.email || session?.user.phone) && (
+            <Text style={styles.email}>
+              Connecté avec {session.user.email || `+${session.user.phone?.replace(/^\+/, '')}`}
+            </Text>
+          )}
+          {mode === 'phone' && (
+            <Field
+              label="Numéro de portable"
+              value={phone}
+              onChangeText={(value) => {
+                setPhone(value);
+                setCodeSent(false);
+              }}
+              keyboardType="phone-pad"
+              autoComplete="tel"
+              placeholder="06 12 34 56 78"
+              last={!codeSent}
+            />
+          )}
+          {mode === 'phone' && codeSent && (
+            <Field
+              label="Code reçu par SMS"
+              value={code}
+              onChangeText={setCode}
+              keyboardType="number-pad"
+              autoComplete="sms-otp"
+              textContentType="oneTimeCode"
+              maxLength={8}
+              last
+            />
           )}
           {(mode === 'signin' || mode === 'signup' || mode === 'forgot') && (
             <Field
@@ -226,7 +273,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
         <Pressable
           style={({ pressed }) => [styles.primary, (busy || pressed) && styles.pressed]}
           disabled={busy}
-          onPress={{ signin, signup, forgot, reset, profile: save }[mode]}
+          onPress={{ signin, signup, forgot, reset, profile: save, phone: phoneStep }[mode]}
           accessibilityRole="button"
         >
           {busy ? (
@@ -239,6 +286,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
                 forgot: 'Recevoir le lien',
                 reset: 'Changer le mot de passe',
                 profile: 'Enregistrer',
+                phone: codeSent ? 'Valider le code' : 'Recevoir le code',
               }[mode]}
             </Text>
           )}
@@ -254,6 +302,12 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
           {(mode === 'signup' || mode === 'forgot') && (
             <Link label="Déjà un compte ? Se connecter" onPress={() => go('signin')} />
           )}
+          {mode === 'phone' && (
+            <>
+              {codeSent && <Link label="Renvoyer le code" onPress={() => run(() => sendPhoneCode(phone))} />}
+              <Link label="Plutôt avec un e-mail" onPress={() => go('signin')} />
+            </>
+          )}
           {mode === 'profile' && (
             <>
               <Link label="Se déconnecter" onPress={() => run(async () => { await signOut(); onClose(); })} />
@@ -265,6 +319,13 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
             </>
           )}
         </View>
+
+        {mode === 'phone' && (
+          <Text style={styles.legal}>
+            Le même numéro sert à créer le compte puis à s'y reconnecter. On garde seulement ton
+            numéro, ton prénom, ton nom et ton année de naissance.
+          </Text>
+        )}
 
         {mode === 'signup' && (
           <Text style={styles.legal}>

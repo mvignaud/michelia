@@ -34,6 +34,10 @@ function explain(error: { message?: string; code?: string } | null): Error | nul
     email_not_confirmed: "Confirme d'abord ton e-mail avec le lien reçu.",
     over_email_send_rate_limit: "Trop d'e-mails envoyés, réessaie dans quelques minutes.",
     captcha_failed: 'Vérification anti-robot échouée, réessaie.',
+    otp_expired: 'Code faux ou expiré, redemande-en un.',
+    over_sms_send_rate_limit: 'Trop de SMS envoyés, réessaie dans quelques minutes.',
+    sms_send_failed: "Le SMS n'est pas parti, vérifie le numéro.",
+    phone_provider_disabled: 'La connexion par SMS est coupée pour le moment.',
   };
   return new Error((error.code && known[error.code]) || error.message || 'Ça a planté, réessaie.');
 }
@@ -137,6 +141,35 @@ export async function signInWithApple() {
       lastName: familyName ?? undefined,
     });
   }
+}
+
+// Numéro au format international : « 06 12 34 56 78 » devient « +33612345678 ».
+export function normalizePhone(input: string): string {
+  const digits = input.replace(/[\s.\-()]/g, '');
+  const phone = digits.startsWith('00') ? `+${digits.slice(2)}` : /^0\d{9}$/.test(digits) ? `+33${digits.slice(1)}` : digits;
+  if (!/^\+\d{8,15}$/.test(phone)) throw new Error('Numéro de téléphone invalide.');
+  return phone;
+}
+
+// Envoie un code par SMS : il sert aussi bien à créer le compte qu'à s'y reconnecter.
+export async function sendPhoneCode(phone: string) {
+  const captchaToken = await getCaptchaToken();
+  const { error } = await supabase.auth.signInWithOtp({
+    phone: normalizePhone(phone),
+    options: { captchaToken, channel: 'sms' },
+  });
+  const failure = explain(error);
+  if (failure) throw failure;
+}
+
+export async function verifyPhoneCode(phone: string, code: string) {
+  const { error } = await supabase.auth.verifyOtp({
+    phone: normalizePhone(phone),
+    token: code.replace(/\s/g, ''),
+    type: 'sms',
+  });
+  const failure = explain(error);
+  if (failure) throw failure;
 }
 
 export async function sendPasswordReset(email: string) {
