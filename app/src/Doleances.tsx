@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAccessToken, supabase } from './supabase';
 import { colors, serif } from './theme';
 
 // Le cahier de doléances (michel.beer/cahier-de-doleances) : une idée, un bug, une râlerie pour améliorer Michel.
 // Le dépôt passe par deposer_doleance(), qui applique les quotas ; le compte anonyme vient du captcha Turnstile.
-// Les applis ouvrent cette page dans le navigateur : rien de natif ici.
+// Page à part sur le web, et par-dessus le chat partout (bulle « Une idée ? », mauvaise note d'une réponse).
 const CATEGORIES = [
   { id: 'idee', label: 'Une idée' },
   { id: 'bug', label: 'Un truc qui coince' },
   { id: 'autre', label: 'Autre chose' },
 ] as const;
 type Categorie = (typeof CATEGORIES)[number]['id'];
+
+// Sur le web les pages sont servies par le même site ; dans les applis, par michel.beer.
+const ouvrir = (path: string) => Linking.openURL((Platform.OS === 'web' ? '' : 'https://michel.beer') + path);
 
 const REPONSES: Record<string, string> = {
   trop_court: "C'est un peu court, ça. Explique-moi un peu mieux, en dix lettres au moins.",
@@ -23,8 +26,8 @@ const REPONSES: Record<string, string> = {
   connexion: 'Je te reconnais pas. Recharge la page et réessaie.',
 };
 
-export function Doleances({ onClose }: { onClose: () => void }) {
-  const [categorie, setCategorie] = useState<Categorie>('idee');
+export function Doleances({ onClose, initialCategorie = 'idee' }: { onClose: () => void; initialCategorie?: Categorie }) {
+  const [categorie, setCategorie] = useState<Categorie>(initialCategorie);
   const [texte, setTexte] = useState('');
   const [contact, setContact] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,7 +91,7 @@ export function Doleances({ onClose }: { onClose: () => void }) {
           <Text style={styles.text}>
             Une idée pour améliorer Michel, un truc qui coince, une râlerie : c'est ici. On lit tout, on garde ce qui est
             bon, et ce qu'on retient part mijoter sur la page{' '}
-            <Text style={styles.link} onPress={() => window.location.assign('/ca-mijote')} accessibilityRole="link">
+            <Text style={styles.link} onPress={() => ouvrir('/ca-mijote')} accessibilityRole="link">
               Ça mijote
             </Text>
             .
@@ -157,7 +160,7 @@ export function Doleances({ onClose }: { onClose: () => void }) {
         <Text style={styles.small}>
           Ne mets rien de sensible. Ta doléance et ton e-mail éventuel ne servent qu'à améliorer Michel et à te répondre, puis
           sont effacés au bout de deux ans au plus.{' '}
-          <Text style={styles.smallLink} onPress={() => window.location.assign('/confidentialite.html')}>
+          <Text style={styles.smallLink} onPress={() => ouvrir('/confidentialite.html')}>
             Confidentialité
           </Text>
         </Text>

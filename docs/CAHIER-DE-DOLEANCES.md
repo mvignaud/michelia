@@ -14,6 +14,12 @@ Deux pages publiques, reliées en bas de l'écran du site et des applis :
 - Personne ne peut lire la table depuis l'appli, sauf les comptes de `admins`. Les doléances de plus de deux ans sont effacées au passage.
 - Catégories : `idee`, `bug`, `autre`. Statuts : `nouvelle` → `retenue` (mise dans Ça mijote) → `servie` (sortie, entrée dans `app/nouveautes/`), ou `refusee` / `doublon`. Colonne `note` pour un mot interne.
 
+## Les étoiles sous les réponses
+
+Sous chaque réponse terminée de Michel, cinq étoiles. La note part par `noter_reponse(cle, note, reponse, question, mode)` (migration `20261029190000_notes_reponses.sql`) dans la table `notes_reponses`, avec la réponse et la question qui l'a amenée. Changer d'avis remplace la note (même `cle`). Quota : `notes_par_jour` (100 par visiteur et par 24 h). Conservation un an. À deux étoiles ou moins, Michel propose « Dis-moi ce qui coince », qui ouvre le cahier sur « Un truc qui coince ».
+
+La bulle flottante « 💡 Une idée ? », en bas à droite du chat, ouvre le cahier par-dessus la conversation, sur le site comme dans les applis.
+
 ## Le tri : un relevé chaque matin dans le projet
 
 Une tâche planifiée de Claude se réveille chaque matin dans le chat du projet MICHEL IA, lit les doléances des dernières 24 heures (lecture seule par le connecteur Supabase) et y poste un relevé : les nouvelles demandes regroupées, les doublons, et pour chacune une proposition (à faire tout de suite, à mettre sur la planche, au frais, ou non). Mathieu répond dans le chat ; Claude met alors à jour `app/ca-mijote.md` dans une PR.
@@ -25,6 +31,14 @@ select id, created_at at time zone 'Europe/Paris' as le, categorie, texte, conta
 from public.doleances
 where created_at > now() - interval '1 day'
 order by created_at;
+```
+
+Notes des dernières 24 h (moyenne, et les réponses à deux étoiles ou moins) :
+
+```sql
+select count(*) as notes, round(avg(note), 2) as moyenne from public.notes_reponses where created_at > now() - interval '1 day';
+select note, mode, question, left(reponse, 300) as reponse from public.notes_reponses
+where created_at > now() - interval '1 day' and note <= 2 order by created_at;
 ```
 
 Changer un statut (à coller dans le SQL Editor de Supabase, jamais par le connecteur) :
