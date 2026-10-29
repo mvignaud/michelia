@@ -1,5 +1,5 @@
 // Prépare une version des applis : notes « Nouveautés » pour l'App Store et Google Play + checklist de build.
-//   node scripts/notes-stores.mjs <build> [--essai]
+//   node scripts/notes-stores.mjs <build> [<version>] [--essai]   ex. : 8 1.0.1
 // Prend les nouveautés qui touchent les applis (ios / android) et pas encore livrées (sans « build: »),
 // écrit app/nouveautes/builds/<build>.md et inscrit « build: <build> » dans chacune. --essai : affiche sans rien écrire.
 import fs from 'node:fs';
@@ -11,8 +11,14 @@ const MAX_APPLE = 4000; // App Store Connect : « Nouveautés de cette version �
 
 const build = Number(process.argv[2]);
 const essai = process.argv.includes('--essai');
+// Version visible dans les stores (expo.version de app.json) : EAS n'incrémente que le numéro de build.
+const version = process.argv.slice(3).find((a) => a !== '--essai');
+if (version && !/^\d+\.\d+\.\d+$/.test(version)) {
+  console.error(`Version « ${version} » : format 1.0.1 attendu.`);
+  process.exit(1);
+}
 if (!Number.isInteger(build) || build < 1) {
-  console.error('Usage : node scripts/notes-stores.mjs <numéro du prochain build> [--essai]');
+  console.error('Usage : node scripts/notes-stores.mjs <numéro du prochain build> [<version, ex. 1.0.1>] [--essai]');
   process.exit(1);
 }
 const fichierBuild = path.join(DOSSIER, 'builds', `${build}.md`);
@@ -50,7 +56,7 @@ const google = notes(MAX_GOOGLE);
 
 const contenu = `# Build ${build}
 
-Préparé le ${new Date().toISOString().slice(0, 10)} avec \`node scripts/notes-stores.mjs ${build}\`.
+Préparé le ${new Date().toISOString().slice(0, 10)} avec \`node scripts/notes-stores.mjs ${build}${version ? ` ${version}` : ''}\`.${version ? ` Version des stores : **${version}** (déjà inscrite dans \`app/app.json\`).` : ''}
 
 ## Ce qu'il contient
 
@@ -89,6 +95,12 @@ if (essai) {
 }
 fs.mkdirSync(path.dirname(fichierBuild), { recursive: true });
 fs.writeFileSync(fichierBuild, contenu);
+if (version) {
+  const appJson = path.join(DOSSIER, '..', 'app.json');
+  const config = JSON.parse(fs.readFileSync(appJson, 'utf8'));
+  config.expo.version = version;
+  fs.writeFileSync(appJson, JSON.stringify(config, null, 2) + '\n');
+}
 for (const e of aLivrer) {
   const brut = fs.readFileSync(e.fichier, 'utf8');
   fs.writeFileSync(e.fichier, brut.replace(/^(---\r?\n[\s\S]*?)(\r?\n---)/, `$1\nbuild: ${build}$2`));
