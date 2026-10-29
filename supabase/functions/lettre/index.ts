@@ -37,7 +37,7 @@ const UNSUBSCRIBE_SECRET = Deno.env.get("UNSUBSCRIBE_SECRET") ?? "";
 const MAX_ENTREES = 6;
 const PARALLEL = 8;
 const PROGRESS_EVERY = 50;
-// Passé ce délai, une lettre restée « en cours » a été coupée : on la reprend.
+// Passé ce délai sans signe de vie, une lettre restée « en cours » a été coupée : on la reprend.
 const STALE_MINUTES = 7;
 // Une lettre partie en partie (ou pas du tout) est retentée chaque matin pendant ces jours-là.
 const RETRY_DAYS = 3;
@@ -336,7 +336,12 @@ async function sendAll(id: number, l: Lettre) {
     return;
   }
   const recipients: Recipient[] = data ?? [];
-  const { data: done } = await db.from("lettre_envois").select("user_id").eq("lettre_id", id).eq("ok", true);
+  const { data: done, error: ledgerError } = await db.from("lettre_envois").select("user_id").eq("lettre_id", id).eq("ok", true);
+  // Sans la liste des déjà servis, on n'écrit à personne : la lettre reste « en cours » et sera reprise.
+  if (ledgerError) {
+    console.error("Lecture des envois impossible :", ledgerError);
+    return;
+  }
   const already = new Set((done ?? []).map((d) => d.user_id));
   const todo = recipients.filter((r) => !already.has(r.user_id));
   await db.from("lettres").update({ email_total: recipients.length }).eq("id", id);
@@ -351,9 +356,14 @@ async function sendAll(id: number, l: Lettre) {
       const ok = await sendEmail(l, to);
       if (ok) sent++;
       else failed++;
-      await db.from("lettre_envois").upsert({ lettre_id: id, user_id: to.user_id, ok, sent_at: new Date().toISOString() });
+      const { error } = await db.from("lettre_envois").upsert({ lettre_id: id, user_id: to.user_id, ok, sent_at: new Date().toISOString() });
+      if (error) console.error("Envoi non noté (risque de doublon à la reprise) :", to.user_id, error);
+      // email_started_at sert aussi de signe de vie : une lettre qui avance n'est jamais reprise en double.
       if (++handled % PROGRESS_EVERY === 0) {
-        await db.from("lettres").update({ email_sent: sent, email_failed: failed }).eq("id", id);
+        await db
+          .from("lettres")
+          .update({ email_sent: sent, email_failed: failed, email_started_at: new Date().toISOString() })
+          .eq("id", id);
       }
     }
   }
