@@ -6,7 +6,7 @@ Compter une heure la première fois. Aucune clé secrète ne va dans ce dépôt 
 
 1. Créer un projet sur [supabase.com](https://supabase.com), région Europe (Paris ou Francfort).
 2. **Authentication > Sign In / Providers** : activer **Anonymous sign-ins**. Chaque visiteur reçoit un compte invisible qui porte son quota du jour.
-3. **SQL Editor** : coller et exécuter, dans l'ordre, les fichiers de `supabase/migrations/`.
+3. **SQL Editor** : coller et exécuter, dans l'ordre, les fichiers de `supabase/migrations/`. À refaire pour chaque nouveau fichier ajouté plus tard (ils sont rejouables sans risque).
 4. Toujours dans le SQL Editor, ajouter le prompt de Michel (il n'est pas dans le dépôt public) :
 
    ```sql
@@ -46,7 +46,7 @@ La référence du projet est dans l'adresse du tableau de bord Supabase.
    - Répertoire racine : `app`
    - Commande : `npm run build:web`
    - Dossier de sortie : `dist`
-   - Variables : `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (Supabase > Project Settings > API Keys, clé « publishable ») et `EXPO_PUBLIC_TURNSTILE_SITE_KEY` (voir Anti-robots). Ces valeurs sont publiques par nature.
+   - Variables (type **Texte**, pas « Secret », sinon elles arrivent vides au build) : `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (Supabase > Project Settings > API Keys, clé « publishable ») et `EXPO_PUBLIC_TURNSTILE_SITE_KEY` (voir Anti-robots). Ces valeurs sont publiques par nature.
 3. **Domaines personnalisés** : ajouter `michel.beer`. Cloudflare indique l'enregistrement DNS à créer chez le registraire (ou transférer la zone DNS chez Cloudflare, plus simple).
 
 Chaque fusion sur `main` republie le site automatiquement.
@@ -67,7 +67,7 @@ Trois protections se cumulent :
 1. **Quota par visiteur** : `daily_limit` messages par jour et par compte anonyme (30 par défaut).
 2. **Plafond global** : `global_daily_limit` messages par jour pour tout le site (5 000 par défaut, soit environ 2,50 $ de Claude Haiku). Même avec des milliers de faux comptes, la dépense du jour reste bornée. À relever quand l'audience grandit.
 3. **Captcha Cloudflare Turnstile** à la création du compte anonyme (version web) :
-   - Cloudflare > **Turnstile** > Add site : domaine `michel.beer` (+ `localhost` pour les tests), mode **Managed**.
+   - Cloudflare > **Turnstile** > Add site : noms d'hôte `michel.beer` et `michelia.pages.dev` (+ `localhost` pour les tests), mode **Managed**. Un nom d'hôte absent donne l'erreur 110200.
    - Copier la **clé de site** dans la variable `EXPO_PUBLIC_TURNSTILE_SITE_KEY` de Cloudflare Pages.
    - Copier la **clé secrète** dans Supabase > Authentication > **Attack Protection** > Enable Captcha protection > Turnstile.
    - Attention : une fois le captcha activé dans Supabase, les applis iOS et Android ne pourront plus créer de compte tant qu'elles n'auront pas leur propre vérification (prévu pour la sortie sur les stores).
@@ -79,4 +79,5 @@ Et côté Anthropic : fixer une limite mensuelle (Settings > Limits) et laisser 
 ## Avant d'ouvrir au public
 
 - Vérifier les trois protections ci-dessus.
-- Ajouter mentions légales et politique de confidentialité.
+- Pages légales : `app/public/` (mentions légales, confidentialité, conditions). Les durées de conservation annoncées reposent sur la migration `20261029020000_purge.sql`.
+- Créer l'adresse `contact@michel.beer` (Cloudflare > Email > Routage des e-mails, gratuit), citée dans les pages légales.
