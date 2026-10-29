@@ -7,6 +7,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -26,6 +27,7 @@ import { NotifyCard } from './src/NotifyCard';
 import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
+import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
@@ -39,13 +41,6 @@ function welcome(name?: string) {
     : "Adishatz ! C'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. " +
         "Tant que j'y suis, pose-moi ta question, boudu !";
 }
-
-const SUGGESTIONS = [
-  'Une recette de garbure',
-  'Écris un mot pour mon voisin',
-  "Explique-moi l'inflation",
-  'Quel temps fait-il ?',
-];
 
 // Sur le web les pages légales sont servies par le même site ; dans les applis, par michel.beer.
 const SITE = Platform.OS === 'web' ? '' : 'https://michel.beer';
@@ -68,6 +63,7 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState<string>();
+  const [mode, setMode] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountMode | null>(null);
@@ -128,6 +124,19 @@ export default function App() {
       .then(() => say("C'est noté, plus de nouvelles de Michel dans ta boîte aux lettres. Mais tu peux toujours venir causer, hè !"))
       .catch(() => say('Boudu, ce lien de désabonnement ne marche pas. Coupe les nouvelles dans « Compte », ou écris à contact@michel.beer.'));
   }, []);
+
+  useEffect(() => {
+    loadMode().then(setMode);
+  }, []);
+
+  // Changement de mode : Michel l'annonce d'un mot, affiché seulement.
+  function chooseMode(id: string | undefined) {
+    if (busy || id === mode) return;
+    setMode(id);
+    saveMode(id);
+    const hello = findMode(id)?.hello ?? "Bon, on reprend la causette normale. Demande-moi ce que tu veux.";
+    setBubbles((all) => [...all, { id: newId(), role: 'assistant', content: hello, local: true }]);
+  }
 
   useEffect(() => {
     loadMemory().then((memory) => {
@@ -193,6 +202,7 @@ export default function App() {
       const learned = await askMichel(
         history.map(({ role, content }) => ({ role, content })),
         name,
+        mode,
         (chunk) => updateAnswer((b) => ({ ...b, content: b.content + chunk })),
       );
       if (learned.name) setName(learned.name);
@@ -209,6 +219,8 @@ export default function App() {
   }
 
   const canSend = !busy && draft.trim().length > 0;
+  const suggestions = findMode(mode)?.suggestions ?? DEFAULT_SUGGESTIONS;
+  const modeChips = [{ id: undefined, label: '💬 Tout' }, ...MODES];
 
   return (
     <SafeAreaProvider>
@@ -248,6 +260,29 @@ export default function App() {
               </Pressable>
             )}
           </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.modesScroll}
+            contentContainerStyle={styles.modes}
+            accessibilityRole="tablist"
+          >
+            {modeChips.map((m) => {
+              const active = m.id === mode;
+              return (
+                <Pressable
+                  key={m.id ?? 'tout'}
+                  onPress={() => chooseMode(m.id)}
+                  disabled={busy}
+                  style={({ pressed }) => [styles.mode, active && styles.modeActive, pressed && styles.pressed]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[styles.modeText, active && styles.modeTextActive]}>{m.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
 
         <KeyboardAvoidingView
@@ -275,9 +310,9 @@ export default function App() {
               </View>
             }
             ListFooterComponent={
-              bubbles.length === 0 ? (
+              bubbles.filter((b) => !b.local).length === 0 ? (
                 <View style={styles.suggestions}>
-                  {SUGGESTIONS.map((s) => (
+                  {suggestions.map((s) => (
                     <Pressable
                       key={s}
                       onPress={() => send(s)}
@@ -430,6 +465,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft,
   },
   newChatText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  modesScroll: { ...COLUMN, flexGrow: 0 },
+  modes: { gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  mode: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    backgroundColor: colors.surface,
+  },
+  modeActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  modeText: { color: colors.text, fontSize: 14 },
+  modeTextActive: { color: colors.onAccent, fontWeight: '600' },
   body: { flex: 1 },
   list: { ...COLUMN, paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
   intro: { gap: 16 },
