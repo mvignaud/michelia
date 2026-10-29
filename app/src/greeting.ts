@@ -19,7 +19,7 @@ const LINES: Record<string, string[]> = {
     "Avec la pomme, carrément ! Chez nous les pommes, on les met dans la croustade, pas dans les téléphones. Bon, bienvenue quand même, con !",
   ],
   email: [
-    "Et beh, à l'ancienne, avec l'e-mail ! Ça me plaît, ça, c'est du solide comme une mêlée de Fleurance. Te voilà inscrit, con !",
+    "Et beh, à l'ancienne, avec l'e-mail ! Ça me plaît, ça, c'est du solide comme une mêlée de rugby. Te voilà inscrit, con !",
   ],
 };
 
