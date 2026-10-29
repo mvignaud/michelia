@@ -24,3 +24,8 @@ verify_jwt = false
 # La lettre de Michel, appelée chaque matin par pg_cron sans clé : elle n'écrit que tous les
 # quinze jours et s'il y a du neuf ; le test du back-office vérifie le droit d'administrateur.
 verify_jwt = false
+
+[functions.stripe-webhook]
+# Appelée par Stripe, qui n'a pas de JWT Supabase : l'authenticité vient de la signature
+# Stripe-Signature, vérifiée dans la fonction avec STRIPE_WEBHOOK_SECRET.
+verify_jwt = false

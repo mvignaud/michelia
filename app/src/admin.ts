@@ -60,6 +60,18 @@ export type Costs = {
   days: { day: string; cost: number }[];
 };
 
+// Coût réel par utilisateur actif sur 30 jours glissants, en dollars, et pourboires du mois en euros.
+export type CostPerActive = {
+  actifs: number;
+  cout_total: number;
+  cout_moyen: number;
+  mediane: number;
+  p90: number;
+  part_top10: number;
+  tranches: { label: string; actifs: number }[];
+  pourboires_mois: { nombre: number; total_eur: number };
+};
+
 export type UserDay = { day: string; messages: number; cost: number };
 
 export type Broadcast = {
@@ -104,6 +116,12 @@ export async function loadCosts(): Promise<Costs> {
   const { data, error } = await supabase.rpc('admin_costs');
   if (error) fail(error);
   return data as Costs;
+}
+
+export async function loadCostPerActive(): Promise<CostPerActive> {
+  const { data, error } = await supabase.rpc('admin_cout_par_actif');
+  if (error) fail(error);
+  return data as CostPerActive;
 }
 
 export const PAGE_SIZE = 50;
