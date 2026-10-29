@@ -93,6 +93,20 @@ async function apple() {
     'ES256',
   );
   const api = (path, opts) => http(`https://api.appstoreconnect.apple.com${path}`, { token, ...opts });
+  // Sur un refus, on décrit la forme des secrets (jamais leur valeur) pour trouver lequel cloche.
+  const forme = () => {
+    const id = ASC_KEY_ID.trim();
+    const iss = ASC_ISSUER_ID.trim();
+    dire(`  ASC_KEY_ID : ${/^[A-Z0-9]{10}$/.test(id) ? 'forme OK (10 caractères)' : `forme inattendue (${id.length} caractères, 10 attendus)`}`);
+    dire(`  ASC_ISSUER_ID : ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(iss) ? 'forme OK (identifiant 8-4-4-4-12)' : `forme inattendue (${iss.length} caractères) : attendu l'ID de l'émetteur, du type xxxxxxxx-xxxx-…`}`);
+    dire(`  ASC_KEY_P8 : ${ASC_KEY_P8.includes('BEGIN PRIVATE KEY') ? 'en-tête OK' : 'en-tête BEGIN PRIVATE KEY absent'}`);
+  };
+  try {
+    await api(`/v1/apps/${APPLE_APP_ID}?fields[apps]=bundleId`);
+  } catch (e) {
+    if (e.status === 401) forme();
+    throw e;
+  }
 
   const existants = (await api(`/v1/apps/${APPLE_APP_ID}/inAppPurchasesV2?limit=200`)).data;
   for (const p of PALIERS) {
