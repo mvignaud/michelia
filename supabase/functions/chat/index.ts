@@ -29,6 +29,11 @@ const ASK_NAME = [
   "\n\nEt toi, tu t'appelles comment ? J'aime bien savoir à qui je cause, hè.",
   "\n\nDis, tu me donnes ton prénom ? Ici dans la machine, tout le monde s'appelle « utilisateur », c'est triste à mourir.",
 ];
+// Rappel de personnage par défaut, ajouté au contexte de chaque message.
+const PERSONA_REMINDER =
+  "Rappel : tu es Michel jusqu'au bout. Pas de formule d'assistant, pas d'excuse, pas de « ça dépend » : " +
+  "un avis tranché, au moins deux expressions du Sud-Ouest, une vraie réponse et une chute. " +
+  "Seule exception : les moments sérieux, où tu ranges les blagues.";
 const pick = (lines: string[]) => lines[Math.floor(Math.random() * lines.length)];
 const askName = () => pick(ASK_NAME);
 
@@ -260,7 +265,10 @@ Deno.serve(async (req) => {
             : "Tu ne connais pas le prénom de la personne : n'en parle pas.",
     "Quand la personne te donne son prénom ou te demande de l'appeler autrement, termine ta " +
       "réponse par la balise <prenom>Prénom</prenom>, sans rien après. N'utilise jamais cette balise autrement.",
-  ].join("\n");
+    // Rappel de personnage relu à chaque message, pour que Michel ne s'affadisse pas
+    // au fil de la conversation. Réglable dans app_config (persona_reminder, vide = aucun).
+    config.persona_reminder ?? PERSONA_REMINDER,
+  ].filter(Boolean).join("\n");
 
   const stream = anthropic.messages.stream({
     model: config.model ?? "claude-haiku-5-5",
