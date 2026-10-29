@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
+import { registerPush } from './pushRegister';
 import { getAccessToken, supabase } from './supabase';
 
 // Notifications des applis : jeton Expo, qu'Expo relaie vers Apple et Google.
@@ -37,22 +38,28 @@ async function ensureChannel() {
   });
 }
 
-async function saveToken() {
+// daily : le dicton du jour sur cet appareil ; absent, le choix déjà fait reste.
+async function saveToken(daily?: boolean) {
   await ensureChannel();
   const projectId = Constants.expoConfig?.extra?.eas?.projectId;
   const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
-  const { error } = await supabase.rpc('register_push', { p_platform: Platform.OS, p_token: token });
-  if (error) throw error;
+  await registerPush({ p_platform: Platform.OS, p_token: token }, daily);
 }
 
 // Après un geste du visiteur : demande l'autorisation, puis enregistre l'appareil.
-export async function enablePush(): Promise<boolean> {
+export async function enablePush(daily?: boolean): Promise<boolean> {
   await ensureChannel();
   const permission = await Notifications.requestPermissionsAsync();
   if (!permission.granted) return false;
   await getAccessToken();
-  await saveToken();
+  await saveToken(daily);
   return true;
+}
+
+// Notifications déjà autorisées : le dicton du jour, oui ou non.
+export async function setDailyPush(daily: boolean) {
+  await getAccessToken();
+  await saveToken(daily);
 }
 
 // Au démarrage et à chaque changement de compte : le jeton peut changer, et l'appareil suit le compte.

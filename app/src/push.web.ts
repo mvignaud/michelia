@@ -1,4 +1,5 @@
 import type { PushState } from './push';
+import { registerPush } from './pushRegister';
 import { getAccessToken, supabase } from './supabase';
 
 export type { PushState };
@@ -29,7 +30,8 @@ export async function pushState(): Promise<PushState> {
   return Notification.permission === 'denied' ? 'off' : 'ask';
 }
 
-async function subscribe() {
+// daily : le dicton du jour sur cet appareil ; absent, le choix déjà fait reste.
+async function subscribe(daily?: boolean) {
   const registration = await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
   if (!subscription) {
@@ -43,18 +45,22 @@ async function subscribe() {
     }
   }
   const { endpoint, keys } = subscription.toJSON();
-  const { error } = await supabase.rpc('register_push', { p_platform: 'web', p_token: endpoint, p_keys: keys });
-  if (error) throw error;
+  await registerPush({ p_platform: 'web', p_token: endpoint, p_keys: keys }, daily);
 }
 
 // À appeler directement depuis un clic : Safari refuse la demande sinon.
-export async function enablePush(): Promise<boolean> {
+export async function enablePush(daily?: boolean): Promise<boolean> {
   if (!supported()) return false;
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return false;
   await getAccessToken();
-  await subscribe();
+  await subscribe(daily);
   return true;
+}
+
+export async function setDailyPush(daily: boolean) {
+  await getAccessToken();
+  await subscribe(daily);
 }
 
 export async function syncPush() {
