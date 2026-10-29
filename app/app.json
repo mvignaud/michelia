@@ -27,6 +27,21 @@
       "name": "MichelIA",
       "themeColor": "#7A2E1D"
     },
-    "scheme": "michelia"
+    "scheme": "michelia",
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#7A2E1D",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#5E2214"
+          }
+        }
+      ]
+    ]
   }
 }
