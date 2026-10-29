@@ -1,7 +1,9 @@
-// Fonction « comptoir-paiement » : ouvre une session Stripe Checkout intégrée à la page /comptoir
-// (voir docs/COMPTOIR.md). Le navigateur envoie seulement {palier} ; le prix et le nom viennent
-// toujours de app_config (comptoir_paliers), jamais du client. La fonction renvoie {clientSecret},
-// que Stripe.js utilise pour afficher le formulaire de paiement dans la page.
+// Fonction « comptoir-paiement » : ouvre une session Stripe Checkout (ui_mode elements) pour le
+// formulaire de paiement de la page /comptoir (voir docs/COMPTOIR.md). Le navigateur envoie {palier} ;
+// le prix et le nom viennent toujours de app_config (comptoir_paliers), jamais du client. La fonction
+// renvoie {clientSecret}, que Stripe.js utilise pour afficher les champs de paiement dans la page.
+// Juste avant de payer, le navigateur renvoie {session, prenom} : le prénom du carnet des copains
+// est alors rangé dans les metadata de la session, que le webhook relit.
 // Sans SDK Stripe : un simple fetch vers l'API, avec STRIPE_SECRET_KEY (secret Supabase).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
@@ -58,15 +60,18 @@ Deno.serve(async (req) => {
   }
   if (!STRIPE_SECRET_KEY) return reply(500, { error: "Paiement non configuré" }, origin);
 
-  let palierId = "";
+  // deno-lint-ignore no-explicit-any
+  let body: any;
   try {
-    const body = await req.json();
-    palierId = typeof body?.palier === "string" ? body.palier : "";
+    body = await req.json();
   } catch {
     return reply(400, { error: "Corps illisible" }, origin);
   }
 
   if ((await config("comptoir_actif")) !== "true") return reply(403, { error: "Le comptoir est fermé" }, origin);
+
+  if (typeof body?.session === "string") return savePrenom(body.session, body.prenom, origin);
+  const palierId = typeof body?.palier === "string" ? body.palier : "";
 
   let paliers: Palier[] = [];
   try {
@@ -84,21 +89,13 @@ Deno.serve(async (req) => {
 
   const form = new URLSearchParams({
     mode: "payment",
-    ui_mode: "embedded_page",
-    // Le merci s'affiche dans la page (onComplete) : pas de redirection, donc pas de moyens de paiement à redirection.
-    // Stripe refuse return_url avec redirect_on_completion=never : on ne l'envoie pas.
-    redirect_on_completion: "never",
+    // Champs de paiement (Payment Element) dans notre propre formulaire, aux couleurs de Michel.
+    ui_mode: "elements",
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "eur",
     "line_items[0][price_data][unit_amount]": String(palier.prix_cents),
     "line_items[0][price_data][product_data][name]": palier.nom,
     "metadata[palier]": palier.id,
-    "custom_fields[0][key]": "prenom",
-    "custom_fields[0][type]": "text",
-    "custom_fields[0][optional]": "true",
-    "custom_fields[0][label][type]": "custom",
-    "custom_fields[0][label][custom]": "Ton prénom pour le carnet des copains (facultatif)",
-    "custom_fields[0][text][maximum_length]": "30",
     locale: "fr",
   });
 
@@ -107,15 +104,7 @@ Deno.serve(async (req) => {
     form.set("line_items[0][price_data][tax_behavior]", "inclusive");
   }
 
-  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Stripe-Version": STRIPE_VERSION,
-    },
-    body: form,
-  });
+  const res = await stripe("checkout/sessions", form);
   const session = await res.json().catch(() => null);
   if (!res.ok || !session?.client_secret) {
     // Le détail reste dans les journaux de la fonction, jamais renvoyé au navigateur.
@@ -124,3 +113,29 @@ Deno.serve(async (req) => {
   }
   return reply(200, { clientSecret: session.client_secret }, origin);
 });
+
+function stripe(path: string, form: URLSearchParams): Promise<Response> {
+  return fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Stripe-Version": STRIPE_VERSION,
+    },
+    body: form,
+  });
+}
+
+// Range le prénom (facultatif, nettoyé à nouveau par le webhook) dans la session encore ouverte.
+async function savePrenom(sessionId: string, prenom: unknown, origin: string | null): Promise<Response> {
+  if (!/^cs_(live|test)_[A-Za-z0-9]{10,200}$/.test(sessionId)) return reply(400, { error: "Session inconnue" }, origin);
+  const texte = typeof prenom === "string" ? prenom.trim().slice(0, 30) : "";
+  if (!texte) return reply(200, { ok: true }, origin);
+  const res = await stripe(`checkout/sessions/${sessionId}`, new URLSearchParams({ "metadata[prenom]": texte }));
+  if (!res.ok) {
+    const erreur = await res.json().catch(() => null);
+    console.error("Stripe a refusé le prénom", res.status, erreur?.error?.type, erreur?.error?.message);
+    // Le paiement passe quand même : le pourboire sera simplement anonyme.
+  }
+  return reply(200, { ok: true }, origin);
+}

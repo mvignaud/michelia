@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-// Le comptoir de Michel : pourboires, payés dans la page par Stripe Embedded Checkout, sur le WEB UNIQUEMENT (règle Apple 3.1.1). Ce fichier n'est
+// Le comptoir de Michel : pourboires, payés dans notre formulaire (champs Stripe Elements), sur le WEB UNIQUEMENT (règle Apple 3.1.1). Ce fichier n'est
 // importé que par les fichiers .web.tsx, jamais par les applis iOS et Android.
 
 export type Palier = { id: string; nom: string; prix_cents: number; merci: string };

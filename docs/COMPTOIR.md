@@ -1,6 +1,6 @@
 # Le comptoir de Michel
 
-Pourboires **sur le web uniquement** (michel.beer/comptoir), avec **Stripe Embedded Checkout** : le formulaire de paiement s'affiche dans la page, sans redirection vers Stripe. Rien dans les applis iOS et Android (règle Apple 3.1.1) : le code du comptoir est dans des fichiers `.web.tsx`, les applis n'en contiennent rien.
+Pourboires **sur le web uniquement** (michel.beer/comptoir), avec **Stripe Elements** (session Checkout en `ui_mode: elements`) : notre propre formulaire aux couleurs de Michel, seuls les champs de carte viennent de Stripe, sans redirection. Rien dans les applis iOS et Android (règle Apple 3.1.1) : le code du comptoir est dans des fichiers `.web.tsx`, les applis n'en contiennent rien.
 
 ## Mise en route
 

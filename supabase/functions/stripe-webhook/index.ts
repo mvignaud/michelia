@@ -105,8 +105,9 @@ Deno.serve(async (req) => {
   const amount = Number(session.amount_total);
   if (!Number.isInteger(amount) || amount <= 0) return reply(200, "ok");
 
+  // Prénom : posé dans metadata par le formulaire intégré, ou champ personnalisé des anciennes sessions.
   const fields: { key?: string; text?: { value?: string } }[] = session.custom_fields ?? [];
-  const prenom = cleanFirstName(fields.find((f) => f.key === "prenom")?.text?.value);
+  const prenom = cleanFirstName(session.metadata?.prenom ?? fields.find((f) => f.key === "prenom")?.text?.value);
 
   const { error } = await admin.from("pourboires").upsert(
     {
