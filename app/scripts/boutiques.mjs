@@ -211,14 +211,20 @@ async function revenuecat() {
   const project = process.env.REVENUECAT_PROJECT_ID ?? projects?.[0]?.id;
   if (!project) throw new Error('aucun projet RevenueCat');
   const apps = (await api(`/projects/${project}/apps?limit=20`)).items;
-  for (const [type, boutique] of [
-    ['app_store', 'apple'],
-    ['play_store', 'google'],
+  for (const [type, boutique, store] of [
+    ['app_store', 'apple', { bundle_id: PACKAGE }],
+    ['play_store', 'google', { package_name: PACKAGE }],
   ]) {
-    const app = apps.find((a) => a.type === type);
+    let app = apps.find((a) => a.type === type);
     if (!app) {
-      dire(`- appli ${type} absente du projet : à ajouter dans RevenueCat`);
-      continue;
+      dire(`- appli ${type} (nouvelle)`);
+      await agir('ajouter l’appli au projet', async () => {
+        app = await api(`/projects/${project}/apps`, {
+          method: 'POST',
+          body: { name: `Michel IA (${boutique === 'apple' ? 'iOS' : 'Android'})`, type, [type]: store },
+        });
+      });
+      if (!app) continue;
     }
     const existants = (await api(`/projects/${project}/products?app_id=${app.id}&limit=100`)).items;
     for (const p of PALIERS) {
