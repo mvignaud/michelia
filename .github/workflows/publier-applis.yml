@@ -20,6 +20,10 @@ on:
         type: choice
         options: [internal, alpha, beta, production]
         default: internal
+      vider_cache:
+        description: Vider le cache EAS (après une erreur de pods ou de dépendances)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,3 +90,4 @@ jobs:
           --auto-submit-with-profile ci
           --non-interactive
           --no-wait
+          ${{ inputs.vider_cache && '--clear-cache' || '' }}
