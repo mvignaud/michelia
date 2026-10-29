@@ -25,6 +25,7 @@ import { Comptoir } from './src/Comptoir';
 import { cleAppli, loadComptoir } from './src/comptoir';
 import { ComptoirCard, countSentMessage } from './src/ComptoirCard';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
+import { Doleances } from './src/Doleances';
 import { InstallCard } from './src/InstallCard';
 import { NotifyCard } from './src/NotifyCard';
 import { loginGreeting } from './src/greeting';
@@ -52,6 +53,8 @@ function welcome(name?: string) {
 const SITE = Platform.OS === 'web' ? '' : 'https://michel.beer';
 const LEGAL_LINKS = [
   { label: 'Nouveautés', path: '/confit-de-canard' },
+  { label: 'Améliore Michel', path: '/cahier-de-doleances' },
+  { label: 'Ça mijote', path: '/ca-mijote' },
   { label: 'Mentions légales', path: '/mentions-legales.html' },
   { label: 'Confidentialité', path: '/confidentialite.html' },
   { label: 'Conditions', path: '/conditions.html' },
@@ -67,14 +70,18 @@ registerServiceWorker();
 let nextId = 0;
 const newId = () => String(nextId++);
 
-// Sur le web seulement, l'adresse /comptoir ouvre la page des pourboires à la place du chat.
+// Sur le web seulement, les adresses /comptoir (pourboires) et /cahier-de-doleances (idées pour Michel)
+// ouvrent leur page à la place du chat. Les applis ouvrent le cahier dans le navigateur.
+const PAGES = { '/comptoir': Comptoir, '/cahier-de-doleances': Doleances } as const;
+
 export default function App() {
-  const onComptoir = Platform.OS === 'web' && window.location.pathname.replace(/\/+$/, '') === '/comptoir';
-  return onComptoir ? (
+  const path = Platform.OS === 'web' ? window.location.pathname.replace(/\/+$/, '') : '';
+  const Page = PAGES[path as keyof typeof PAGES];
+  return Page ? (
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
-        <Comptoir onClose={() => window.location.assign('/')} />
+        <Page onClose={() => window.location.assign('/')} />
       </SafeAreaView>
     </SafeAreaProvider>
   ) : (
@@ -698,7 +705,7 @@ const styles = StyleSheet.create({
   sendDisabled: { backgroundColor: colors.disabled },
   sendText: { color: colors.onAccent, fontSize: 20, fontWeight: '700', marginTop: -2 },
   pressed: { opacity: 0.6 },
-  legal: { ...COLUMN, flexDirection: 'row', justifyContent: 'center', paddingVertical: 8 },
+  legal: { ...COLUMN, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8 },
   legalText: { color: colors.tertiary, fontSize: 12 },
   legalLink: { color: colors.tertiary, fontSize: 12, textDecorationLine: 'underline' },
 });

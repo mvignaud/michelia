@@ -3,35 +3,7 @@
 // Sans dossier de sortie existant (vérification seule) : node scripts/nouveautes.mjs --verifier
 import fs from 'node:fs';
 import path from 'node:path';
-import { lireNouveautes, PLATEFORMES, TYPES } from './nouveautes-lib.mjs';
-
-const echapper = (s) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-// Un Markdown réduit : paragraphes, listes « - », **gras**, *italique*, [lien](https://…).
-function enLigne(s) {
-  return echapper(s)
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g, '<a href="$2">$1</a>');
-}
-function versHtml(md) {
-  return md
-    .split(/\n{2,}/)
-    .map((bloc) => {
-      const lignes = bloc.split('\n');
-      if (lignes.every((l) => /^- /.test(l)))
-        return `<ul>${lignes.map((l) => `<li>${enLigne(l.slice(2))}</li>`).join('')}</ul>`;
-      return `<p>${enLigne(lignes.join(' '))}</p>`;
-    })
-    .join('\n');
-}
-
-const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-const dateLongue = (iso) => {
-  const [a, m, j] = iso.split('-').map(Number);
-  return `${j === 1 ? '1er' : j} ${MOIS[m - 1]} ${a}`;
-};
+import { dateLongue, enLigne, lireNouveautes, PIED, PLATEFORMES, TYPES, versHtml } from './nouveautes-lib.mjs';
 
 function disponibilite(e) {
   if (!e.appli) return 'Sur le site';
@@ -81,7 +53,7 @@ ${parJour
   .map((j) => `<h3 class="jour">${dateLongue(j.date)}</h3>\n${j.entrees.map(carte).join('\n')}`)
   .join('\n')}
 </main>
-<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>
+${PIED}
 </body>
 </html>
 `;

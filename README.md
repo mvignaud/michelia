@@ -11,6 +11,8 @@ MichelIA, c'est Michel : un vieux Gersois coincé dans un ordinateur, qui râle 
 | `supabase/migrations/` | Base de données : configuration et quota de messages par jour |
 | `supabase/functions/chat/` | Fonction serveur : vérifie le quota, appelle Claude, renvoie la réponse en flux |
 | `app/nouveautes/` | Les nouveautés de Michel, une par fichier : page [michel.beer/confit-de-canard](https://michel.beer/confit-de-canard) et notes des stores ([mode d'emploi](app/nouveautes/LISEZMOI.md)) |
+| `app/ca-mijote.md` | Ce qui mijote (la feuille de route publique) : page [michel.beer/ca-mijote](https://michel.beer/ca-mijote) |
+| `docs/CAHIER-DE-DOLEANCES.md` | Le cahier de doléances (michel.beer/cahier-de-doleances) : idées des gens, tri et feuille de route |
 | `docs/MISE-EN-LIGNE.md` | Guide pas à pas pour publier la version web |
 | `docs/PUBLIER-UNE-VERSION.md` | Préparer les notes des stores et sortir un nouveau build des applis |
 
