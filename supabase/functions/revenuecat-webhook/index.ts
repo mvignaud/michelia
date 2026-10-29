@@ -10,8 +10,9 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const WEBHOOK_AUTH = Deno.env.get("REVENUECAT_WEBHOOK_AUTH") ?? "";
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-// Les produits des boutiques s'appellent pourboire_<id du palier> (pourboire_cafe, pourboire_fete…).
-const PRODUIT = /^pourboire_([a-z0-9_]+)$/;
+// Les produits des boutiques s'appellent pourboire_<id du palier> (pourboire_cafe, pourboire_fete…),
+// avec un chiffre au bout quand une boutique a dû le recréer (pourboire_cafe2 sur l'App Store).
+const PRODUIT = /^pourboire_([a-z_]+?)\d*$/;
 
 const reply = (status: number, body: string) => new Response(body, { status });
 
