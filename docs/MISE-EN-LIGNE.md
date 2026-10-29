@@ -120,3 +120,13 @@ Et côté Anthropic : fixer une limite mensuelle (Settings > Limits) et laisser 
 - Vérifier les trois protections ci-dessus.
 - Pages légales : `app/public/` (mentions légales, confidentialité, conditions). Les durées de conservation annoncées reposent sur la migration `20261029020000_purge.sql`.
 - Créer l'adresse `contact@michel.beer` (Cloudflare > Email > Routage des e-mails, gratuit), citée dans les pages légales.
+
+## Appli web installable (PWA)
+
+Le site s'installe sur l'écran d'accueil (Android, iPhone, ordinateur) et s'ouvre même sans réseau.
+
+- `app/public/index.html` : modèle de page (méta PWA, écrans de démarrage iOS, aperçus de partage).
+- `app/public/manifest.webmanifest`, `app/public/sw.js` (service worker), `app/public/hors-ligne.html`.
+- Icônes et écrans de démarrage : `python3 assets/brand/pwa.py` depuis `app/` après un changement de logo.
+- `app/public/_headers` : Cloudflare ne garde jamais `sw.js` en cache, sinon les mises à jour traînent.
+- Après une grosse refonte du cache, changer `VERSION` dans `sw.js` pour vider l'ancien.

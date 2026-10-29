@@ -19,9 +19,11 @@ import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
+import { InstallCard } from './src/InstallCard';
 import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
+import { isOffline, registerServiceWorker } from './src/pwa';
 import { RichText } from './src/RichText';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
@@ -51,6 +53,8 @@ const LEGAL_LINKS = [
 
 // « local » : mot de Michel affiché seulement ici, jamais renvoyé à l'IA ni gardé en mémoire.
 type Bubble = ChatMessage & { id: string; failed?: boolean; local?: boolean };
+
+registerServiceWorker();
 
 let nextId = 0;
 const newId = () => String(nextId++);
@@ -167,7 +171,11 @@ export default function App() {
       );
       if (learned.name) setName(learned.name);
     } catch (e) {
-      const message = e instanceof Error && e.message ? e.message : 'Macarel, ça a planté.';
+      const message = isOffline()
+        ? "Boudu, ça capte plus ! Sans internet je peux rien te dire, con. Réessaie quand le réseau revient."
+        : e instanceof Error && e.message
+          ? e.message
+          : 'Macarel, ça a planté.';
       updateAnswer((b) => ({ ...b, content: message, failed: true }));
     } finally {
       setBusy(false);
@@ -236,6 +244,7 @@ export default function App() {
                 <View style={[styles.bubble, styles.michel]}>
                   <Text style={styles.michelText}>{welcome(name)}</Text>
                 </View>
+                {bubbles.length === 0 && <InstallCard />}
               </View>
             }
             ListFooterComponent={
