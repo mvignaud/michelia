@@ -12,7 +12,7 @@ export const TAUX_TVA = 0.2;
 
 // Mentions du vendeur, imprimées en pied de reçu.
 const VENDEUR = [
-  "GOLDEN PRINT SAS · 32370 Manciet",
+  "GOLDEN PRINT SAS · 14 route d’Espas, 32370 Manciet",
   "RCS Auch 939 018 024 · TVA intracommunautaire FR66939018024",
 ];
 
