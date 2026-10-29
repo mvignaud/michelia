@@ -2,6 +2,7 @@ import { loadStripe, type Appearance, type StripeCheckoutElementsSdk } from '@st
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
+import { isMember, loadProfile } from './auth';
 import { supabase } from './supabase';
 import { colors, serif } from './theme';
 
@@ -26,6 +27,18 @@ export function Comptoir() {
     loadComptoir()
       .then(setData)
       .catch(() => setFailed(true));
+  }, []);
+
+  // Un membre connecté n'a rien à retaper : e-mail et prénom viennent de son compte (modifiables).
+  useEffect(() => {
+    (async () => {
+      const { data: auth } = await supabase.auth.getSession();
+      const user = auth.session?.user;
+      if (!user || !isMember(auth.session)) return;
+      if (user.email) setEmail((e) => e || user.email!);
+      const { firstName } = await loadProfile(user.id);
+      if (firstName) setPrenom((p) => p || firstName);
+    })().catch(() => {});
   }, []);
 
   // Les champs de paiement : session créée par la fonction comptoir-paiement (prix lu côté serveur),
@@ -96,7 +109,6 @@ export function Comptoir() {
       }
       setThanks(paying);
       setPaying(null);
-      setPrenom('');
       reloadComptoir().then(setData).catch(() => {});
     } catch (e) {
       console.error('Comptoir : paiement impossible', e);
@@ -317,6 +329,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     fontSize: 16,
     color: colors.text,
+    outlineColor: colors.accent,
   },
   refus: { color: colors.failed, fontSize: 15, lineHeight: 21 },
   payer: { backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
