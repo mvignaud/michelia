@@ -22,6 +22,14 @@ const CACHE_MAX_CHARS = 200;
 // Séparateur avant les informations de fin de réponse, lu par l'appli.
 const TRAILER = "\u001e";
 const NAME_TAG = /<prenom>([^<]*)<\/prenom>/;
+// Ajoutée après la première réponse quand Michel ne connaît pas encore le prénom
+// (hors cache, pour que les réponses resservies restent anonymes).
+const ASK_NAME = [
+  "\n\nAu fait, c'est quoi ton petit nom ? Que je sache à qui je cause.",
+  "\n\nEt toi, tu t'appelles comment ? J'aime bien savoir à qui je cause, hè.",
+  "\n\nDis, tu me donnes ton prénom ? Ici dans la machine, tout le monde s'appelle « utilisateur », c'est triste à mourir.",
+];
+const askName = () => ASK_NAME[Math.floor(Math.random() * ASK_NAME.length)];
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
 const admin = createClient(
@@ -185,7 +193,9 @@ Deno.serve(async (req) => {
       p_min_variants: Number(config.cache_variants ?? 3),
     });
     if (error) console.error("cache", error);
-    else if (typeof cached === "string" && cached) return new Response(cached, { headers });
+    else if (typeof cached === "string" && cached) {
+      return new Response(cached + (name ? "" : askName()), { headers });
+    }
   }
 
   const today = new Date().toLocaleDateString("fr-FR", {
@@ -201,7 +211,12 @@ Deno.serve(async (req) => {
       ? "Ta réponse pourra être resservie à d'autres personnes : n'utilise aucun prénom."
       : name
         ? `La personne s'appelle ${name}. Appelle-la par son prénom de temps en temps, sans en abuser.`
-        : "Tu ne connais pas encore le prénom de la personne.",
+        : messages.length === 1
+          ? "Réponds directement à la question. Ne demande pas le prénom : la question est ajoutée après ta réponse."
+          : messages.length === 3 || messages.length === 9
+            ? "Tu as demandé son prénom à la personne et elle ne l'a pas donné : glisse une pique " +
+              "d'humour là-dessus en une phrase (au début ou à la fin), puis réponds normalement."
+            : "Tu ne connais pas le prénom de la personne : n'en parle pas.",
     "Quand la personne te donne son prénom ou te demande de l'appeler autrement, termine ta " +
       "réponse par la balise <prenom>Prénom</prenom>, sans rien après. N'utilise jamais cette balise autrement.",
   ].join("\n");
@@ -256,6 +271,9 @@ Deno.serve(async (req) => {
           controller.enqueue(encoder.encode("…\n\nBoudu, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
         } else {
           complete = !learned;
+          if (!name && !learned && messages.length === 1) {
+            controller.enqueue(encoder.encode(askName()));
+          }
         }
         if (learned) controller.enqueue(encoder.encode(TRAILER + JSON.stringify({ prenom: learned })));
       } catch (e) {
