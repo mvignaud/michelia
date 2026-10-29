@@ -18,6 +18,10 @@ Les applis sont construites avec EAS (Expo Application Services) depuis le dossi
    - Apple Developer > Identifiers : l'App ID `beer.michel.app`, avec « Sign in with Apple » coché. `eas build` peut le créer lui-même.
    - Supabase > Authentication > Providers > Apple : activer, puis mettre `beer.michel.app` dans « Client IDs ». Pour l'appli seule, ni clé ni secret ne sont nécessaires.
 
+## Notifications push
+
+Voir [NOTIFICATIONS.md](NOTIFICATIONS.md) : clé APNs (créée par EAS au premier build iOS) et projet Firebase pour Android.
+
 ## Captcha dans les applis
 
 L'appli ouvre `https://michel.beer/captcha` dans une petite vue web, et la page lui renvoie le jeton Turnstile. La vue reste invisible, sauf si Cloudflare demande une action. Aucun réglage n'est à faire : le domaine michel.beer est déjà déclaré dans le widget Turnstile.

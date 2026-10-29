@@ -4,3 +4,8 @@ project_id = "michelia"
 [functions.chat]
 # La fonction exige un utilisateur connecté (compte anonyme compris).
 verify_jwt = true
+
+[functions.push]
+# N'importe quel utilisateur peut déclencher l'envoi des annonces en attente ;
+# un envoi libre (titre et texte fournis) exige la clé service_role.
+verify_jwt = true

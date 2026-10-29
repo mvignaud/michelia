@@ -73,3 +73,34 @@ self.addEventListener('fetch', (event) => {
     }),
   );
 });
+
+// Notifications push envoyées par la fonction « push » : { title, body, url? }.
+self.addEventListener('push', (event) => {
+  let message = {};
+  try {
+    message = event.data ? event.data.json() : {};
+  } catch {
+    message = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(message.title || 'MichelIA', {
+      body: message.body || '',
+      icon: '/icones/icone-192.png',
+      lang: 'fr',
+      data: { url: message.url || '/' },
+    }),
+  );
+});
+
+// Notification touchée : on revient sur l'onglet déjà ouvert, ou on en ouvre un.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || '/', self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      if (open && url === self.location.origin + '/') return open.focus();
+      return self.clients.openWindow(url);
+    }),
+  );
+});

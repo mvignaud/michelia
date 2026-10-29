@@ -20,10 +20,12 @@ import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { InstallCard } from './src/InstallCard';
+import { NotifyCard } from './src/NotifyCard';
 import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
 import { isOffline, registerServiceWorker } from './src/pwa';
+import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
@@ -92,6 +94,12 @@ export default function App() {
     });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  // Notifications déjà acceptées : l'appareil suit le compte connecté (et son jeton est rafraîchi).
+  const userId = session?.user.id;
+  useEffect(() => {
+    if (userId) syncPush();
+  }, [userId]);
 
   // Membre connecté : Michel prend le prénom du profil ; s'il manque l'âge (Google, Facebook), on le demande.
   const memberId = member ? session?.user.id : undefined;
@@ -245,6 +253,7 @@ export default function App() {
                   <Text style={styles.michelText}>{welcome(name)}</Text>
                 </View>
                 {bubbles.length === 0 && <InstallCard />}
+                {bubbles.length === 0 && <NotifyCard />}
               </View>
             }
             ListFooterComponent={
