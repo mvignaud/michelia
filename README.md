@@ -10,7 +10,9 @@ MichelIA, c'est Michel : un vieux Gersois coincé dans un ordinateur, qui râle 
 | `app/` | L'appli Expo (React Native) : site web, iOS et Android depuis le même code |
 | `supabase/migrations/` | Base de données : configuration et quota de messages par jour |
 | `supabase/functions/chat/` | Fonction serveur : vérifie le quota, appelle Claude, renvoie la réponse en flux |
+| `app/nouveautes/` | Les nouveautés de Michel, une par fichier : page [michel.beer/nouveautes](https://michel.beer/nouveautes) et notes des stores ([mode d'emploi](app/nouveautes/LISEZMOI.md)) |
 | `docs/MISE-EN-LIGNE.md` | Guide pas à pas pour publier la version web |
+| `docs/PUBLIER-UNE-VERSION.md` | Préparer les notes des stores et sortir un nouveau build des applis |
 
 ## Principes
 
