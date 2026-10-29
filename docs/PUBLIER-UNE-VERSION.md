@@ -29,6 +29,8 @@ git pull
 npx eas-cli build --platform all --profile production --auto-submit
 ```
 
+Ou sans le Mac : **GitHub > Actions > « Publier les applis » > Run workflow** (choisir la plateforme et, pour Android, la piste). La tâche lance le build EAS et l'envoie aux deux stores toute seule. Elle a besoin des secrets du dépôt listés plus bas.
+
 Ne pas utiliser `eas submit --latest` : il peut prendre un build `preview`.
 
 Vérifier sur expo.dev que les deux builds portent bien le numéro prévu. Sinon, renommer `builds/<n>.md` et corriger les `build:` des nouveautés.
@@ -39,6 +41,17 @@ Vérifier sur expo.dev que les deux builds portent bien le numéro prévu. Sinon
 - **Play Console** > MichelIA > Tests ou Production > Créer une version > choisir le build envoyé par EAS > « Notes de version » : coller le bloc Google, balises `<fr-FR>` comprises.
 
 Cocher la checklist du fichier `builds/<n>.md` au fil de l'eau.
+
+## Secrets GitHub des tâches automatiques
+
+À ranger dans **GitHub > Settings > Secrets and variables > Actions** (jamais dans le dépôt ni dans le chat) :
+
+- `EXPO_TOKEN` : expo.dev > Account settings > Access tokens.
+- `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` : App Store Connect > Utilisateurs et accès > Intégrations > Clés d'API (rôle Admin ou App Manager). `ASC_KEY_P8` = le contenu complet du fichier `.p8`.
+- `PLAY_SERVICE_ACCOUNT_JSON` : le fichier JSON d'un compte de service Google Cloud invité dans la Play Console (droits « Gérer les versions » et « Gérer les produits intégrés »).
+- `REVENUECAT_API_KEY` : RevenueCat > Project settings > API keys > clé secrète v2 (`sk_…`), droits lecture/écriture sur les produits.
+
+La tâche **« Boutiques »** crée ou met à jour les produits du comptoir chez Apple, Google et RevenueCat (`app/scripts/boutiques.mjs`). La lancer d'abord sans cocher « appliquer » : elle affiche seulement ce qu'elle ferait.
 
 ## Rappels
 

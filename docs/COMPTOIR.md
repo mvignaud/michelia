@@ -39,6 +39,8 @@ Les noms et prix des paliers se changent dans `comptoir_paliers` (le prix est lu
 8. **Tester** avec un compte sandbox Apple / un testeur de licence Google : passer `comptoir_sandbox` à `'true'` pour que ces achats de test soient enregistrés, puis le remettre à `'false'` et supprimer les lignes de test.
 9. **Ouvrir** : `update public.app_config set value = 'true' where key = 'comptoir_appli_actif';` Le lien « Le comptoir » n'apparaît que si le comptoir des applis est ouvert et que la clé de la boutique est remplie. Le comptoir web reste réglé à part (`comptoir_actif`).
 
+Les étapes 2 à 4 (produits) peuvent se faire toutes seules : **GitHub > Actions > « Boutiques »**, d'abord en essai, puis en cochant « appliquer ». Les secrets nécessaires sont listés dans `docs/PUBLIER-UNE-VERSION.md`.
+
 Le produit d'un palier s'appelle toujours `pourboire_<id du palier>`. Le prix affiché dans l'appli est celui de la boutique ; le montant enregistré est le prix payé TTC (avant la commission d'Apple ou de Google).
 
 ## Tester

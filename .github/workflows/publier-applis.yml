@@ -1,0 +1,85 @@
+# Publier les applis sans le Mac : build EAS (profil production) puis envoi aux stores.
+# Se lance à la main : GitHub > Actions > « Publier les applis » > Run workflow.
+# Avant : préparer et fusionner les notes (npm run notes-stores, voir docs/PUBLIER-UNE-VERSION.md).
+# Secrets du dépôt (Settings > Secrets and variables > Actions), jamais dans le code :
+#   EXPO_TOKEN                 jeton expo.dev (Account settings > Access tokens)
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   clé d'API App Store Connect (rôle App Manager)
+#   PLAY_SERVICE_ACCOUNT_JSON  compte de service Google Play (JSON complet)
+name: Publier les applis
+
+on:
+  workflow_dispatch:
+    inputs:
+      plateforme:
+        description: Plateforme
+        type: choice
+        options: [all, ios, android]
+        default: all
+      piste_android:
+        description: Piste Google Play
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publier-applis
+  cancel-in-progress: false
+
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+
+      # Clés des stores dans des fichiers temporaires (jamais commités : le runner est jeté après).
+      - name: Clés des stores
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          umask 077
+          if [ -n "$ASC_KEY_P8" ]; then printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"; fi
+          if [ -n "$PLAY_JSON" ]; then printf '%s' "$PLAY_JSON" > "$RUNNER_TEMP/play.json"; fi
+
+      # Profil d'envoi « ci » ajouté à eas.json le temps du build, avec les chemins des clés ci-dessus.
+      - name: Profil d'envoi
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          PISTE: ${{ inputs.piste_android }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const eas = JSON.parse(fs.readFileSync("eas.json", "utf8"));
+            const tmp = process.env.RUNNER_TEMP;
+            const ci = { ios: { ...eas.submit.production.ios }, android: { track: process.env.PISTE, releaseStatus: "draft" } };
+            if (fs.existsSync(tmp + "/asc.p8")) {
+              Object.assign(ci.ios, { ascApiKeyPath: tmp + "/asc.p8", ascApiKeyId: process.env.ASC_KEY_ID, ascApiKeyIssuerId: process.env.ASC_ISSUER_ID });
+            }
+            if (fs.existsSync(tmp + "/play.json")) ci.android.serviceAccountKeyPath = tmp + "/play.json";
+            eas.submit.ci = ci;
+            fs.writeFileSync("eas.json", JSON.stringify(eas, null, 2));
+          '
+
+      - name: Build et envoi
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: >
+          npx eas-cli@latest build
+          --platform ${{ inputs.plateforme }}
+          --profile production
+          --auto-submit-with-profile ci
+          --non-interactive
+          --no-wait
