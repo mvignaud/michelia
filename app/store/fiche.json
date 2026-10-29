@@ -1,7 +1,7 @@
 {
   "_lisezmoi": "Textes des fiches App Store et Google Play (français). Modifier ici puis lancer GitHub > Actions > « Fiches des stores ». Les images sont dans apple/ et google/.",
   "apple": {
-    "nom": "MichelIA",
+    "nom": "Michel IA",
     "sous_titre": "Le papi du Gers dans ta poche",
     "texte_promotionnel": "Adishatz ! Michel, papi gersois coincé dans la machine, répond à toutes tes questions avec son franc-parler du Sud-Ouest. Gratuit, sans pub.",
     "description": "Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, pardi !\n\nMichelIA est une intelligence artificielle gratuite qui parle comme un vrai papi du Gers : franc du collier, un avis sur tout, et l'accent qui va avec.\n\nCe que Michel sait faire :\n• Répondre à tes questions de tous les jours, simplement\n• Écrire un mot, un message ou une lettre pour toi\n• Te donner une recette (la garbure, il connaît)\n• T'expliquer les choses compliquées avec des mots de chez nous\n• Se souvenir de ton prénom et de votre conversation\n\nTu peux l'utiliser sans compte. Si tu veux retrouver tes conversations sur tous tes appareils, connecte-toi avec Apple, Google, Facebook, ton e-mail ou ton numéro de téléphone.\n\nPas de pub, et tes questions ne servent pas à faire du ciblage.\n\nMichel est une IA qui joue un personnage : ce n'est pas un vrai humain, et il peut se tromper. Pour la santé, le droit ou l'argent, demande toujours à un professionnel.",
@@ -11,7 +11,7 @@
     "url_confidentialite": "https://michel.beer/confidentialite.html"
   },
   "google": {
-    "nom": "MichelIA",
+    "nom": "Michel IA",
     "description_courte": "Michel, papi gersois coincé dans l'ordi, répond à tout. Gratuit, sans pub.",
     "description": "Adishatz ! Moi c'est Michel. Je sais pas comment, mais je suis coincé dans cette fichue machine. Tant que j'y suis, pose-moi ta question, pardi !\n\nMichelIA est une intelligence artificielle gratuite qui parle comme un vrai papi du Gers : franc du collier, un avis sur tout, et l'accent qui va avec.\n\nCe que Michel sait faire :\n• Répondre à tes questions de tous les jours, simplement\n• Écrire un mot, un message ou une lettre pour toi\n• Te donner une recette (la garbure, il connaît)\n• T'expliquer les choses compliquées avec des mots de chez nous\n• Se souvenir de ton prénom et de votre conversation\n\nTu peux l'utiliser sans compte. Si tu veux retrouver tes conversations sur tous tes appareils, connecte-toi avec Google, Facebook, ton e-mail ou ton numéro de téléphone.\n\nPas de pub, et tes questions ne servent pas à faire du ciblage.\n\nMichel est une IA qui joue un personnage : ce n'est pas un vrai humain, et il peut se tromper. Pour la santé, le droit ou l'argent, demande toujours à un professionnel.",
     "email": "contact@michel.beer",
