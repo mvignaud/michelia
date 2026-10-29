@@ -1,7 +1,10 @@
 import { fetch } from 'expo/fetch';
+import type { Photo } from './photo';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, getAccessToken } from './supabase';
 
-export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+// « photo » : la question portait une photo. L'image elle-même (« image ») n'est envoyée
+// qu'avec la dernière question et n'est jamais gardée en mémoire.
+export type ChatMessage = { role: 'user' | 'assistant'; content: string; photo?: boolean; image?: Photo };
 
 // Séparateur placé par la fonction avant ses informations de fin de réponse (le prénom retenu).
 const TRAILER = '\u001e';
@@ -54,7 +57,16 @@ async function read(
       apikey: SUPABASE_ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ messages, name, mode }),
+    body: JSON.stringify({
+      messages: messages.map(({ role, content, photo, image }) => ({
+        role,
+        content,
+        ...(photo && { photo }),
+        ...(image && { image: { media_type: image.media_type, data: image.data } }),
+      })),
+      name,
+      mode,
+    }),
     signal,
   });
 

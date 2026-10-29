@@ -14,10 +14,13 @@ function clean(saved: Partial<Memory>): Memory {
       ? saved.messages.filter(
           (m): m is ChatMessage =>
             (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string',
-        )
+        ).map(({ role, content, photo }) => ({ role, content, ...(photo === true && { photo }) }))
       : [];
   return { name: typeof saved.name === 'string' ? saved.name : undefined, messages };
 }
+
+// Les photos ne sont jamais gardées : seule la mention « photo » reste dans la conversation.
+const withoutImage = ({ image: _image, ...message }: ChatMessage): ChatMessage => message;
 
 export async function loadMemory(): Promise<Memory> {
   try {
@@ -43,7 +46,7 @@ export async function saveAccountMemory(userId: string, memory: Memory): Promise
   await supabase.from('conversations').upsert({
     user_id: userId,
     name: memory.name?.slice(0, 30) ?? null,
-    messages: memory.messages.slice(-MAX_SAVED),
+    messages: memory.messages.slice(-MAX_SAVED).map(withoutImage),
     updated_at: new Date().toISOString(),
   });
 }
@@ -52,7 +55,7 @@ export async function saveMemory(memory: Memory): Promise<void> {
   try {
     await AsyncStorage.setItem(
       KEY,
-      JSON.stringify({ name: memory.name, messages: memory.messages.slice(-MAX_SAVED) }),
+      JSON.stringify({ name: memory.name, messages: memory.messages.slice(-MAX_SAVED).map(withoutImage) }),
     );
   } catch {
     // Stockage plein ou bloqué (navigation privée) : Michel oubliera, tant pis.

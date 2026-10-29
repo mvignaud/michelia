@@ -49,6 +49,14 @@
       "expo-web-browser",
       "expo-apple-authentication",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Michel a besoin de tes photos pour voir ce que tu veux lui montrer.",
+          "cameraPermission": "Michel a besoin de l'appareil photo pour voir ce que tu veux lui montrer.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/android-icon-monochrome.png",
