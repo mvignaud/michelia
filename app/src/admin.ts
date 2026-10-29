@@ -168,6 +168,17 @@ async function invokeAnnonces<T>(body: Record<string, unknown>): Promise<T> {
 export const sendBroadcast = (input: BroadcastInput) =>
   invokeAnnonces<{ id?: number; emails?: number; push?: boolean; test?: boolean; email?: string }>({ ...input });
 
+// La lettre de Michel (tous les 15 jours) : la prochaine, envoyée à l'administrateur seul.
+export async function testLettre(): Promise<{ email?: string; entrees: number }> {
+  const { data, error } = await supabase.functions.invoke('lettre', { body: { test: true } });
+  if (error) {
+    const context = (error as { context?: Response }).context;
+    const detail = await context?.json?.().catch(() => null);
+    throw new Error(detail?.error || error.message || 'Le test de la lettre a planté.');
+  }
+  return data as { email?: string; entrees: number };
+}
+
 // Reprend un envoi d'e-mails coupé : seuls ceux qui ne l'ont pas reçu sont servis.
 export const resumeBroadcast = (id: number) => invokeAnnonces<{ emails?: number }>({ resume: id });
 

@@ -19,3 +19,8 @@ verify_jwt = false
 # Appelée par pg_cron sans clé : elle n'envoie qu'une fois par jour, après l'heure prévue,
 # quel que soit le nombre d'appels.
 verify_jwt = false
+
+[functions.lettre]
+# La lettre de Michel, appelée chaque matin par pg_cron sans clé : elle n'écrit que tous les
+# quinze jours et s'il y a du neuf ; le test du back-office vérifie le droit d'administrateur.
+verify_jwt = false
