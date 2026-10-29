@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
 
   const stream = anthropic.messages.stream({
     model: config.model ?? "claude-haiku-5-5",
-    max_tokens: Number(config.max_output_tokens ?? 1024),
+    max_tokens: Number(config.max_output_tokens ?? 2048),
     output_config: { effort: "low" },
     system: [
       { type: "text", text: config.system_prompt, cache_control: { type: "ephemeral" } },
@@ -148,6 +148,8 @@ Deno.serve(async (req) => {
         const final = await stream.finalMessage();
         if (final.stop_reason === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
+        } else if (final.stop_reason === "max_tokens") {
+          controller.enqueue(encoder.encode("…\n\nBoudu, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
         }
       } catch (e) {
         console.error("anthropic", e);
