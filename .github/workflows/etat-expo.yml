@@ -16,30 +16,37 @@ permissions:
 jobs:
   etat:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Derniers builds
-        run: >
-          npx eas-cli@latest build:list --limit 5 --non-interactive --json
-          | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const b of JSON.parse(s))console.log([b.platform,b.status,b.appBuildVersion,b.createdAt,b.error?.message??""].join(" | "))})'
-      - name: Envoi
-        if: inputs.envoi != ''
+      # API GraphQL d'Expo : réponse affichée telle quelle (erreurs comprises).
+      - name: Builds et envoi
         env:
           ENVOI: ${{ inputs.envoi }}
         run: |
           node -e '
-            const q = `query($id: ID!) { submissions { byId(submissionId: $id) { status platform error { errorCode message } logsUrl } } }`;
-            fetch("https://api.expo.dev/graphql", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: "Bearer " + process.env.EXPO_TOKEN },
-              body: JSON.stringify({ query: q, variables: { id: process.env.ENVOI } }),
-            }).then((r) => r.json()).then((j) => console.log(JSON.stringify(j, null, 2)));
+            const gql = (query, variables) =>
+              fetch("https://api.expo.dev/graphql", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: "Bearer " + process.env.EXPO_TOKEN },
+                body: JSON.stringify({ query, variables }),
+              }).then((r) => r.json());
+            (async () => {
+              const builds = await gql(
+                `query($id: String!) { app { byId(appId: $id) { builds(offset: 0, limit: 5) {
+                  id platform status appBuildVersion createdAt error { errorCode message } } } } }`,
+                { id: "071f33b5-c576-4db2-bc57-cdf39a04e048" },
+              );
+              console.log(JSON.stringify(builds, null, 2));
+              if (process.env.ENVOI) {
+                const envoi = await gql(
+                  `query($id: ID!) { submissions { byId(submissionId: $id) { status platform error { errorCode message } logsUrl } } }`,
+                  { id: process.env.ENVOI },
+                );
+                console.log(JSON.stringify(envoi, null, 2));
+              }
+            })();
           '
