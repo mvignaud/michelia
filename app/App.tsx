@@ -28,7 +28,7 @@ import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { Doleances } from './src/Doleances';
 import { InstallCard } from './src/InstallCard';
 import { NotifyCard } from './src/NotifyCard';
-import { loginGreeting } from './src/greeting';
+import { forgetLoginGreeting, loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { noterReponse, nouvelleCle } from './src/notes';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
@@ -122,6 +122,7 @@ function Chat() {
       if (event === 'SIGNED_OUT') {
         setBubbles([]);
         setName(undefined);
+        forgetLoginGreeting();
       }
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         // Hors du rappel de Supabase, pour ne pas le bloquer pendant la lecture du stockage.
