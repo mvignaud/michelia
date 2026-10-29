@@ -81,8 +81,14 @@ function jwt(header, payload, key, alg) {
 
 // ---------- App Store Connect ----------
 async function apple() {
-  const { ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 } = process.env;
+  let { ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 } = process.env;
   if (!ASC_KEY_ID || !ASC_ISSUER_ID || !ASC_KEY_P8) return dire('Apple : clés absentes, ignoré.');
+  // ID de clé (10 caractères) et ID d'émetteur (UUID) se confondent facilement : on les remet dans l'ordre.
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (UUID.test(ASC_KEY_ID.trim()) && !UUID.test(ASC_ISSUER_ID.trim())) {
+    [ASC_KEY_ID, ASC_ISSUER_ID] = [ASC_ISSUER_ID, ASC_KEY_ID];
+    dire('  (ASC_KEY_ID et ASC_ISSUER_ID étaient inversés : remis dans l\'ordre)');
+  }
   dire('Apple (App Store Connect)');
   // Apple refuse un jeton qui vit plus de 20 min : on garde de la marge (horloges, espaces collés en trop).
   const now = Math.floor(Date.now() / 1000);
@@ -98,7 +104,7 @@ async function apple() {
     const id = ASC_KEY_ID.trim();
     const iss = ASC_ISSUER_ID.trim();
     dire(`  ASC_KEY_ID : ${/^[A-Z0-9]{10}$/.test(id) ? 'forme OK (10 caractères)' : `forme inattendue (${id.length} caractères, 10 attendus)`}`);
-    dire(`  ASC_ISSUER_ID : ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(iss) ? 'forme OK (identifiant 8-4-4-4-12)' : `forme inattendue (${iss.length} caractères) : attendu l'ID de l'émetteur, du type xxxxxxxx-xxxx-…`}`);
+    dire(`  ASC_ISSUER_ID : ${UUID.test(iss) ? 'forme OK (identifiant 8-4-4-4-12)' : `forme inattendue (${iss.length} caractères) : attendu l'ID de l'émetteur, du type xxxxxxxx-xxxx-…`}`);
     dire(`  ASC_KEY_P8 : ${ASC_KEY_P8.includes('BEGIN PRIVATE KEY') ? 'en-tête OK' : 'en-tête BEGIN PRIVATE KEY absent'}`);
   };
   try {
