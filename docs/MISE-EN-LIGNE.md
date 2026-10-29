@@ -18,7 +18,7 @@ Compter une heure la première fois. Aucune clé secrète ne va dans ce dépôt 
 
    Pour modifier Michel plus tard : relancer la même requête, ou éditer la ligne dans **Table Editor > app_config**. Effet immédiat, sans redéployer.
 
-5. Réglages dans la même table : `daily_limit` (messages gratuits par jour et par visiteur, 30 par défaut), `global_daily_limit` (plafond pour tout le site, 5 000), `model` (`claude-haiku-5-5`), `max_output_tokens` (2048).
+5. Réglages dans la même table : `daily_limit` (messages gratuits par jour et par visiteur, 30 par défaut), `global_daily_limit` (plafond pour tout le site, 5 000), `model` (`claude-haiku-5-5`), `max_output_tokens` (2048). Cache des questions d'ouverture : `cache_enabled` (`true` / `false`), `cache_threshold` (proximité minimale entre deux questions, 0,94) et `cache_variants` (nombre de réponses à avoir en réserve avant d'en resservir une, 3).
 
 ## 2. Clé Anthropic
 
