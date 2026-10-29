@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
 import {
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -85,7 +86,11 @@ export default function App() {
         <View style={styles.header}>
           <View style={styles.headerInner}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>M</Text>
+              <Image
+                source={require('./assets/brand/michel-portrait.png')}
+                style={styles.avatarImage}
+                accessibilityLabel="Michel"
+              />
             </View>
             <View style={styles.headerText}>
               <Text style={styles.title}>Michel</Text>
@@ -233,16 +238,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: colors.ochre,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarText: { color: colors.onAccent, fontSize: 19, fontFamily: serif, fontWeight: '700' },
+  avatarImage: { width: 50, height: 50, marginTop: 4 },
   headerText: { flex: 1 },
   title: { color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
