@@ -157,8 +157,8 @@ async function google() {
     const [u, c = '0'] = String(prix).split('.');
     return { currencyCode: 'EUR', units: u, nanos: Number(c.padEnd(2, '0')) * 10_000_000 };
   };
-  const dollars = (prix) => ({ ...euros(prix), currencyCode: 'USD' });
-  // Pays de la zone euro où Michel a du sens ; les autres pays ne sont pas ouverts.
+  // Pays de la zone euro où Michel a du sens ; les autres pays ne sont pas ouverts
+  // (pas de newRegionsConfig : Google refuse un produit neuf « NO_LONGER_AVAILABLE » ailleurs).
   const PAYS = ['FR', 'BE', 'LU'];
   const OPTION = 'achat';
 
@@ -182,7 +182,6 @@ async function google() {
                 price: euros(p.prix),
                 availability: 'AVAILABLE',
               })),
-              newRegionsConfig: { eurPrice: euros(p.prix), usdPrice: dollars(p.prix), availability: 'NO_LONGER_AVAILABLE' },
             },
           ],
         },
