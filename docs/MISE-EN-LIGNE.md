@@ -6,7 +6,7 @@ Compter une heure la première fois. Aucune clé secrète ne va dans ce dépôt 
 
 1. Créer un projet sur [supabase.com](https://supabase.com), région Europe (Paris ou Francfort).
 2. **Authentication > Sign In / Providers** : activer **Anonymous sign-ins**. Chaque visiteur reçoit un compte invisible qui porte son quota du jour.
-3. **SQL Editor** : coller et exécuter `supabase/migrations/20261029000000_init.sql`.
+3. **SQL Editor** : coller et exécuter, dans l'ordre, les fichiers de `supabase/migrations/`.
 4. Toujours dans le SQL Editor, ajouter le prompt de Michel (il n'est pas dans le dépôt public) :
 
    ```sql
@@ -18,7 +18,7 @@ Compter une heure la première fois. Aucune clé secrète ne va dans ce dépôt 
 
    Pour modifier Michel plus tard : relancer la même requête, ou éditer la ligne dans **Table Editor > app_config**. Effet immédiat, sans redéployer.
 
-5. Réglages dans la même table : `daily_limit` (messages gratuits par jour, 30 par défaut), `model` (`claude-haiku-5-5`), `max_output_tokens` (1024).
+5. Réglages dans la même table : `daily_limit` (messages gratuits par jour et par visiteur, 30 par défaut), `global_daily_limit` (plafond pour tout le site, 5 000), `model` (`claude-haiku-5-5`), `max_output_tokens` (1024).
 
 ## 2. Clé Anthropic
 
@@ -46,7 +46,7 @@ La référence du projet est dans l'adresse du tableau de bord Supabase.
    - Répertoire racine : `app`
    - Commande : `npm run build:web`
    - Dossier de sortie : `dist`
-   - Variables : `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_ANON_KEY` (Supabase > Project Settings > API). Ces deux valeurs sont publiques par nature.
+   - Variables : `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (Supabase > Project Settings > API Keys, clé « publishable ») et `EXPO_PUBLIC_TURNSTILE_SITE_KEY` (voir Anti-robots). Ces valeurs sont publiques par nature.
 3. **Domaines personnalisés** : ajouter `michel.beer`. Cloudflare indique l'enregistrement DNS à créer chez le registraire (ou transférer la zone DNS chez Cloudflare, plus simple).
 
 Chaque fusion sur `main` republie le site automatiquement.
@@ -60,8 +60,23 @@ npm install
 npm run web
 ```
 
+## Anti-robots
+
+Trois protections se cumulent :
+
+1. **Quota par visiteur** : `daily_limit` messages par jour et par compte anonyme (30 par défaut).
+2. **Plafond global** : `global_daily_limit` messages par jour pour tout le site (5 000 par défaut, soit environ 2,50 $ de Claude Haiku). Même avec des milliers de faux comptes, la dépense du jour reste bornée. À relever quand l'audience grandit.
+3. **Captcha Cloudflare Turnstile** à la création du compte anonyme (version web) :
+   - Cloudflare > **Turnstile** > Add site : domaine `michel.beer` (+ `localhost` pour les tests), mode **Managed**.
+   - Copier la **clé de site** dans la variable `EXPO_PUBLIC_TURNSTILE_SITE_KEY` de Cloudflare Pages.
+   - Copier la **clé secrète** dans Supabase > Authentication > **Attack Protection** > Enable Captcha protection > Turnstile.
+   - Attention : une fois le captcha activé dans Supabase, les applis iOS et Android ne pourront plus créer de compte tant qu'elles n'auront pas leur propre vérification (prévu pour la sortie sur les stores).
+
+Dans Supabase > Authentication > **Rate Limits**, baisser aussi « Anonymous sign-ins » (par adresse IP et par heure) à 10 ou 20.
+
+Et côté Anthropic : fixer une limite mensuelle (Settings > Limits) et laisser le rechargement automatique désactivé.
+
 ## Avant d'ouvrir au public
 
-- Activer le captcha Cloudflare Turnstile sur la connexion anonyme (Supabase > Authentication > Attack Protection) pour bloquer les robots.
-- Vérifier le plafond de dépense Anthropic.
+- Vérifier les trois protections ci-dessus.
 - Ajouter mentions légales et politique de confidentialité.

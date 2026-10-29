@@ -92,18 +92,27 @@ Deno.serve(async (req) => {
   }
 
   const limit = Number(config.daily_limit ?? 30);
-  const { data: used, error: quotaError } = await admin.rpc("consume_message", {
+  const { data: quota, error: quotaError } = await admin.rpc("consume_message", {
     p_user: auth.user.id,
     p_limit: limit,
+    p_global_limit: Number(config.global_daily_limit ?? 5000),
   });
   if (quotaError) {
     console.error("quota", quotaError);
     return reply(500, "Michel est parti chercher du pain, réessaie dans un moment.", origin);
   }
-  if (used === null) {
+  if (quota === "user_limit") {
     return reply(
       429,
       `Boudu, ${limit} questions aujourd'hui, tu m'as vidé ! Reviens demain, je serai requinqué.`,
+      origin,
+    );
+  }
+  if (quota === "global_limit") {
+    console.warn("quota: plafond global du jour atteint");
+    return reply(
+      429,
+      "Macarel, tout le Gers m'a posé des questions aujourd'hui, je suis rincé. Reviens demain !",
       origin,
     );
   }
