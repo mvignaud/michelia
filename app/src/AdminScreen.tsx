@@ -21,6 +21,7 @@ import {
   mergeUsers,
   resumeBroadcast,
   sendBroadcast,
+  testLettre,
   userUsage,
   type AdminUser,
   type Broadcast,
@@ -679,6 +680,24 @@ function MessageTab() {
     }
   }
 
+  async function lettreTest() {
+    setBusy(true);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const result = await testLettre();
+      setNotice(
+        result.entrees
+          ? `Lettre de test envoyée à ${result.email} (${number(result.entrees)} nouveautés).`
+          : 'Rien de neuf depuis la dernière lettre : la prochaine ne partirait pas.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Le test de la lettre a planté.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resume(id: number) {
     setError(undefined);
     setNotice(undefined);
@@ -773,6 +792,16 @@ function MessageTab() {
           </Pressable>
         )}
       </View>
+
+      <Section title="Lettre de Michel">
+        <Text style={styles.small}>
+          Part toute seule le matin, tous les 15 jours au plus, aux membres qui acceptent les nouvelles, avec les nouveautés du
+          carnet pas encore racontées. Rien de neuf, pas de lettre.
+        </Text>
+        <Pressable onPress={lettreTest} disabled={busy} style={({ pressed }) => [styles.secondary, (pressed || busy) && styles.pressed]}>
+          <Text style={styles.secondaryText}>M'envoyer la prochaine lettre</Text>
+        </Pressable>
+      </Section>
 
       <Section title="Dernières annonces">
         {history.length === 0 && <Text style={styles.small}>Aucune annonce pour l'instant.</Text>}
