@@ -47,7 +47,15 @@
         }
       ],
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#7A2E1D",
+          "defaultChannel": "default"
+        }
+      ]
     ],
     "extra": {
       "eas": {

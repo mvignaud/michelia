@@ -28,6 +28,7 @@
 <li><strong>Le texte de la conversation</strong> : il est envoyé à Anthropic pour générer la réponse. La dernière conversation (40 messages au plus) est enregistrée sur ton appareil pour la retrouver à ton retour. Si tu as un compte, elle est aussi enregistrée sur ton compte, dans la base de MichelIA, pour la retrouver sur tes autres appareils.</li>
 <li><strong>Ton prénom</strong>, si tu le donnes à Michel : enregistré sur ton appareil (et sur ton compte si tu en as un) et envoyé avec tes questions pour qu'il t'appelle par ton prénom.</li>
 <li><strong>Les questions d'ouverture</strong> : la première question d'une conversation, si elle est courte (200 caractères au plus) et ne contient ni chiffre ni adresse e-mail, est enregistrée avec la réponse de Michel, sans aucun lien avec ton identifiant. Si quelqu'un pose ensuite une question très proche, Michel peut lui resservir cette réponse au lieu d'en écrire une nouvelle.</li>
+<li><strong>Les notifications</strong>, seulement si tu les acceptes : l'adresse technique de ton appareil pour les notifications (jeton fourni par Apple, Google ou ton navigateur), reliée à ton identifiant. Elle sert uniquement à t'envoyer les nouvelles de Michel. Tu les coupes quand tu veux dans les réglages de ton téléphone ou de ton navigateur.</li>
 <li><strong>Des données techniques</strong> : adresse IP et informations du navigateur, traitées par nos hébergeurs pour faire fonctionner le service et bloquer les robots (vérification Cloudflare Turnstile).</li>
 <li><strong>La mesure d'audience</strong>, seulement si tu l'acceptes : pages vues, durée de visite, type d'appareil, ville approximative, via Google Analytics. Google ne reçoit ni tes questions ni ton identité.</li>
 </ul>
@@ -38,6 +39,7 @@
 <ul>
 <li>Fournir le service que tu demandes, y compris ton compte et la vérification de l'âge minimum : exécution des conditions d'utilisation (article 6.1.b du RGPD).</li>
 <li>Limiter les abus, protéger le service contre les robots et maîtriser son coût, y compris en réutilisant les réponses aux questions d'ouverture : intérêt légitime de l'éditeur (article 6.1.f du RGPD).</li>
+<li>T'envoyer des notifications : ton consentement, donné quand ton appareil te les propose (article 6.1.a du RGPD), que tu peux retirer à tout moment.</li>
 <li>Mesurer l'audience pour améliorer MichelIA : ton consentement (article 6.1.a du RGPD), que tu peux retirer à tout moment.</li>
 </ul>
 </section>
@@ -45,6 +47,7 @@
 <h2>Durées de conservation</h2>
 <ul>
 <li>Compte : jusqu'à ce que tu le supprimes (bouton « Supprimer mon compte » dans « Compte »), ce qui efface immédiatement ton profil, ta conversation enregistrée et tes compteurs.</li>
+<li>Adresse de notification : jusqu'à ce que tu coupes les notifications (elle est effacée au premier envoi refusé) ou que ton compte soit supprimé.</li>
 <li>Compteurs de questions : 90 jours, puis suppression automatique.</li>
 <li>Identifiant anonyme : supprimé automatiquement après un an, s'il n'a servi à aucune question depuis 90 jours. Tu peux aussi l'effacer de ton appareil en vidant les données du site.</li>
 <li>Questions d'ouverture et réponses mises en cache : 14 jours, puis suppression automatique.</li>
@@ -56,7 +59,7 @@
 </section>
 <section>
 <h2>Destinataires et transferts hors de l'Union européenne</h2>
-<p>Seuls les prestataires techniques reçoivent ces données : Cloudflare (hébergement du site, anti-robots), Supabase (base de données, comptes et serveur), Anthropic (génération des réponses), Twilio (envoi des codes par SMS, si tu te connectes avec ton numéro) Google (mesure d'audience, si tu l'acceptes) et, si tu choisis de te connecter avec eux, Google, Facebook ou Apple. Certains sont situés aux États-Unis : les transferts sont encadrés par le Data Privacy Framework UE–États-Unis ou par les clauses contractuelles types de la Commission européenne. Aucune donnée n'est vendue ni utilisée pour de la publicité.</p>
+<p>Seuls les prestataires techniques reçoivent ces données : Cloudflare (hébergement du site, anti-robots), Supabase (base de données, comptes et serveur), Anthropic (génération des réponses), Twilio (envoi des codes par SMS, si tu te connectes avec ton numéro), Expo, Apple, Google ou l'éditeur de ton navigateur (acheminement des notifications, si tu les acceptes), Google (mesure d'audience, si tu l'acceptes) et, si tu choisis de te connecter avec eux, Google, Facebook ou Apple. Certains sont situés aux États-Unis : les transferts sont encadrés par le Data Privacy Framework UE–États-Unis ou par les clauses contractuelles types de la Commission européenne. Aucune donnée n'est vendue ni utilisée pour de la publicité.</p>
 </section>
 <section>
 <h2>Cookies et stockage local</h2>
