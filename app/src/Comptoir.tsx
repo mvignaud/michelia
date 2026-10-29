@@ -9,9 +9,11 @@ import { colors, serif } from './theme';
 
 // Applis iOS et Android : le comptoir par achat intégré (Apple, Google), géré par RevenueCat.
 // Jamais Stripe ici (règle Apple 3.1.1). Chaque palier est un produit « consommable » des boutiques,
-// nommé pourboire_<id du palier> ; le prix affiché est celui de la boutique. Le webhook
+// nommé pourboire_<id du palier>, ou pourboire_<id>2 quand une boutique a dû le recréer (Apple ne
+// réutilise jamais un identifiant supprimé : le café iOS est pourboire_cafe2). Le prix affiché est celui de la boutique. Le webhook
 // revenuecat-webhook enregistre l'achat dans la même table que le web (note du mois, carnet).
-const produit = (palier: string) => `pourboire_${palier}`;
+const produits = (palier: string) => [`pourboire_${palier}`, `pourboire_${palier}2`];
+const palierDe = (produit: string) => produit.replace(/^pourboire_/, '').replace(/\d+$/, '');
 
 let configured = false;
 
@@ -25,7 +27,7 @@ async function configure(cle: string) {
 
 export function Comptoir({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<Data>();
-  const [products, setProducts] = useState<Record<string, PurchasesStoreProduct>>({});
+  const [products, setProducts] = useState<Record<string, PurchasesStoreProduct>>({}); // par id de palier
   const [failed, setFailed] = useState(false);
   const [paying, setPaying] = useState<string | null>(null);
   const [refus, setRefus] = useState<string | null>(null);
@@ -40,10 +42,10 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
       if (!cle) return;
       await configure(cle);
       const found = await Purchases.getProducts(
-        comptoir.paliers.map((p) => produit(p.id)),
+        comptoir.paliers.flatMap((p) => produits(p.id)),
         Purchases.PRODUCT_CATEGORY.NON_SUBSCRIPTION,
       );
-      setProducts(Object.fromEntries(found.map((p) => [p.identifier, p])));
+      setProducts(Object.fromEntries(found.map((p) => [palierDe(p.identifier), p])));
     })().catch(() => setFailed(true));
 
     // Un membre connecté retrouve son prénom pour le carnet (modifiable, facultatif).
@@ -56,7 +58,7 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
   }, []);
 
   const pay = async (palier: string) => {
-    const product = products[produit(palier)];
+    const product = products[palier];
     if (!product || paying) return;
     setPaying(palier);
     setRefus(null);
@@ -80,7 +82,7 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
   const ouvert = !!cleAppli(data);
   const merci = data?.paliers.find((p) => p.id === thanks)?.merci;
   // Seuls les paliers trouvés dans la boutique de l'appareil sont proposés.
-  const paliers = (data?.paliers ?? []).filter((p) => products[produit(p.id)]);
+  const paliers = (data?.paliers ?? []).filter((p) => products[p.id]);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -148,7 +150,7 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
                   ) : (
                     <>
                       <Text style={styles.palierName}>{p.nom}</Text>
-                      <Text style={styles.palierPrice}>{products[produit(p.id)].priceString}</Text>
+                      <Text style={styles.palierPrice}>{products[p.id].priceString}</Text>
                     </>
                   )}
                 </Pressable>
