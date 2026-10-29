@@ -1,4 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +14,7 @@ import {
 } from 'react-native';
 import {
   ageFromBirthYear,
+  appleSignInAvailable,
   birthYearFromAge,
   deleteAccount,
   isMember,
@@ -20,6 +22,7 @@ import {
   saveProfile,
   sendPasswordReset,
   setNewPassword,
+  signInWithApple,
   signInWithEmail,
   signInWithProvider,
   signOut,
@@ -51,6 +54,11 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [apple, setApple] = useState(false);
+
+  useEffect(() => {
+    appleSignInAvailable().then(setApple);
+  }, []);
 
   useEffect(() => {
     if (mode !== 'profile' || !session) return;
@@ -163,6 +171,15 @@ export function AccountScreen({ session, initialMode, onClose, onProfile }: Prop
                 ? 'Avec un compte, Michel te reconnaît sur tous tes appareils.'
                 : 'Content de te revoir, boudu.'}
             </Text>
+            {apple && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={12}
+                style={styles.apple}
+                onPress={() => run(signInWithApple)}
+              />
+            )}
             <ProviderButton label="Continuer avec Google" onPress={() => run(() => signInWithProvider('google'))} />
             <ProviderButton label="Continuer avec Facebook" onPress={() => run(() => signInWithProvider('facebook'))} />
             <Text style={styles.or}>ou avec ton e-mail</Text>
@@ -320,6 +337,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  apple: { height: 48 },
   providerText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   or: { color: colors.tertiary, fontSize: 13, textAlign: 'center', marginVertical: 4 },
   card: {

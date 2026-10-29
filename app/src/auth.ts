@@ -1,4 +1,6 @@
 import { Platform } from 'react-native';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { getCaptchaToken } from './captcha';
 import { supabase } from './supabase';
@@ -7,6 +9,9 @@ export type Profile = { firstName?: string; lastName?: string; birthYear?: numbe
 
 // Adresse où reviennent les liens des e-mails et les connexions Google / Facebook.
 const SITE = Platform.OS === 'web' ? window.location.origin : 'https://michel.beer';
+
+// Dans les applis, Google et Facebook renvoient vers l'appli elle-même.
+const APP_RETURN = 'michelia://auth';
 
 export const isMember = (session: Session | null) => !!session && !session.user.is_anonymous;
 
@@ -72,12 +77,66 @@ export async function signInWithEmail(email: string, password: string) {
 }
 
 export async function signInWithProvider(provider: 'google' | 'facebook') {
-  const { error } = await supabase.auth.signInWithOAuth({
+  const native = Platform.OS !== 'web';
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
-    options: { redirectTo: SITE },
+    options: { redirectTo: native ? APP_RETURN : SITE, skipBrowserRedirect: native },
   });
   const failure = explain(error);
   if (failure) throw failure;
+  if (!native || !data.url) return;
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, APP_RETURN);
+  if (result.type !== 'success') return;
+  // Le retour porte soit un code à échanger, soit les jetons dans l'ancre de l'adresse.
+  const url = new URL(result.url);
+  const params = new URLSearchParams(url.hash.slice(1));
+  const code = url.searchParams.get('code');
+  const access_token = params.get('access_token');
+  const refresh_token = params.get('refresh_token');
+  const outcome = code
+    ? await supabase.auth.exchangeCodeForSession(code)
+    : access_token && refresh_token
+      ? await supabase.auth.setSession({ access_token, refresh_token })
+      : { error: { message: url.searchParams.get('error_description') ?? 'Connexion annulée.' } };
+  const returned = explain(outcome.error);
+  if (returned) throw returned;
+}
+
+// Connexion avec Apple, proposée seulement sur iPhone et iPad (obligatoire sur l'App Store
+// dès qu'on propose Google ou Facebook).
+export const appleSignInAvailable = () =>
+  Platform.OS === 'ios' ? AppleAuthentication.isAvailableAsync() : Promise.resolve(false);
+
+export async function signInWithApple() {
+  let credential: AppleAuthentication.AppleAuthenticationCredential;
+  try {
+    credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === 'ERR_REQUEST_CANCELED') return;
+    throw e;
+  }
+  if (!credential.identityToken) throw new Error('Apple ne nous a rien renvoyé, réessaie.');
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider: 'apple',
+    token: credential.identityToken,
+  });
+  const failure = explain(error);
+  if (failure) throw failure;
+  // Apple ne donne le nom qu'à la première connexion : on le range tout de suite.
+  const { givenName, familyName } = credential.fullName ?? {};
+  if (data.user && (givenName || familyName)) {
+    await saveProfile(data.user.id, {
+      ...(await loadProfile(data.user.id)),
+      firstName: givenName ?? undefined,
+      lastName: familyName ?? undefined,
+    });
+  }
 }
 
 export async function sendPasswordReset(email: string) {

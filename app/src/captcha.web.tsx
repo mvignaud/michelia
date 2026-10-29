@@ -54,3 +54,8 @@ export async function getCaptchaToken(): Promise<string | undefined> {
     container.remove();
   }
 }
+
+// Sur le web, Turnstile s'affiche directement dans la page : rien à monter.
+export function CaptchaHost() {
+  return null;
+}

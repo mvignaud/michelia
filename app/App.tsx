@@ -16,6 +16,7 @@ import type { Session } from '@supabase/supabase-js';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AccountScreen, type AccountMode } from './src/AccountScreen';
 import { isMember, loadProfile } from './src/auth';
+import { CaptchaHost } from './src/captcha';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadMemory, saveMemory } from './src/memory';
 import { RichText } from './src/RichText';
@@ -289,6 +290,7 @@ export default function App() {
             onProfile={(profile) => profile.firstName && setName(profile.firstName)}
           />
         )}
+        <CaptchaHost />
       </SafeAreaView>
     </SafeAreaProvider>
   );
