@@ -17,6 +17,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AccountScreen, type AccountMode } from './src/AccountScreen';
 import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
+import { loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { loadMemory, saveMemory } from './src/memory';
 import { RichText } from './src/RichText';
@@ -46,7 +47,8 @@ const LEGAL_LINKS = [
   { label: 'Conditions', path: '/conditions.html' },
 ];
 
-type Bubble = ChatMessage & { id: string; failed?: boolean };
+// « local » : mot de Michel affiché seulement ici, jamais renvoyé à l'IA ni gardé en mémoire.
+type Bubble = ChatMessage & { id: string; failed?: boolean; local?: boolean };
 
 let nextId = 0;
 const newId = () => String(nextId++);
@@ -67,6 +69,14 @@ export default function App() {
     const { data } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
       if (event === 'PASSWORD_RECOVERY') setAccount('reset');
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        // Hors du rappel de Supabase, pour ne pas le bloquer pendant la lecture du stockage.
+        setTimeout(() => {
+          loginGreeting(next).then((line) => {
+            if (line) setBubbles((all) => [...all, { id: newId(), role: 'assistant', content: line, local: true }]);
+          });
+        }, 0);
+      }
     });
     return () => data.subscription.unsubscribe();
   }, []);
@@ -84,7 +94,7 @@ export default function App() {
   useEffect(() => {
     loadMemory().then((memory) => {
       setName(memory.name);
-      setBubbles(memory.messages.map((m) => ({ ...m, id: newId() })));
+      setBubbles((current) => [...memory.messages.map((m) => ({ ...m, id: newId() })), ...current]);
       setLoaded(true);
     });
   }, []);
@@ -93,6 +103,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded || busy) return;
     const messages = bubbles
+      .filter((b) => !b.local)
       .filter((b, i, all) => !b.failed && !all[i + 1]?.failed)
       .map(({ role, content }) => ({ role, content }));
     saveMemory({ name, messages });
@@ -106,7 +117,7 @@ export default function App() {
     const answerId = newId();
     // Les bulles vont par paires question / réponse ; une paire en échec n'est pas renvoyée à Michel.
     const history = [
-      ...bubbles.filter((b, i, all) => !b.failed && !all[i + 1]?.failed),
+      ...bubbles.filter((b) => !b.local).filter((b, i, all) => !b.failed && !all[i + 1]?.failed),
       question,
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
