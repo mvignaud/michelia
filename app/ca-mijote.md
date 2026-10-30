@@ -21,7 +21,6 @@ En bas de la page, « Tout juste servi » reprend tout seul les 5 dernières nou
 Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
 - **Le comptoir dans les applis** : me payer un café depuis l'iPhone ou l'Android, par la boutique d'Apple ou de Google. Sur le site, le comptoir est déjà ouvert ; dans les applis, j'attends que la paperasse soit signée.
-- **Ta bobine chez Michel** : dès ton inscription, je te dessine un petit portrait, rien qu'à toi, qui s'affiche dans la discussion et dans ton compte. Si ma tête de toi te plaît pas, tu le retouches toi-même : la moustache, le béret, les couleurs, tout ce que tu veux.
 - **Michel sur l'App Store et Google Play** : les applis sont chez Apple et Google, qui les regardent sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
 
 ## Sur la planche
