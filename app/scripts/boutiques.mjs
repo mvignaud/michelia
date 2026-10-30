@@ -72,8 +72,12 @@ async function captureRevue(api, { lire, type, relation, relationType, id, fichi
   } catch (e) {
     if (e.status !== 404) throw e;
   }
-  if (actuelle?.attributes?.assetDeliveryState?.state === 'COMPLETE') return dire('  capture de vérification déjà là');
+  // Une capture déjà là est gardée si c'est le même fichier ; sinon (par exemple la capture du comptoir
+  // posée en attendant celle de MichelIA+), elle est remplacée.
+  const memeFichier = actuelle?.attributes?.fileName === path.basename(fichier);
+  if (actuelle?.attributes?.assetDeliveryState?.state === 'COMPLETE' && memeFichier) return dire('  capture de vérification déjà là');
   await agir(`capture de vérification (${path.basename(fichier)})`, async () => {
+    if (actuelle) await api(`/v1/${type}/${actuelle.id}`, { method: 'DELETE' });
     const octets = fs.readFileSync(fichier);
     const reserve = (
       await api(`/v1/${type}`, {
