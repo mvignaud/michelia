@@ -37,6 +37,9 @@ import {
   type Profile,
 } from './auth';
 import { isAdmin } from './admin';
+import { AvatarView } from './AvatarView';
+import { AvatarEditor } from './AvatarEditor';
+import type { Avatar } from './avatar';
 import { LinkedAccounts } from './LinkedAccounts';
 import { MesRecus } from './MesRecus';
 import { DAILY_KEY } from './NotifyCard';
@@ -52,11 +55,13 @@ type Props = {
   onClose: () => void;
   onProfile: (profile: Profile) => void;
   onAdmin?: () => void;
+  avatar?: Avatar;
+  onAvatar?: (avatar: Avatar) => void;
 };
 
 const MIN_AGE = 18;
 
-export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmin }: Props) {
+export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmin, avatar, onAvatar }: Props) {
   const member = isMember(session);
   const [mode, setMode] = useState<AccountMode>(member && initialMode !== 'reset' ? 'profile' : initialMode);
   const [firstName, setFirstName] = useState('');
@@ -78,6 +83,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
   // Dicton du jour sur cet appareil ; null tant que les notifications ne sont pas autorisées.
   const [daily, setDaily] = useState<boolean | null>(null);
   const [admin, setAdmin] = useState(false);
+  const [editingAvatar, setEditingAvatar] = useState(false);
 
   useEffect(() => {
     appleSignInAvailable().then(setApple);
@@ -279,6 +285,21 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
           </>
         )}
 
+        {mode === 'profile' && session && avatar && (
+          <Pressable
+            onPress={() => setEditingAvatar(true)}
+            style={({ pressed }) => [styles.avatarRow, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Modifier ta bobine"
+          >
+            <AvatarView avatar={avatar} size={64} />
+            <View style={styles.avatarText}>
+              <Text style={styles.avatarTitle}>Ta bobine</Text>
+              <Text style={styles.avatarLink}>Retoucher mon portrait</Text>
+            </View>
+          </Pressable>
+        )}
+
         <View style={styles.card}>
           {(mode === 'signup' || mode === 'profile') && (
             <>
@@ -431,6 +452,14 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
           </Text>
         )}
       </ScrollView>
+      {editingAvatar && session && avatar && (
+        <AvatarEditor
+          userId={session.user.id}
+          avatar={avatar}
+          onSaved={(next) => onAvatar?.(next)}
+          onClose={() => setEditingAvatar(false)}
+        />
+      )}
     </View>
   );
 }
@@ -516,6 +545,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     boxShadow: '0 1px 2px rgba(60, 40, 20, 0.08)',
   },
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 12,
+    boxShadow: '0 1px 2px rgba(60, 40, 20, 0.08)',
+  },
+  avatarText: { flex: 1, gap: 2 },
+  avatarTitle: { color: colors.text, fontSize: 17, fontWeight: '600' },
+  avatarLink: { color: colors.accent, fontSize: 15 },
   field: { paddingVertical: 8 },
   fieldBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
   label: { color: colors.secondary, fontSize: 12 },

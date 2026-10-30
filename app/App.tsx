@@ -17,6 +17,8 @@ import type { Session } from '@supabase/supabase-js';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AccountScreen, type AccountMode } from './src/AccountScreen';
 import { AdminScreen } from './src/AdminScreen';
+import { AvatarView } from './src/AvatarView';
+import { avatarFromSeed, loadAvatar, type Avatar } from './src/avatar';
 import { unsubscribeFromNews } from './src/admin';
 import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
@@ -104,6 +106,7 @@ function Chat() {
   const [account, setAccount] = useState<AccountMode | null>(null);
   const [admin, setAdmin] = useState(false);
   const [sharing, setSharing] = useState<Card | null>(null);
+  const [avatar, setAvatar] = useState<Avatar>(() => avatarFromSeed(''));
   const sentRef = useRef(0);
   // Le comptoir est-il ouvert pour cet appareil ? Sur le web, la page /comptoir ; dans les applis,
   // seulement l'achat intégré, s'il est ouvert pour la boutique de l'appareil (jamais de lien vers le web).
@@ -160,6 +163,20 @@ function Chat() {
       if (!profile.birthYear) setAccount((current) => current ?? 'profile');
     });
   }, [memberId]);
+
+  // La bobine : celle du compte (dessinée à l'inscription, retouchée ou non), sinon celle de l'appareil.
+  useEffect(() => {
+    setAvatar(avatarFromSeed(userId ?? ''));
+    if (!memberId) return;
+    // Une réponse arrivée après un changement de compte ne doit pas écraser la nouvelle bobine.
+    let current = true;
+    loadAvatar(memberId)
+      .then((loaded) => current && setAvatar(loaded))
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [userId, memberId]);
 
   // Lien « Ne plus recevoir les nouvelles » des e-mails : michel.beer/?desabonnement=…
   useEffect(() => {
@@ -357,7 +374,10 @@ function Chat() {
               style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
               accessibilityRole="button"
             >
-              <Text style={styles.newChatText}>{member ? 'Compte' : 'Connexion'}</Text>
+              <View style={styles.accountInner}>
+                {member && <AvatarView avatar={avatar} size={22} />}
+                <Text style={styles.newChatText}>{member ? 'Compte' : 'Connexion'}</Text>
+              </View>
             </Pressable>
             {bubbles.length > 0 && !busy && (
               <Pressable
@@ -465,7 +485,15 @@ function Chat() {
               );
               // Une réponse terminée se partage en carte image, avec la question qui l'a amenée.
               const done = !(busy && index === bubbles.length - 1);
-              if (item.role === 'user' || item.failed || !item.content || !done) return bubble;
+              if (item.role === 'user') {
+                return (
+                  <View style={styles.userRow}>
+                    {bubble}
+                    <AvatarView avatar={avatar} size={28} />
+                  </View>
+                );
+              }
+              if (item.failed || !item.content || !done) return bubble;
               const asked = bubbles[index - 1];
               return (
                 <View>
@@ -648,6 +676,8 @@ function Chat() {
             initialMode={account}
             onClose={() => setAccount(null)}
             onProfile={(profile) => profile.firstName && setName(profile.firstName)}
+            avatar={avatar}
+            onAvatar={setAvatar}
             onAdmin={() => {
               setAccount(null);
               setAdmin(true);
@@ -705,6 +735,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.accentSoft,
   },
+  accountInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   newChatText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   modesScroll: { ...COLUMN, flexGrow: 0 },
   modes: { gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
@@ -736,7 +767,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 6,
     boxShadow: '0 1px 2px rgba(60, 40, 20, 0.08)',
   },
-  user: { alignSelf: 'flex-end', backgroundColor: colors.accent, borderBottomRightRadius: 6 },
+  userRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6 },
+  user: { flexShrink: 1, alignSelf: 'flex-end', backgroundColor: colors.accent, borderBottomRightRadius: 6 },
   failed: { backgroundColor: colors.failed },
   michelText: { color: colors.text, fontSize: 16, lineHeight: 23 },
   userText: { color: colors.onAccent, fontSize: 16, lineHeight: 23 },
