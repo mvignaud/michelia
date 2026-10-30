@@ -386,20 +386,17 @@ export async function premierPrelevementSepa(
 // relancés au bout de 10 minutes, avec le même identifiant.
 export async function reprendrePremiersSepa(limite: number): Promise<void> {
   const { data } = await admin.from("abonnements")
-    .select("id, formule, prix_cents, essai, stancer_client, stancer_sepa, mandats_sepa(signe_le), abonnement_echeances(id)")
+    .select("id, formule, prix_cents, essai, stancer_client, stancer_sepa, updated_at, abonnement_echeances(id)")
     .eq("source", "web").eq("moyen", "sepa").eq("statut", "en_attente").not("stancer_sepa", "is", null)
     .limit(limite);
   for (const a of data ?? []) {
     // deno-lint-ignore no-explicit-any
     const r = a as any;
     if (r.abonnement_echeances?.length) continue;
-    const signe = r.mandats_sepa?.[0]?.signe_le;
-    if (!signe) {
-      console.error("MichelIA+ : ALERTE mandat posé sans signature rangée, à vérifier", a.id);
-      continue;
-    }
-    if (Date.now() - new Date(signe).getTime() < 600_000) continue;
-    await premierPrelevementSepa(r, new Date(signe));
+    // updated_at = heure de la signature, posée avec le mandat (signerMandat), même si la suite a coupé.
+    const signe = new Date(r.updated_at);
+    if (Number.isNaN(signe.getTime()) || Date.now() - signe.getTime() < 600_000) continue;
+    await premierPrelevementSepa(r, signe);
   }
 }
 

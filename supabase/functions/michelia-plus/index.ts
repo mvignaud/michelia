@@ -351,8 +351,10 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
   }
   const iban4 = iban.slice(-4);
   // L'abonnement doit être encore en attente (pas remplacé ni effacé entre-temps) : sinon, aucun
-  // prélèvement. Une fois le mandat posé, il n'est plus ni remplacé ni effacé par le ménage.
-  const { data: tenu } = await admin.from("abonnements").update({ stancer_sepa: sepaId, derniers_chiffres: iban4 })
+  // prélèvement. Une fois le mandat posé, il n'est plus ni remplacé ni effacé par le ménage. updated_at
+  // garde l'heure de la signature : le cron s'en sert pour relancer le premier prélèvement.
+  const { data: tenu } = await admin.from("abonnements")
+    .update({ stancer_sepa: sepaId, derniers_chiffres: iban4, updated_at: signeLe.toISOString() })
     .eq("id", abonnementId).eq("statut", "en_attente").is("stancer_sepa", null).select("id");
   if (!tenu?.length) {
     console.error("MichelIA+ : abonnement plus en attente à la signature, rien n'est prélevé", abonnementId);
