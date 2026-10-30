@@ -89,7 +89,7 @@ Stancer (fait). Migration `20261030110000_michelia_plus_sepa.sql` (colonne `stan
   `paye` avec `paiement_id = paym_…`, l'abonnement `actif` avec `stancer_sepa` et les 4 derniers
   caractères de l'IBAN, et le mandat (`/v1/sepa/sepa_…` : référence RUM, titulaire, date de
   signature) est rangé dans `mandats_sepa`. MichelIA+ est donné dès le départ du prélèvement.
-- Jamais signé : une nouvelle souscription du même compte après 5 minutes, ou le cron au bout d'un
+- Jamais signé : une nouvelle souscription du même compte après 15 minutes, ou le cron au bout d'un
   jour, relit l'intent et le compte refusé s'il est encore `require_…` (`abandonnerSepa`). Signé quand
   même ensuite (deux onglets) : ALERTE « à rembourser » dans les journaux.
 - Échéances suivantes (cron) : `POST /v1/checkout/` avec `sepa: "sepa_…"`, même `unique_id`

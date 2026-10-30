@@ -129,7 +129,8 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
   // Un abonnement en attente par essai de souscription ; deux cartes au plus par essai. Un seul en
   // attente par compte (index unique abonnements_vivant_idx) : un double clic ou un second onglet
   // reçoit 409 au lieu d'un second paiement. Un essai abandonné depuis 5 minutes laisse la place.
-  await abandonnerSepa(300_000, qui.id);
+  // Une page de prélèvement ouverte depuis un quart d'heure sans signature laisse la place (relue chez Stancer).
+  await abandonnerSepa(900_000, qui.id);
   await menageEnAttente(300_000, qui.id);
   const essai = stancerTest();
   const { data: abonnement, error } = await admin
@@ -215,7 +216,8 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
   const prix = await prixDe(formule);
   if (!prix) return reply(500, { error: "Prix illisible" }, origin);
 
-  await abandonnerSepa(300_000, qui.id);
+  // Une page de prélèvement ouverte depuis un quart d'heure sans signature laisse la place (relue chez Stancer).
+  await abandonnerSepa(900_000, qui.id);
   await menageEnAttente(300_000, qui.id);
   const essai = stancerTest();
   const { data: abonnement, error } = await admin
