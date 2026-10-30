@@ -74,9 +74,14 @@ async function captureRevue(api, { lire, type, relation, relationType, id, fichi
   }
   // Une capture déjà là est gardée si c'est le même fichier ; sinon (par exemple la capture du comptoir
   // posée en attendant celle de MichelIA+), elle est remplacée.
+  // Juste après l'envoi, Apple la garde quelque temps en UPLOAD_COMPLETE le temps de la traiter : on ne la renvoie pas.
   const memeFichier = actuelle?.attributes?.fileName === path.basename(fichier);
-  if (actuelle?.attributes?.assetDeliveryState?.state === 'COMPLETE' && memeFichier) return dire('  capture de vérification déjà là');
-  await agir(`capture de vérification (${path.basename(fichier)})`, async () => {
+  const etatCapture = actuelle?.attributes?.assetDeliveryState?.state;
+  if (memeFichier && ['COMPLETE', 'UPLOAD_COMPLETE'].includes(etatCapture)) {
+    return dire(`  capture de vérification déjà là (${etatCapture})`);
+  }
+  const avant = actuelle ? `, remplace ${actuelle.attributes?.fileName ?? '?'} en ${etatCapture ?? '?'}` : '';
+  await agir(`capture de vérification (${path.basename(fichier)}${avant})`, async () => {
     if (actuelle) await api(`/v1/${type}/${actuelle.id}`, { method: 'DELETE' });
     const octets = fs.readFileSync(fichier);
     const reserve = (
