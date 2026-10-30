@@ -329,7 +329,8 @@ export async function echecSur(abonnementId: number): Promise<void> {
 // Souscriptions sur le site jamais payées, plus vieilles que ageMs : supprimées, sauf celles dont le
 // premier paiement est encore en cours ou payé (la suppression emporterait son échéance).
 export async function menageEnAttente(ageMs: number, userId?: string): Promise<void> {
-  let q = admin.from("abonnements").select("id").eq("source", "web").eq("statut", "en_attente")
+  // Un mandat SEPA déjà posé (signature faite, premier prélèvement en route) n'est jamais effacé ici.
+  let q = admin.from("abonnements").select("id").eq("source", "web").eq("statut", "en_attente").is("stancer_sepa", null)
     .lt("created_at", new Date(Date.now() - ageMs).toISOString()).limit(100);
   if (userId) q = q.eq("user_id", userId);
   const { data: vieux } = await q;

@@ -88,7 +88,7 @@ Le mandat se signe chez Michel (`_shared/mandat.ts`), plus sur la page Stancer :
   zone SEPA), abonnement `en_attente` (`moyen = 'sepa'`), Turnstile et `comptoir_reserver` (genre
   `paiement`, un SMS = un essai). Michel envoie un code à 6 chiffres par SMS (Twilio) et range une
   ligne `mandats_sepa_codes` : empreintes salées du code et de l'IBAN, titulaire, téléphone masqué,
-  10 minutes, 5 essais, effacée à la signature ou par le cron au bout d'un jour. Réponse `{etat: "code", telephone}` ; 400 avec `champ` si une saisie est fausse.
+  10 minutes, 5 essais ; empreintes vidées à la signature, ligne effacée par le cron au bout d'un jour. Une signature en cours (code accepté depuis moins de 2 minutes) bloque un nouveau code (409), et le mandat n'est posé que si l'abonnement est encore `en_attente` sans `stancer_sepa` (sinon 410, rien n'est prélevé). Réponse `{etat: "code", telephone}` ; 400 avec `champ` si une saisie est fausse.
 - `{signer: {code, iban, titulaire}}` : la page renvoie l'IBAN (jamais gardé entre les deux étapes
   côté serveur, seulement son empreinte). Code, IBAN et titulaire doivent correspondre (400 avec
   `essais_restants`, 410 si expiré). Michel fait le PDF du mandat (RUM `MICHEL-<id>-<hasard>`,

@@ -215,7 +215,11 @@ function Page() {
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
-      if (statut === 409) return recharger();
+      if (statut === 409) {
+        if ((await corpsErreur(error))?.error === 'Signature déjà en cours')
+          return setRefus('Une signature est déjà en route dans un autre onglet. Attends deux minutes, puis recharge la page.');
+        return recharger();
+      }
       if (statut === 400 || statut === 502) {
         const champ = await champEnErreur(error);
         if (champ === 'iban') return setRefus("Cet IBAN ne passe pas. Vérifie-le sur ton RIB (zone SEPA seulement).");

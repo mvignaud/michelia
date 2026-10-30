@@ -234,6 +234,10 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
   const prix = await prixDe(formule);
   if (!prix) return reply(500, { error: "Prix illisible" }, origin);
 
+  // Une signature en cours dans un autre onglet (code déjà accepté) : on ne la remplace pas.
+  const { data: enCours } = await admin.from("mandats_sepa_codes").select("id").eq("user_id", qui.id)
+    .gt("utilise_le", new Date(Date.now() - 120_000).toISOString()).limit(1);
+  if (enCours?.length) return reply(409, { error: "Signature déjà en cours" }, origin);
   // Un nouveau code remplace l'essai précédent du compte, s'il n'a pas abouti.
   await abandonnerSepa(900_000, qui.id);
   await admin.from("abonnements").update({ statut: "expire", updated_at: new Date().toISOString() })
@@ -313,11 +317,12 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
   if (!bonCode || !bonIban || titulaire !== attente.titulaire) {
     return reply(400, { error: "Code incorrect", essais_restants: Math.max(0, 4 - attente.essais) }, origin);
   }
-  const { data: pris } = await admin.from("mandats_sepa_codes").update({ utilise_le: new Date().toISOString() })
+  // Code consommé, et ses empreintes effacées : celle de l'IBAN ne doit pas traîner en base. La ligne
+  // reste quelques minutes pour qu'un autre onglet ne remplace pas la signature en cours.
+  const { data: pris } = await admin.from("mandats_sepa_codes")
+    .update({ utilise_le: new Date().toISOString(), code_empreinte: "", iban_empreinte: "" })
     .eq("id", attente.id).is("utilise_le", null).select("id");
   if (!pris?.length) return reply(409, { error: "Déjà signé" }, origin);
-  // Signé : la ligne ne sert plus, et son empreinte d'IBAN ne doit pas traîner en base.
-  await admin.from("mandats_sepa_codes").delete().eq("id", attente.id);
 
   const abonnementId = attente.abonnement_id as number;
   const formule = ab.formule as Formule;
@@ -345,6 +350,14 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
     return reply(200, { etat: "refuse", raison: "iban" }, origin);
   }
   const iban4 = iban.slice(-4);
+  // L'abonnement doit être encore en attente (pas remplacé ni effacé entre-temps) : sinon, aucun
+  // prélèvement. Une fois le mandat posé, il n'est plus ni remplacé ni effacé par le ménage.
+  const { data: tenu } = await admin.from("abonnements").update({ stancer_sepa: sepaId, derniers_chiffres: iban4 })
+    .eq("id", abonnementId).eq("statut", "en_attente").is("stancer_sepa", null).select("id");
+  if (!tenu?.length) {
+    console.error("MichelIA+ : abonnement plus en attente à la signature, rien n'est prélevé", abonnementId);
+    return reply(410, { error: "Code expiré : demande un nouveau code" }, origin);
+  }
   const chemin = `${qui.id}/${rum}.pdf`;
   const { error: stockErr } = await admin.storage.from("mandats").upload(chemin, pdf, { contentType: "application/pdf", upsert: false });
   if (stockErr) console.error("MichelIA+ : ALERTE mandat PDF non rangé", rum, stockErr.message);
@@ -366,7 +379,6 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
     },
   }, { onConflict: "stancer_sepa" });
   if (mandatErr) console.error("MichelIA+ : ALERTE mandat SEPA non rangé", rum, mandatErr.message);
-  await admin.from("abonnements").update({ stancer_sepa: sepaId, derniers_chiffres: iban4 }).eq("id", abonnementId);
   const courrier = mandatSigne({ prenom: null, rum, iban4, creancier: CREANCIER, date: signeLe });
   EdgeRuntime.waitUntil(
     envoyerCourrier(qui.email, courrier, "mandat", [{ nom: `mandat-sepa-${rum}.pdf`, type: "application/pdf", base64: base64(pdf) }])
