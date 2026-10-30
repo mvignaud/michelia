@@ -8,13 +8,18 @@
 // Avec Stancer (app_config comptoir_prestataire = 'stancer') : {palier, email, prenom} crée un payment
 // intent et renvoie {url} (les champs de carte Stancer, affichés en iframe) ; {confirmer: pi_…} relit le
 // paiement chez Stancer et écrit le pourboire s'il est payé (voir _shared/stancer.ts).
+// {payer: pi_…, carte} : la carte saisie dans notre formulaire part chez Stancer (jamais gardée). Il faut
+// une session Supabase (compte anonyme créé avec le captcha Turnstile) et un nombre d'essais limité,
+// contre les robots qui testent des cartes volées.
 import {
   admin,
+  cleanCard,
   cleanEmail,
   cleanFirstName,
   confirmPayment,
   ensureWebhook,
   isPaymentIntentId,
+  payWithCard,
   stancer,
   stancerConfigured,
   stancerTest,
@@ -88,6 +93,7 @@ Deno.serve(async (req) => {
     if (!isPaymentIntentId(body.confirmer)) return reply(400, { error: "Paiement inconnu" }, origin);
     return reply(200, await confirmPayment(body.confirmer), origin);
   }
+  if (avecStancer && body?.payer !== undefined) return payer(req, body, origin);
   if (!avecStancer && typeof body?.session === "string") return savePrenom(body.session, body.prenom, origin);
   const palierId = typeof body?.palier === "string" ? body.palier : "";
 
@@ -194,4 +200,35 @@ async function createStancerPayment(palier: Palier, body: any, essai: boolean, o
   // Premier paiement du mode (test ou réel) : on enregistre le webhook chez Stancer, sans faire attendre.
   EdgeRuntime.waitUntil(ensureWebhook().catch((e) => console.error("Stancer : webhook", e)));
   return reply(200, { id, url }, origin);
+}
+
+// Essais de carte permis : par visiteur et pour tout le comptoir, sur l'heure écoulée.
+const ESSAIS_PAR_VISITEUR = 5;
+const ESSAIS_PAR_HEURE = 60;
+
+// deno-lint-ignore no-explicit-any
+async function payer(req: Request, body: any, origin: string | null): Promise<Response> {
+  if (!isPaymentIntentId(body.payer)) return reply(400, { error: "Paiement inconnu" }, origin);
+  const jwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  const { data: auth } = jwt ? await admin.auth.getUser(jwt) : { data: { user: null } };
+  const user = auth?.user;
+  if (!user) return reply(401, { error: "Session requise" }, origin);
+
+  const depuis = new Date(Date.now() - 3600_000).toISOString();
+  const [mien, tous] = await Promise.all([
+    admin.from("comptoir_tentatives").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", depuis),
+    admin.from("comptoir_tentatives").select("id", { count: "exact", head: true }).gte("created_at", depuis),
+  ]);
+  if (mien.error || tous.error) return reply(500, { error: "Paiement indisponible" }, origin);
+  if ((mien.count ?? 0) >= ESSAIS_PAR_VISITEUR || (tous.count ?? 0) >= ESSAIS_PAR_HEURE) {
+    return reply(429, { error: "Trop d'essais" }, origin);
+  }
+
+  const carte = cleanCard(body.carte);
+  if (!carte) return reply(400, { error: "Carte invalide" }, origin);
+  const { data: attente } = await admin.from("comptoir_attente").select("paiement_id").eq("paiement_id", body.payer).maybeSingle();
+  if (!attente) return reply(400, { error: "Paiement inconnu" }, origin);
+
+  await admin.from("comptoir_tentatives").insert({ user_id: user.id, paiement_id: body.payer });
+  return reply(200, await payWithCard(body.payer, carte), origin);
 }

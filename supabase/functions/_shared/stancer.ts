@@ -72,7 +72,7 @@ export async function stancer(method: string, path: string, body?: unknown): Pro
 // Statuts d'un paiement Stancer qui veulent dire « l'argent arrive ».
 const PAID = ["to_capture", "capture_sent", "captured"];
 // Statuts définitifs d'échec : inutile d'attendre.
-const FAILED = ["refused", "failed", "expired", "canceled", "cancelled"];
+const FAILED = ["refused", "failed", "expired", "canceled", "cancelled", "unpaid"];
 
 export type Confirmation =
   | { etat: "paye"; palier: string }
@@ -161,4 +161,78 @@ export function cleanEmail(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const email = raw.trim().toLowerCase();
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+// --- Formulaire de carte maison (« full API » Stancer) ---
+// Les numéros de carte traversent la fonction le temps d'un appel à Stancer : ils ne sont jamais
+// enregistrés, ni en base ni dans les journaux (voir docs/COMPTOIR.md, « Formulaire de carte »).
+
+export type Carte = { numero: string; mois: number; annee: number; cvc: string };
+
+// Contrôle de forme (longueur, clé de Luhn, date pas passée) avant d'envoyer quoi que ce soit.
+// deno-lint-ignore no-explicit-any
+export function cleanCard(raw: any): Carte | null {
+  const numero = String(raw?.numero ?? "").replace(/[\s-]/g, "");
+  const cvc = String(raw?.cvc ?? "").trim();
+  const mois = Number(raw?.mois);
+  let annee = Number(raw?.annee);
+  if (annee < 100) annee += 2000;
+  if (!/^\d{12,19}$/.test(numero) || !/^\d{3,4}$/.test(cvc)) return null;
+  if (!Number.isInteger(mois) || mois < 1 || mois > 12 || !Number.isInteger(annee)) return null;
+  const now = new Date();
+  if (annee < now.getFullYear() || (annee === now.getFullYear() && mois < now.getMonth() + 1) || annee > now.getFullYear() + 25) {
+    return null;
+  }
+  let sum = 0;
+  for (let i = 0; i < numero.length; i++) {
+    let d = Number(numero[numero.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0 ? { numero, mois, annee, cvc } : null;
+}
+
+// Un message d'erreur de Stancer pour les journaux, sans aucune suite de chiffres (au cas où).
+// deno-lint-ignore no-explicit-any
+const safeError = (data: any) =>
+  String(data?.error?.message ?? data?.message ?? "").replace(/\d{3,}/g, "…").slice(0, 200);
+
+export type Paiement =
+  | { etat: "paye"; palier: string }
+  | { etat: "authentification"; url: string }
+  | { etat: "refuse" }
+  | { etat: "attente" }
+  | { etat: "inconnu" };
+
+// Enregistre la carte chez Stancer, l'attache au payment intent, puis : payé, refusé, ou 3D Secure à
+// faire sur la page de la banque (adresse renvoyée par Stancer).
+export async function payWithCard(intentId: string, carte: Carte): Promise<Paiement> {
+  const card = await stancer("POST", "/cards/", {
+    number: carte.numero,
+    exp_month: carte.mois,
+    exp_year: carte.annee,
+    cvc: carte.cvc,
+  });
+  const cardId = card.data?.id;
+  if (!card.ok || typeof cardId !== "string" || !cardId.startsWith("card_")) {
+    console.error("Stancer : carte refusée", card.status, safeError(card.data));
+    return { etat: "refuse" };
+  }
+  const intent = await stancer("PATCH", `/payment_intents/${intentId}`, { card: cardId });
+  if (!intent.ok || !intent.data) {
+    console.error("Stancer : carte non attachée", intent.status, safeError(intent.data));
+    return intent.status >= 500 ? { etat: "attente" } : { etat: "refuse" };
+  }
+  const statut = String(intent.data.status ?? "");
+  const url = intent.data.url;
+  if (statut === "require_authentication" && typeof url === "string" && url.startsWith("https://payment.stancer.com/")) {
+    return { etat: "authentification", url };
+  }
+  // Carte refusée d'emblée : le payment intent attend un autre moyen de paiement.
+  if (statut === "require_payment_method") return { etat: "refuse" };
+  const result = await confirmPayment(intentId);
+  return result;
 }
