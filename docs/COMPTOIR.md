@@ -1,6 +1,6 @@
 # Le comptoir de Michel
 
-Pourboires sur le web (michel.beer/comptoir), avec **Stripe Elements** (session Checkout en `ui_mode: elements`) : notre propre formulaire aux couleurs de Michel, seuls les champs de carte viennent de Stripe, sans redirection. Le code web est dans des fichiers `.web.tsx`.
+Pourboires sur le web (michel.beer/comptoir), avec **Stripe Elements** ou **Stancer** (voir « Web avec Stancer ») (session Checkout en `ui_mode: elements`) : notre propre formulaire aux couleurs de Michel, seuls les champs de carte viennent de Stripe, sans redirection. Le code web est dans des fichiers `.web.tsx`.
 
 Dans les applis iOS et Android, **jamais Stripe** (règle Apple 3.1.1) : achat intégré Apple / Google, géré par **RevenueCat** (`react-native-purchases`, fichier `app/src/Comptoir.tsx`, lien « Le comptoir » en bas du chat). Voir « Applis » plus bas. Les deux alimentent la même table `pourboires` (colonne `canal` : `web`, `ios`, `android`), donc la même note du mois et le même carnet.
 
@@ -22,6 +22,19 @@ Dans les applis iOS et Android, **jamais Stripe** (règle Apple 3.1.1) : achat i
 8. **Ouvrir** : `update public.app_config set value = 'true' where key = 'comptoir_actif';` (remettre `'false'` pour fermer : la page affiche « le comptoir ouvre bientôt » et le rappel dans le chat disparaît). Le comptoir reste fermé tant que `stripe_cle_publique` est vide.
 
 Les noms et prix des paliers se changent dans `comptoir_paliers` (le prix est lu côté serveur, jamais envoyé par le navigateur).
+
+## Web avec Stancer (prestataire français)
+
+Le web peut passer de Stripe à **Stancer** (réglage `comptoir_prestataire` : `'stripe'` par défaut, ou `'stancer'`). Même page, mêmes paliers : notre formulaire (palier, e-mail, prénom) puis, au bouton « Passer à la caisse », les champs de carte Stancer dans une iframe (`https://payment.stancer.com/…`). Carte seule pour les pourboires ; le prélèvement SEPA est réservé au futur abonnement MichelIA+.
+
+Comment ça tourne : `comptoir-paiement` crée un payment intent Stancer au prix du palier (lu côté serveur) et range palier, prénom et e-mail dans `comptoir_attente`. La page attend le message de fin de l'iframe et, en plus, redemande toutes les 4 secondes `{confirmer: pi_…}` : la fonction relit le paiement chez Stancer, le capture s'il est seulement autorisé, vérifie le montant et écrit la ligne `pourboires` (`paiement_id`, `prestataire = 'stancer'`, `email`). `stancer-webhook` fait la même chose quand Stancer prévient, au cas où le visiteur ferme l'onglet. Code commun : `supabase/functions/_shared/stancer.ts`.
+
+1. **SQL** : lancer `supabase/migrations/20261030000000_comptoir_stancer.sql` (rejouable) dans le SQL Editor.
+2. **Fonctions** : déployer `comptoir-paiement` et `stancer-webhook` (`verify_jwt = false` déjà dans `supabase/config.toml`).
+3. **Secrets** (Supabase > Edge Functions > Secrets) : `STANCER_API_KEY`, la clé secrète `stest_…` pour les essais, `sprod_…` ensuite. Rien dans le dépôt ni dans le chat.
+4. **Essai sans argent réel** : `update public.app_config set value = 'stancer' where key = 'comptoir_prestataire';` puis `update public.app_config set value = 'true' where key = 'comptoir_essai';`. La page `michel.beer/comptoir?essai=1` s'ouvre alors même comptoir fermé ; seuls les paiements faits avec une clé `stest_` passent, marqués `essai` (exclus de la note du mois et du carnet). Carte de test `4242 4242 4242 4242`, date future, CVC au choix ; `4000 0000 0000 3220` pour voir un refus 3D Secure. Ensuite : `comptoir_essai` à `'false'` et `delete from public.pourboires where essai;`.
+5. **Webhook** : l'adresse est `https://nuulykhqaeecqerfwdsn.supabase.co/functions/v1/stancer-webhook`. Stancer l'enregistre par son API (`POST /v2/webhooks/`) et renvoie un `secret`, à mettre dans le secret `STANCER_WEBHOOK_SECRET`. Sans webhook, la confirmation par la page suffit tant que le visiteur reste sur la page jusqu'au merci.
+6. **Passer en réel** : clé `sprod_…` dans `STANCER_API_KEY`, puis `comptoir_actif` à `'true'` comme pour Stripe. Pour revenir à Stripe : `comptoir_prestataire` à `'stripe'`.
 
 ## Applis (achat intégré)
 
