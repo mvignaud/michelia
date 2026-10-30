@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Purchases, { type PurchasesStoreProduct } from 'react-native-purchases';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { isMember } from './auth';
@@ -45,9 +45,21 @@ export function Cotisation({ onClose, onCompte }: { onClose?: () => void; onComp
     const estMembre = isMember(auth.session);
     setMembre(estMembre);
     if (!estMembre) return setAbonnement(null);
-    const { data } = await supabase.rpc('mon_abonnement');
+    // Sans réponse sûre, on ne propose pas d'acheter : la boutique encaisserait un second abonnement
+    // que la base refuserait (un seul abonnement vivant par compte).
+    const { data, error } = await supabase.rpc('mon_abonnement');
+    if (error) throw error;
     setAbonnement((data as Abonnement | null) ?? null);
   };
+
+  // Bouton retour d'Android : ferme l'écran au lieu de quitter l'appli.
+  useEffect(() => {
+    const abonne = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose?.();
+      return true;
+    });
+    return () => abonne.remove();
+  }, [onClose]);
 
   useEffect(() => {
     (async () => {
@@ -106,9 +118,10 @@ export function Cotisation({ onClose, onCompte }: { onClose?: () => void; onComp
     }
   };
 
-  const gerer = () =>
+  // La boutique qui a vendu l'abonnement, pas forcément celle de cet appareil.
+  const gerer = (source: 'apple' | 'google') =>
     Linking.openURL(
-      Platform.OS === 'ios'
+      source === 'apple'
         ? 'https://apps.apple.com/account/subscriptions'
         : 'https://play.google.com/store/account/subscriptions?package=beer.michel.app',
     );
@@ -166,8 +179,8 @@ export function Cotisation({ onClose, onCompte }: { onClose?: () => void; onComp
             {abonnement.source === 'web' ? (
               <Text style={styles.small}>Prise sur michel.beer : elle se gère sur le site, page « La cotisation ».</Text>
             ) : (
-              <Pressable onPress={gerer} accessibilityRole="link">
-                <Text style={styles.changed}>Gérer dans {Platform.OS === 'ios' ? "l'App Store" : 'Google Play'}</Text>
+              <Pressable onPress={() => gerer(abonnement.source as 'apple' | 'google')} accessibilityRole="link">
+                <Text style={styles.changed}>Gérer dans {abonnement.source === 'apple' ? "l'App Store" : 'Google Play'}</Text>
               </Pressable>
             )}
           </View>
