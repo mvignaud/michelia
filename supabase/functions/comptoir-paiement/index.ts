@@ -8,7 +8,8 @@
 // Avec Stancer (app_config comptoir_prestataire = 'stancer') : {palier, email, prenom} crée un payment
 // intent et renvoie {url} (les champs de carte Stancer, affichés en iframe) ; {confirmer: pi_…} relit le
 // paiement chez Stancer et écrit le pourboire s'il est payé (voir _shared/stancer.ts).
-// {payer: pi_…, carte, captcha} : la carte saisie dans notre formulaire part chez Stancer (jamais gardée).
+// {payer: pi_…, carte, captcha} : la carte saisie dans notre formulaire part chez Stancer (jamais gardée),
+// par l'API v1 (/v1/checkout/), seule à renvoyer la page 3D Secure de la banque.
 // Ouvrir un paiement comme envoyer une carte demande une session Supabase (compte anonyme créé avec le
 // captcha Turnstile) et passe par des plafonds comptés en base (comptoir_reserver), contre les robots
 // qui testent des cartes volées. Seul le visiteur qui a ouvert un paiement peut y mettre une carte.
@@ -19,6 +20,7 @@ import {
   cleanFirstName,
   confirmPayment,
   ensureWebhook,
+  isCardPaymentId,
   isPaymentIntentId,
   payWithCard,
   stancer,
@@ -93,7 +95,9 @@ Deno.serve(async (req) => {
 
   if (avecStancer && body?.confirmer !== undefined) {
     if (!isPaymentIntentId(body.confirmer)) return reply(400, { error: "Paiement inconnu" }, origin);
-    return reply(200, await confirmPayment(body.confirmer), origin);
+    // {confirmer: pi_…, carte: paym_…} : paiement du formulaire maison (API v1), relu et relié à l'intent.
+    if (body.carte !== undefined && !isCardPaymentId(body.carte)) return reply(400, { error: "Paiement inconnu" }, origin);
+    return reply(200, await confirmPayment(body.confirmer, body.carte), origin);
   }
   if (avecStancer && body?.payer !== undefined) return payer(req, body, origin);
   if (!avecStancer && typeof body?.session === "string") return savePrenom(body.session, body.prenom, origin);
@@ -297,5 +301,12 @@ async function payer(req: Request, body: any, origin: string | null): Promise<Re
 
   const place = await reserver("carte", qui, body.payer);
   if (place !== "ok") return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
-  return reply(200, await payWithCard(body.payer, carte), origin);
+  const appareil = {
+    ip: qui.ip,
+    userAgent: req.headers.get("user-agent") ?? "",
+    accept: req.headers.get("accept") ?? "",
+    langues: req.headers.get("accept-language") ?? "",
+  };
+  // Après le 3D Secure, la banque renvoie le cadre sur cette page, qui prévient la page du comptoir.
+  return reply(200, await payWithCard(body.payer, carte, appareil, `${SITE_URL}/comptoir?retour=3ds`), origin);
 }

@@ -5,7 +5,7 @@
 // comptoir-paiement à l'enregistrement du webhook (ou STANCER_WEBHOOK_SECRET s'il est posé) :
 // HMAC-SHA256 de « {t}.{corps brut} », comparé en temps constant, à 5 minutes près. Le corps ne sert
 // qu'à trouver le payment intent : le paiement est toujours relu chez Stancer (_shared/stancer.ts).
-import { confirmPayment, isPaymentIntentId, webhookSecrets } from "../_shared/stancer.ts";
+import { confirmPayment, intentOfCardPayment, isCardPaymentId, isPaymentIntentId, webhookSecrets } from "../_shared/stancer.ts";
 
 const TOLERANCE_SECONDS = 300;
 
@@ -80,10 +80,13 @@ Deno.serve(async (req) => {
   // Seuls les paiements nous intéressent ; le reste est accusé réception sans rien faire.
   const type = String(event?.type ?? "");
   if (!type.startsWith("payment_intent.") && !type.startsWith("payment.")) return reply(200, "ok");
-  const intent = intentOf(event?.data);
+  // Paiement carte du formulaire maison (API v1) : rattaché à son intent par unique_id.
+  const data = event?.data?.object ?? event?.data;
+  const carte = isCardPaymentId(data?.id) ? data.id : null;
+  const intent = carte ? intentOfCardPayment(data?.unique_id) : intentOf(event?.data);
   if (!intent) return reply(200, "ok");
 
-  const result = await confirmPayment(intent);
+  const result = await confirmPayment(intent, carte ?? undefined);
   // Un souci passager (Stancer ou la base) : Stancer rappellera plus tard.
   if (result.etat === "attente" && type.endsWith(".succeeded")) return reply(500, "À rappeler");
   return reply(200, "ok");

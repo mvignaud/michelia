@@ -13,8 +13,16 @@ import { colors, serif } from './theme';
 // garder), puis la page de la banque en iframe si elle demande le 3D Secure. Le paiement est relu côté
 // serveur avant d'être inscrit.
 export function Comptoir(_props: { onClose?: () => void }) {
-  // Retour du 3D Secure chargé dans son propre cadre : la page autour s'occupe du reste.
-  if (window.top !== window.self) return <Text style={[styles.text, styles.padded]}>C'est payé, merci !</Text>;
+  // Retour du 3D Secure chargé dans son propre cadre : on prévient la page autour, qui vérifie le
+  // paiement auprès du serveur et affiche le résultat.
+  if (window.top !== window.self) {
+    try {
+      window.parent.postMessage({ status: 'retour-3ds' }, window.location.origin);
+    } catch {
+      // La vérification régulière de la page prendra le relais.
+    }
+    return <Text style={[styles.text, styles.padded]}>Je vérifie avec ta banque, deux secondes…</Text>;
+  }
   // Arrivé ici depuis une page où la mesure d'audience tourne déjà (même document) : on recharge, pour
   // que les champs de carte vivent dans une page sans aucun script tiers.
   if ('gtag' in window) {
@@ -42,6 +50,8 @@ function Page() {
   const [expiration, setExpiration] = useState('');
   const [cvc, setCvc] = useState('');
   const [secure, setSecure] = useState<string>();
+  // Paiement carte (API v1 de Stancer) en cours de 3D Secure, relu par le serveur avec l'intent.
+  const [paiementCarte, setPaiementCarte] = useState<string>();
   const [hauteur, setHauteur] = useState(480);
   // Merci à afficher : au retour d'un moyen de paiement à redirection (/comptoir?merci=<id du palier>)
   // ou à la fin du paiement dans la page.
@@ -75,6 +85,7 @@ function Page() {
     setCheckout(undefined);
     setIntent(undefined);
     setSecure(undefined);
+    setPaiementCarte(undefined);
     setNumero('');
     setExpiration('');
     setCvc('');
@@ -131,12 +142,15 @@ function Page() {
       if (stopped) return;
       clearTimeout(timer);
       try {
-        const { data: result } = await supabase.functions.invoke('comptoir-paiement', { body: { confirmer: intent } });
+        const { data: result } = await supabase.functions.invoke('comptoir-paiement', {
+          body: { confirmer: intent, ...(paiementCarte ? { carte: paiementCarte } : {}) },
+        });
         if (stopped) return;
         if (result?.etat === 'paye') return merciRecu(result.palier ?? paying);
         if (result?.etat === 'refuse') {
           setRefus("La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.");
           setSecure(undefined);
+          setPaiementCarte(undefined);
           setIntent(undefined);
           return;
         }
@@ -147,6 +161,8 @@ function Page() {
     };
     timer = setTimeout(confirmer, 4000);
     const onMessage = (event: MessageEvent) => {
+      // Notre propre page, rechargée dans le cadre au retour de la banque.
+      if (event.origin === window.location.origin && event.data?.status === 'retour-3ds') return confirmer();
       if (event.origin !== STANCER_ORIGIN) return;
       let message = event.data;
       if (typeof message === 'string') {
@@ -169,7 +185,7 @@ function Page() {
       clearTimeout(timer);
       window.removeEventListener('message', onMessage);
     };
-  }, [secure, intent, paying]);
+  }, [secure, intent, paying, paiementCarte]);
 
   const pay = async () => {
     if (!paying || sending || (!checkout && !avecStancer)) return;
@@ -245,7 +261,10 @@ function Page() {
       if (statut === 400) return setRefus('Vérifie le numéro de carte, la date (MM/AA) et le code au dos.');
       if (error) throw error;
       if (result?.etat === 'paye') return merciRecu(result.palier ?? paying!);
-      if (result?.etat === 'authentification' && deStancer(result.url)) return setSecure(result.url);
+      if (result?.etat === 'authentification' && pageSecure(result.url)) {
+        setPaiementCarte(typeof result.paiement === 'string' ? result.paiement : undefined);
+        return setSecure(result.url);
+      }
       if (result?.etat === 'refuse') {
         // Un payment intent refusé ne resservira pas : le prochain essai en ouvre un neuf.
         setIntent(undefined);
@@ -489,9 +508,10 @@ const formatExpiration = (t: string) => {
 };
 // Les champs de carte Stancer viennent de là, et leurs messages aussi.
 const STANCER_ORIGIN = 'https://payment.stancer.com';
-const deStancer = (url: unknown): url is string => {
+// La page 3D Secure vient de la banque (adresse donnée par Stancer, relayée par notre serveur) : https seulement.
+const pageSecure = (url: unknown): url is string => {
   try {
-    return typeof url === 'string' && new URL(url).origin === STANCER_ORIGIN;
+    return typeof url === 'string' && new URL(url).protocol === 'https:';
   } catch {
     return false;
   }
