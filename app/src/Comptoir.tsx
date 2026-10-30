@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Purchases, { type PurchasesStoreProduct } from 'react-native-purchases';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { loadProfile } from './auth';
@@ -14,6 +14,8 @@ import { colors, serif } from './theme';
 // revenuecat-webhook enregistre l'achat dans la même table que le web (note du mois, carnet).
 const produits = (palier: string) => [`pourboire_${palier}`, `pourboire_${palier}2`];
 const palierDe = (produit: string) => produit.replace(/^pourboire_/, '').replace(/\d+$/, '');
+// Une image par palier sur son bouton (un palier inconnu garde la chope).
+const ICONES: Record<string, string> = { cafe: '☕', croustade: '🥧', garbure: '🍲', fete: '🎉' };
 
 let configured = false;
 
@@ -22,7 +24,13 @@ export async function configure(cle: string) {
   if (configured) return;
   // Même identifiant que Supabase (membre ou visiteur anonyme) : utile pour retrouver un achat.
   const { data } = await supabase.auth.getSession();
-  Purchases.configure({ apiKey: cle, appUserID: data.session?.user.id });
+  // StoreKit 1 sur iOS : en TestFlight, StoreKit 2 donnait des prix en dollars à un compte français
+  // (la fenêtre d'achat d'Apple, elle, affichait bien des euros).
+  Purchases.configure({
+    apiKey: cle,
+    appUserID: data.session?.user.id,
+    ...(Platform.OS === 'ios' && { storeKitVersion: Purchases.STOREKIT_VERSION.STOREKIT_1 }),
+  });
   configured = true;
 }
 
@@ -158,6 +166,9 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
                     <ActivityIndicator color={colors.onAccent} />
                   ) : (
                     <>
+                      <Text style={styles.palierIcone} accessibilityElementsHidden importantForAccessibility="no">
+                        {ICONES[p.id] ?? '🍺'}
+                      </Text>
                       <Text style={styles.palierName}>{p.nom}</Text>
                       <Text style={styles.palierPrice}>{products[p.id].priceString}</Text>
                     </>
@@ -264,6 +275,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
+  palierIcone: { fontSize: 28, marginBottom: 4 },
   palierName: { color: colors.onAccent, fontSize: 17, fontFamily: serif, fontWeight: '700' },
   palierPrice: { color: colors.ochre, fontSize: 16, fontWeight: '700' },
   track: { height: 12, borderRadius: 6, backgroundColor: colors.accentSoft, overflow: 'hidden' },

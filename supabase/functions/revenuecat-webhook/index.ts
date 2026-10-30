@@ -1,7 +1,7 @@
 // Fonction « revenuecat-webhook » : enregistre les pourboires payés dans les applis (achat intégré
 // Apple ou Google, géré par RevenueCat), dans la même table que le web (voir docs/COMPTOIR.md).
-// RevenueCat envoie l'en-tête Authorization réglé dans son tableau de bord ; il doit valoir
-// « Bearer <REVENUECAT_WEBHOOK_AUTH> » (secret Supabase). Pourboires : achats ponctuels
+// RevenueCat envoie tel quel l'en-tête Authorization réglé dans son tableau de bord : il vaut
+// <REVENUECAT_WEBHOOK_AUTH> (secret Supabase), précédé ou non de « Bearer ». Pourboires : achats ponctuels
 // (NON_RENEWING_PURCHASE), une ligne par transaction de boutique. MichelIA+ : abonnements
 // auto-renouvelables michelia_plus_mois / michelia_plus_an, suivis dans la table abonnements (voir
 // abonnementBoutique plus bas). Idempotent : RevenueCat peut renvoyer un événement sans doublon.
@@ -50,7 +50,8 @@ async function config(key: string): Promise<string | undefined> {
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return reply(405, "Méthode non permise");
-  if (!WEBHOOK_AUTH || !same(req.headers.get("authorization") ?? "", `Bearer ${WEBHOOK_AUTH}`)) {
+  const auth = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!WEBHOOK_AUTH || !same(auth, WEBHOOK_AUTH.replace(/^Bearer\s+/i, "").trim())) {
     return reply(401, "Non autorisé");
   }
 
@@ -95,6 +96,8 @@ Deno.serve(async (req) => {
       palier: paliers.some((p) => p.id === palierId) ? palierId : "autre",
       // Posé par l'appli juste avant l'achat (attribut RevenueCat « prenom »), seulement si la personne l'a écrit.
       prenom: cleanFirstName(event.subscriber_attributes?.prenom?.value),
+      // Achat TestFlight ou test Google : compté à part (ni note du mois, ni carnet, ni facture).
+      essai: event.environment !== "PRODUCTION",
     },
     { onConflict: "store_transaction_id", ignoreDuplicates: true },
   );
