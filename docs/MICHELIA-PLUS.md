@@ -51,8 +51,8 @@ Fonction `michelia-plus` :
 - `{confirmer: paym_…}` : relit le paiement (`_shared/abonnement.ts`, `confirmerEcheance`), capture,
   passe l'abonnement `actif` et range le jeton `card_…` et les 4 derniers chiffres.
 - `{resilier: true}` : `resilie`, le droit court jusqu'à `fin_periode`.
-- `{reprendre: true}` : annule la résiliation tant que `fin_periode` n'est pas passée (abonnement carte
-  avec `stancer_carte`), rien n'est prélevé tout de suite. Après la fin, il faut souscrire à nouveau.
+- `{reprendre: true}` : annule la résiliation tant que `fin_periode` n'est pas passée (carte avec
+  `stancer_carte`, ou SEPA avec `stancer_sepa`), rien n'est prélevé tout de suite. Après la fin, il faut souscrire à nouveau.
 
 Un seul essai de souscription à la fois par compte (`abonnements_vivant_idx` couvre aussi `en_attente`
 sur le site) : un double clic ou un second onglet reçoit 409. Un premier paiement refusé passe la ligne
@@ -75,12 +75,30 @@ Quotas des abonnés dans `chat` : `daily_limit_plus` (400), `hourly_limit_plus` 
 
 ## Site (Stancer), prélèvement SEPA
 
-À venir : premier paiement sur la page Stancer (`methods_allowed: ["sepa"]`, mandat signé par code
-SMS), puis prélèvements avec le mandat `sepa_…`, copie du mandat dans E-KO. Prérequis : l'identifiant
-créancier SEPA (ICS) de GOLDEN PRINT, `FR98ZZZ8A3E64`, déclaré auprès de Stancer.
+Prérequis : l'identifiant créancier SEPA (ICS) de GOLDEN PRINT, `FR98ZZZ8A3E64`, déclaré auprès de
+Stancer (fait). Migration `20261030110000_michelia_plus_sepa.sql` (colonne `stancer_intent`).
 
-## Ouvrir
-
-1. Coller `20261030100000_michelia_plus_carte.sql` (quotas, droit lu par `chat`, index anti-doublons, secret et cron des échéances).
-2. Déployer `chat`, `michelia-plus` et `michelia-plus-echeances` depuis main.
-3. Vrai essai par un administrateur sur `/la-cotisation?essai=1` (puis remboursement), puis `update app_config set value = 'true' where key = 'michelia_plus_actif';`
+- `{souscrire, moyen: "sepa", captcha}` : abonnement `en_attente` (`moyen = 'sepa'`), puis
+  `POST /v2/payment_intents/` avec `methods_allowed: ["sepa"]` et `return_url` =
+  `/la-cotisation?retour=sepa`. L'échéance porte le payment intent (`paiement_id` = `stancer_intent` =
+  `pi_…`) ; la page part sur la page Stancer, où la personne tape son IBAN (jamais chez Michel) et
+  signe le mandat par code SMS. Turnstile et `comptoir_reserver` (genre `paiement`).
+- Retour : la page garde le `pi_…` dans l'onglet (sessionStorage) et appelle `{confirmer: pi_…}`.
+  `confirmerSepa` relit l'intent (capture s'il est `authorized`), puis le prélèvement `paym_…`
+  (`/v1/checkout/`) ; parti (`processing`/`captured`, ou paiement `to_capture`…) : l'échéance passe
+  `paye` avec `paiement_id = paym_…`, l'abonnement `actif` avec `stancer_sepa` et les 4 derniers
+  caractères de l'IBAN, et le mandat (`/v1/sepa/sepa_…` : référence RUM, titulaire, date de
+  signature) est rangé dans `mandats_sepa`. MichelIA+ est donné dès le départ du prélèvement.
+- Jamais signé : une nouvelle souscription du même compte après 5 minutes, ou le cron au bout d'un
+  jour, relit l'intent et le compte refusé s'il est encore `require_…` (`abandonnerSepa`). Signé quand
+  même ensuite (deux onglets) : ALERTE « à rembourser » dans les journaux.
+- Échéances suivantes (cron) : `POST /v1/checkout/` avec `sepa: "sepa_…"`, même `unique_id`
+  déterministe que la carte.
+- Rejet après coup : pendant 15 jours (`RELECTURE_SEPA_JOURS`), le cron relit chaque prélèvement payé.
+  `failed`, `refused` ou `disputed` : l'échéance passe `refuse`, `fin_periode` revient au début de
+  la période, puis `impaye` avec nouvel essai dans 3 jours si le motif est `AM04` (provision
+  insuffisante) ou `MS03`, sinon `expire`.
+- Avis de prélèvement : le montant et la date anniversaire, affichés à la souscription (case à cocher)
+  et sur la page de la cotisation, valent pré-notification (conditions, section MichelIA+).
+- À faire : copie du mandat dans E-KO (fil des factures, à partir de `mandats_sepa`) ; changer d'IBAN
+  depuis l'espace compte.
