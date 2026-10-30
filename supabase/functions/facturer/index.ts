@@ -242,19 +242,21 @@ Deno.serve(async () => {
   // client). Attend que la facture existe ; tant qu'E-KO n'a pas l'adresse des avoirs, rien ne bouge.
   let avoirsEko = 0;
   if (facturer) {
+    // Seuls les avoirs dont la facture E-KO existe déjà, filtrés avant la limite : un pourboire jamais
+    // facturé ne bloque pas la file.
     const { data: aFaire, error: ef } = await admin.from("avoirs")
-      .select("id, numero, montant_cents, rembourse_le, pourboire_id")
+      .select("id, numero, montant_cents, rembourse_le, pourboires!inner(facture_code, facture_reglee_at, prestataire, paiement_id, paiement_carte)")
       .is("eko_code", null)
+      .not("pourboires.facture_reglee_at", "is", null)
+      .not("pourboires.facture_code", "is", null)
       .order("id")
       .limit(PAR_PASSAGE);
     if (ef) return json(500, { error: ef.message });
     for (const a of aFaire ?? []) {
-      const { data } = await pourboires().eq("id", a.pourboire_id).maybeSingle();
-      const l = data as Ligne | null;
-      if (!l?.facture_reglee_at || !l.facture_code) continue;
+      const l = a.pourboires as unknown as Pick<Ligne, "facture_code" | "prestataire" | "paiement_id" | "paiement_carte">;
       try {
         const code = await avoirVente({
-          facture: l.facture_code,
+          facture: l.facture_code!,
           numero: a.numero,
           montantTtcCents: a.montant_cents,
           date: jourParis(new Date(a.rembourse_le)),
