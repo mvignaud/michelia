@@ -20,7 +20,10 @@ export function startAnalytics() {
     w.dataLayer.push(arguments);
   };
   w.gtag('js', new Date());
-  w.gtag('config', GA_ID);
+  // Adresse sans le jeton de désabonnement des e-mails, au cas où gtag partirait avant qu'App.tsx l'efface.
+  const page = new URL(location.href);
+  page.searchParams.delete('desabonnement');
+  w.gtag('config', GA_ID, { page_location: page.href });
   const script = document.createElement('script');
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
