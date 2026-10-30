@@ -2,7 +2,6 @@
 // La facture officielle vit dans l'ERP E-KO de GOLDEN PRINT (jamais envoyée au client) : le reçu en
 // reprend le numéro quand elle existe déjà. TVA à 20 % sur des prix TTC.
 import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
-import { LOGO_PNG_BASE64 } from "./logo-recu.ts";
 import { envoyerCourrier, paiementRecu } from "./courriers.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
@@ -64,9 +63,16 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
   page.drawRectangle({ x: 0, y: 0, width, height, color: C.fond });
   page.drawRectangle({ x: 0, y: height - 120, width, height: 120, color: C.accent });
   page.drawRectangle({ x: 0, y: height - 126, width, height: 6, color: C.ocre });
-  const logo = await doc.embedPng(Uint8Array.from(atob(LOGO_PNG_BASE64), (c) => c.charCodeAt(0)));
-  const logoH = 72;
-  page.drawImage(logo, { x: m - 8, y: height - 98, width: logoH * logo.width / logo.height, height: logoH });
+  // Logo de Michel servi par le site (app/public/email/logo-recu.png) ; à défaut, son nom en toutes lettres.
+  const logo = await fetch(`${SITE_URL}/email/logo-recu.png`)
+    .then(async (r) => r.ok ? await doc.embedPng(new Uint8Array(await r.arrayBuffer())) : null)
+    .catch(() => null);
+  if (logo) {
+    const logoH = 72;
+    page.drawImage(logo, { x: m - 8, y: height - 98, width: logoH * logo.width / logo.height, height: logoH });
+  } else {
+    page.drawText("MichelIA", { x: m, y: height - 72, size: 30, font: gras, color: C.surAccent });
+  }
   const devise = "Le vieux Gersois qui répond à tout";
   page.drawText(devise, { x: width - m - italique.widthOfTextAtSize(devise, 11), y: height - 68, size: 11, font: italique, color: C.surAccent });
 
