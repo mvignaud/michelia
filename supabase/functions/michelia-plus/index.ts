@@ -4,15 +4,21 @@
 // session Supabase. Le prix vient toujours de app_config (michelia_plus_prix), jamais du navigateur.
 // {souscrire: "mois" | "an", carte, captcha} : premier paiement par l'API v1 de Stancer, carte enregistrée
 // chez Stancer pour les échéances suivantes ; renvoie payé, refusé, ou l'adresse du 3D Secure de la banque.
-// {souscrire: "mois" | "an", moyen: "sepa", captcha} : premier prélèvement sur la page Stancer, où la
-// personne signe le mandat SEPA par code SMS ; renvoie l'adresse de cette page.
+// {souscrire: "mois" | "an", moyen: "sepa", iban, titulaire, telephone, captcha} : Michel envoie un code
+// par SMS ; {signer: {code, iban, titulaire}} : signe le mandat SEPA, l'enregistre chez Stancer et lance
+// le premier prélèvement. L'IBAN traverse la fonction, il n'est jamais gardé (seulement ses 4 derniers).
+// Les premiers prélèvements déjà passés par la page Stancer (payment intent pi_…) restent confirmables.
 // {confirmer: paym_… | pi_…} : relit le paiement chez Stancer après le 3D Secure ou la page Stancer.
 // {resilier: true} : arrête le renouvellement ; MichelIA+ reste jusqu'à la fin de la période payée.
 // {reprendre: true} : annule la résiliation avant la fin de la période, sur la même carte ou le même mandat.
 // La carte traverse la fonction le temps d'un appel à Stancer : jamais gardée, jamais dans les journaux.
 // Mêmes garde-fous que le comptoir : Turnstile à chaque carte et plafonds d'essais (comptoir_reserver).
 import { admin, cleanCard, isCardPaymentId, isPaymentIntentId, stancer, stancerConfigured, stancerCustomer, stancerTest } from "../_shared/stancer.ts";
-import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, prixDe, safeError } from "../_shared/abonnement.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, isSepaId, libelle, menageEnAttente, premierPrelevementSepa, prixDe, safeError } from "../_shared/abonnement.ts";
+import { CREANCIER, envoyerCourrier, mandatSigne } from "../_shared/courriers.ts";
+import { base64, cleanIban, cleanMobile, cleanTitulaire, empreinte, envoyerSms, masquerTelephone, memeEmpreinte, nouveauCode, nouvelleRum, pdfMandat, smsConfigure } from "../_shared/mandat.ts";
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/$/, "");
 // Retour du 3D Secure : cette fonction, qui accepte le POST de la banque et renvoie sur la page.
@@ -93,6 +99,7 @@ Deno.serve(async (req) => {
     }
     return reply(200, isPaymentIntentId(id) ? await confirmerSepa(id) : await confirmerEcheance(id), origin);
   }
+  if (body?.signer !== undefined) return signerMandat(req, qui, body.signer, origin);
   if (body?.souscrire === "mois" || body?.souscrire === "an") {
     return body?.moyen === "sepa" ? souscrireSepa(qui, body.souscrire, body, origin) : souscrire(req, qui, body.souscrire, body, origin);
   }
@@ -199,12 +206,23 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
   return reply(200, await confirmerEcheance(paymentId), origin);
 }
 
-// Prélèvement SEPA : abonnement en attente, puis payment intent Stancer réservé au SEPA. La personne
-// tape son IBAN sur la page Stancer (jamais chez Michel), signe le mandat avec le code reçu par SMS,
-// et revient sur /la-cotisation, qui demande la confirmation. Le mandat (sepa_…) sert ensuite aux
-// échéances suivantes. Une souscription en attente par compte, comme pour la carte.
+// Prélèvement SEPA, en deux temps, tout chez Michel. 1) {souscrire, moyen: "sepa", iban, titulaire,
+// telephone, captcha} : abonnement en attente, puis Michel envoie un code à 6 chiffres par SMS. Rien
+// n'est gardé de l'IBAN, sauf une empreinte pour vérifier qu'on signe bien le même. 2) {signer: {code,
+// iban, titulaire}} : le navigateur renvoie l'IBAN avec le code ; s'ils correspondent, Michel signe le
+// mandat (PDF), l'enregistre chez Stancer avec l'IBAN (sepa_…) et lance le premier prélèvement.
 // deno-lint-ignore no-explicit-any
 async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: string | null): Promise<Response> {
+  const iban = cleanIban(body?.iban);
+  const titulaire = cleanTitulaire(body?.titulaire);
+  const telephone = cleanMobile(body?.telephone);
+  if (!iban) return reply(400, { error: "IBAN invalide", champ: "iban" }, origin);
+  if (!titulaire) return reply(400, { error: "Titulaire invalide", champ: "titulaire" }, origin);
+  if (!telephone) return reply(400, { error: "Mobile invalide", champ: "telephone" }, origin);
+  if (!smsConfigure()) {
+    console.error("MichelIA+ : ALERTE secrets Twilio manquants, prélèvement impossible");
+    return reply(503, { error: "Prélèvement indisponible" }, origin);
+  }
   const { data: vivant } = await admin
     .from("abonnements")
     .select("id")
@@ -216,8 +234,18 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
   const prix = await prixDe(formule);
   if (!prix) return reply(500, { error: "Prix illisible" }, origin);
 
-  // Une page de prélèvement ouverte depuis un quart d'heure sans signature laisse la place (relue chez Stancer).
+  // Une signature en cours dans un autre onglet (code déjà accepté) : on ne la remplace pas.
+  const { data: enCours } = await admin.from("mandats_sepa_codes").select("id").eq("user_id", qui.id)
+    .gt("utilise_le", new Date(Date.now() - 120_000).toISOString()).limit(1);
+  if (enCours?.length) return reply(409, { error: "Signature déjà en cours" }, origin);
+  // Un nouveau code remplace l'essai précédent du compte, s'il n'a pas abouti.
   await abandonnerSepa(900_000, qui.id);
+  // Un prélèvement encore en route (ancienne page Stancer pas finie) : on attend qu'il soit tranché.
+  const { data: enRoute } = await admin.from("abonnement_echeances").select("id, abonnements!inner(user_id, statut, moyen)")
+    .eq("statut", "en_cours").eq("abonnements.user_id", qui.id).eq("abonnements.statut", "en_attente").eq("abonnements.moyen", "sepa").limit(1);
+  if (enRoute?.length) return reply(409, { error: "Signature déjà en cours" }, origin);
+  await admin.from("abonnements").update({ statut: "expire", updated_at: new Date().toISOString() })
+    .eq("user_id", qui.id).eq("source", "web").eq("moyen", "sepa").eq("statut", "en_attente").is("stancer_sepa", null);
   await menageEnAttente(300_000, qui.id);
   const essai = stancerTest();
   const { data: abonnement, error } = await admin
@@ -230,47 +258,149 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
     console.error("MichelIA+ : abonnement non créé", error?.message);
     return reply(500, { error: "Abonnement indisponible" }, origin);
   }
+  // Chaque SMS compte comme un essai de paiement (plafonds par compte, par adresse IP et global).
   const place = await reserver(qui, `abo:${abonnement.id}`, "paiement");
-  if (place !== "ok") return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
+  if (place !== "ok") {
+    await echecSur(abonnement.id);
+    return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
+  }
 
-  const [nom, numeroRecu] = await Promise.all([nomDuCompte(qui.id), prochainNumeroRecu()]);
-  const client = await stancerCustomer(qui.email, nom, qui.id);
-  if (client) await admin.from("abonnements").update({ stancer_client: client }).eq("id", abonnement.id);
-  const res = await stancer("POST", "/payment_intents/", {
-    amount: prix,
-    currency: "eur",
-    description: libelle(formule),
-    methods_allowed: ["sepa"],
-    return_url: `${SITE_URL}${PAGE}?retour=sepa`,
-    ...(numeroRecu ? { order_id: numeroRecu } : {}),
-    ...(client ? { customer: client } : {}),
-  });
-  const intentId = res.data?.id;
-  const url = res.data?.url;
-  if (!res.ok || !isPaymentIntentId(intentId) || typeof url !== "string" || !url.startsWith("https://")) {
-    console.error("MichelIA+ : page de prélèvement refusée par Stancer", abonnement.id, res.status, safeError(res.data));
-    await echecSur(abonnement.id);
-    return reply(502, { error: "Prélèvement indisponible" }, origin);
-  }
-  const debut = new Date();
-  // L'échéance porte le payment intent tant que le prélèvement (paym_…) n'est pas connu.
-  const { error: noteErr } = await admin.from("abonnement_echeances").insert({
+  const code = nouveauCode();
+  const sel = crypto.randomUUID();
+  const { error: codeErr } = await admin.from("mandats_sepa_codes").insert({
+    user_id: qui.id,
     abonnement_id: abonnement.id,
-    paiement_id: intentId,
-    stancer_intent: intentId,
-    montant_cents: prix,
-    periode_debut: debut.toISOString(),
-    periode_fin: finDePeriode(debut, formule).toISOString(),
-    numero_recu: numeroRecu,
-    essai,
+    sel,
+    code_empreinte: await empreinte(sel, code),
+    iban_empreinte: await empreinte(sel, iban),
+    titulaire,
+    telephone_masque: masquerTelephone(telephone),
+    expire_le: new Date(Date.now() + 600_000).toISOString(),
   });
-  if (noteErr) {
-    console.error("MichelIA+ : échéance SEPA non enregistrée", intentId, noteErr.message);
+  if (codeErr) {
+    console.error("MichelIA+ : code de mandat non enregistré", codeErr.message);
     await echecSur(abonnement.id);
-    return reply(500, { error: "Abonnement indisponible" }, origin);
+    return reply(500, { error: "Prélèvement indisponible" }, origin);
   }
-  return reply(200, { etat: "mandat", url, paiement: intentId }, origin);
+  const envoye = await envoyerSms(
+    telephone,
+    `Michel : ton code pour signer le mandat de prélèvement SEPA de ${CREANCIER.nom} (MichelIA+, ${eurosTexte(prix)} ${formule === "mois" ? "par mois" : "par an"}) : ${code}. Valable 10 minutes. Ne le donne à personne.`,
+  );
+  if (!envoye) {
+    await echecSur(abonnement.id);
+    return reply(502, { error: "SMS non envoyé", champ: "telephone" }, origin);
+  }
+  return reply(200, { etat: "code", telephone: masquerTelephone(telephone) }, origin);
 }
+
+// deno-lint-ignore no-explicit-any
+async function signerMandat(req: Request, qui: Membre, signature: any, origin: string | null): Promise<Response> {
+  const code = typeof signature?.code === "string" ? signature.code.replace(/\s/g, "") : "";
+  const iban = cleanIban(signature?.iban);
+  const titulaire = cleanTitulaire(signature?.titulaire);
+  if (!/^\d{6}$/.test(code) || !iban || !titulaire) return reply(400, { error: "Code invalide" }, origin);
+  const { data: attente } = await admin
+    .from("mandats_sepa_codes")
+    .select("id, abonnement_id, sel, code_empreinte, iban_empreinte, titulaire, telephone_masque, essais, expire_le, abonnements!inner(statut, formule, prix_cents, essai, stancer_client)")
+    .eq("user_id", qui.id)
+    .is("utilise_le", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  // deno-lint-ignore no-explicit-any
+  const ab = (attente as any)?.abonnements;
+  if (!attente || !ab || ab.statut !== "en_attente" || new Date(attente.expire_le).getTime() < Date.now() || attente.essais >= 5) {
+    return reply(410, { error: "Code expiré : demande un nouveau code" }, origin);
+  }
+  // L'essai compte avant la vérification : pas plus de 5 codes tentés, même en parallèle.
+  const { data: compte } = await admin.from("mandats_sepa_codes").update({ essais: attente.essais + 1 })
+    .eq("id", attente.id).eq("essais", attente.essais).is("utilise_le", null).select("id");
+  if (!compte?.length) return reply(409, { error: "Réessaie" }, origin);
+  const bonCode = memeEmpreinte(await empreinte(attente.sel, code), attente.code_empreinte);
+  const bonIban = memeEmpreinte(await empreinte(attente.sel, iban), attente.iban_empreinte);
+  if (!bonCode || !bonIban || titulaire !== attente.titulaire) {
+    return reply(400, { error: "Code incorrect", essais_restants: Math.max(0, 4 - attente.essais) }, origin);
+  }
+  // Code consommé, et ses empreintes effacées : celle de l'IBAN ne doit pas traîner en base. La ligne
+  // reste quelques minutes pour qu'un autre onglet ne remplace pas la signature en cours.
+  const { data: pris } = await admin.from("mandats_sepa_codes")
+    .update({ utilise_le: new Date().toISOString(), code_empreinte: "", iban_empreinte: "" })
+    .eq("id", attente.id).is("utilise_le", null).select("id");
+  if (!pris?.length) return reply(409, { error: "Déjà signé" }, origin);
+
+  const abonnementId = attente.abonnement_id as number;
+  const formule = ab.formule as Formule;
+  const prix = ab.prix_cents as number;
+  const signeLe = new Date();
+  const rum = nouvelleRum(abonnementId);
+  const libelleMandat = `${libelle(formule)}, ${eurosTexte(prix)} ${formule === "mois" ? "par mois" : "par an"}, prélevé à la date anniversaire de l'abonnement.`;
+  const pdf = await pdfMandat({
+    rum,
+    titulaire,
+    iban,
+    email: qui.email,
+    libelle: libelleMandat,
+    signeLe,
+    telephoneMasque: attente.telephone_masque,
+    ip: qui.ip,
+  });
+
+  // Le compte et le mandat chez Stancer : l'IBAN y part, et n'est gardé nulle part chez Michel.
+  const sepa = await stancer("POST", "/v1/sepa/", { iban, name: titulaire, mandate: rum, date_mandate: Math.floor(signeLe.getTime() / 1000) });
+  const sepaId = sepa.data?.id ?? sepa.data?.error?.message?.id;
+  if (!isSepaId(sepaId)) {
+    console.error("MichelIA+ : compte SEPA refusé par Stancer", abonnementId, sepa.status, safeError(sepa.data));
+    await echecSur(abonnementId);
+    return reply(200, { etat: "refuse", raison: "iban" }, origin);
+  }
+  const iban4 = iban.slice(-4);
+  // L'abonnement doit être encore en attente (pas remplacé ni effacé entre-temps) : sinon, aucun
+  // prélèvement. Une fois le mandat posé, il n'est plus ni remplacé ni effacé par le ménage. updated_at
+  // garde l'heure de la signature : le cron s'en sert pour relancer le premier prélèvement.
+  const { data: tenu } = await admin.from("abonnements")
+    .update({ stancer_sepa: sepaId, derniers_chiffres: iban4, updated_at: signeLe.toISOString() })
+    .eq("id", abonnementId).eq("statut", "en_attente").is("stancer_sepa", null).select("id");
+  if (!tenu?.length) {
+    console.error("MichelIA+ : abonnement plus en attente à la signature, rien n'est prélevé", abonnementId);
+    return reply(410, { error: "Code expiré : demande un nouveau code" }, origin);
+  }
+  const chemin = `${qui.id}/${rum}.pdf`;
+  const { error: stockErr } = await admin.storage.from("mandats").upload(chemin, pdf, { contentType: "application/pdf", upsert: false });
+  if (stockErr) console.error("MichelIA+ : ALERTE mandat PDF non rangé", rum, stockErr.message);
+  const { error: mandatErr } = await admin.from("mandats_sepa").upsert({
+    user_id: qui.id,
+    abonnement_id: abonnementId,
+    stancer_sepa: sepaId,
+    rum,
+    titulaire,
+    iban_derniers: iban4,
+    signe_le: signeLe.toISOString(),
+    pdf_chemin: stockErr ? null : chemin,
+    preuve: {
+      methode: "code SMS Michel",
+      telephone: attente.telephone_masque,
+      ip: qui.ip,
+      navigateur: (req.headers.get("user-agent") ?? "").slice(0, 256),
+      pdf_sha256: await empreinte(base64(pdf)),
+    },
+  }, { onConflict: "stancer_sepa" });
+  if (mandatErr) console.error("MichelIA+ : ALERTE mandat SEPA non rangé", rum, mandatErr.message);
+  const courrier = mandatSigne({ prenom: null, rum, iban4, creancier: CREANCIER, date: signeLe });
+  EdgeRuntime.waitUntil(
+    envoyerCourrier(qui.email, courrier, "mandat", [{ nom: `mandat-sepa-${rum}.pdf`, type: "application/pdf", base64: base64(pdf) }])
+      .then((ok) => ok || console.error("MichelIA+ : e-mail du mandat non envoyé", rum)),
+  );
+
+  // Premier prélèvement, sur le mandat tout juste signé. Sans réponse nette, le cron le relance avec le
+  // même identifiant (premierPrelevementSepa), donc jamais deux fois.
+  const etat = await premierPrelevementSepa(
+    { id: abonnementId, formule, prix_cents: prix, essai: ab.essai, stancer_client: ab.stancer_client, stancer_sepa: sepaId },
+    signeLe,
+  );
+  return reply(etat.etat === "inconnu" ? 500 : 200, etat, origin);
+}
+
+const eurosTexte = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
 
 // Résiliation en un geste : plus de renouvellement, le droit court jusqu'à la fin de la période payée.
 // Seulement pour un abonnement pris sur le site (ceux des applis se résilient dans la boutique).

@@ -7,7 +7,7 @@ TTC en centimes). Michel gratuit reste gratuit. Fermé tant que `michelia_plus_a
 
 | Source | Paiement | Qui relance chaque échéance |
 |---|---|---|
-| `web` | Stancer, carte (3D Secure au premier paiement, puis carte enregistrée) ou prélèvement SEPA (mandat signé chez Stancer par code SMS) | Michel (Stancer n'a pas d'API d'abonnements) |
+| `web` | Stancer, carte (3D Secure au premier paiement, puis carte enregistrée) ou prélèvement SEPA (mandat signé chez Michel par code SMS) | Michel (Stancer n'a pas d'API d'abonnements) |
 | `apple` | Abonnement auto-renouvelable App Store | Apple, suivi par RevenueCat |
 | `google` | Abonnement auto-renouvelable Google Play | Google, suivi par RevenueCat |
 
@@ -18,7 +18,8 @@ sans jeton ni e-mail. Chaque paiement est une ligne de `abonnement_echeances` (r
 remboursements). Les mandats SEPA vont dans `mandats_sepa` et sont copiés dans E-KO.
 
 Jamais de numéro de carte ni d'IBAN en base : seulement les jetons Stancer (`card_…`, `sepa_…`) et
-les 4 derniers chiffres.
+les 4 derniers chiffres. Seule exception : le PDF du mandat SEPA signé (mention obligatoire de
+l'IBAN), rangé dans le stockage privé `mandats` (lu par `service_role` seulement).
 
 ## Applis (RevenueCat)
 
@@ -76,14 +77,31 @@ Quotas des abonnés dans `chat` : `daily_limit_plus` (400), `hourly_limit_plus` 
 ## Site (Stancer), prélèvement SEPA
 
 Prérequis : l'identifiant créancier SEPA (ICS) de GOLDEN PRINT, `FR98ZZZ8A3E64`, déclaré auprès de
-Stancer (fait). Migration `20261030110000_michelia_plus_sepa.sql` (colonne `stancer_intent`).
+Stancer (fait). Migrations `20261030110000_michelia_plus_sepa.sql` (colonne `stancer_intent`) et
+`20261030120000_mandat_chez_michel.sql` (table `mandats_sepa_codes`, colonne `mandats_sepa.preuve`,
+stockage privé `mandats`). Secrets des Edge Functions : `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
+`TWILIO_FROM` (service de messagerie `MG…`, expéditeur « Michel IA », ou numéro).
 
-- `{souscrire, moyen: "sepa", captcha}` : abonnement `en_attente` (`moyen = 'sepa'`), puis
-  `POST /v2/payment_intents/` avec `methods_allowed: ["sepa"]` et `return_url` =
-  `/la-cotisation?retour=sepa`. L'échéance porte le payment intent (`paiement_id` = `stancer_intent` =
-  `pi_…`) ; la page part sur la page Stancer, où la personne tape son IBAN (jamais chez Michel) et
-  signe le mandat par code SMS. Turnstile et `comptoir_reserver` (genre `paiement`).
-- Retour : la page garde le `pi_…` dans l'onglet (sessionStorage) et appelle `{confirmer: pi_…}`.
+Le mandat se signe chez Michel (`_shared/mandat.ts`), plus sur la page Stancer :
+
+- `{souscrire, moyen: "sepa", iban, titulaire, telephone, captcha}` : IBAN vérifié (clé modulo 97,
+  zone SEPA), abonnement `en_attente` (`moyen = 'sepa'`), Turnstile et `comptoir_reserver` (genre
+  `paiement`, un SMS = un essai). Michel envoie un code à 6 chiffres par SMS (Twilio) et range une
+  ligne `mandats_sepa_codes` : empreintes salées du code et de l'IBAN, titulaire, téléphone masqué,
+  10 minutes, 5 essais ; empreintes vidées à la signature, ligne effacée par le cron au bout d'un jour. Une signature en cours (code accepté depuis moins de 2 minutes) bloque un nouveau code (409), et le mandat n'est posé que si l'abonnement est encore `en_attente` sans `stancer_sepa` (sinon 410, rien n'est prélevé). Réponse `{etat: "code", telephone}` ; 400 avec `champ` si une saisie est fausse.
+- `{signer: {code, iban, titulaire}}` : la page renvoie l'IBAN (jamais gardé entre les deux étapes
+  côté serveur, seulement son empreinte). Code, IBAN et titulaire doivent correspondre (400 avec
+  `essais_restants`, 410 si expiré). Michel fait le PDF du mandat (RUM `MICHEL-<id>-<hasard>`,
+  créancier, débiteur, IBAN complet, signature : date, téléphone masqué, IP), crée le compte chez
+  Stancer (`POST /v1/sepa/` avec `iban`, `name`, `mandate` = RUM, `date_mandate`), range le PDF
+  dans `mandats/<user>/<RUM>.pdf` et `mandats_sepa` (avec `preuve` : méthode, téléphone masqué, IP,
+  navigateur, SHA-256 du PDF), envoie le mandat par e-mail, puis lance le premier prélèvement
+  (`premierPrelevementSepa` : `POST /v1/checkout/` avec `sepa`, `unique_id` `abo_<id>.<jour de la
+  signature>.0` ; l'heure de signature est posée dans `abonnements.updated_at` avec `stancer_sepa`). Sans réponse nette (5xx, coupure), le cron le relance au bout de 10 minutes avec le
+  même identifiant (`reprendrePremiersSepa`) : un 409 rattache le prélèvement déjà parti.
+- Ancien parcours (page Stancer, `POST /v2/payment_intents/` avec `methods_allowed: ["sepa"]`,
+  retour `/la-cotisation?retour=sepa`) : plus proposé, mais les retours en cours sont encore relus.
+- Retour (ancien parcours) : la page garde le `pi_…` dans l'onglet (sessionStorage) et appelle `{confirmer: pi_…}`.
   `confirmerSepa` relit l'intent (capture s'il est `authorized`), puis le prélèvement `paym_…`
   (`/v1/checkout/`) ; parti (`processing`/`captured`, ou paiement `to_capture`…) : l'échéance passe
   `paye` avec `paiement_id = paym_…`, l'abonnement `actif` avec `stancer_sepa` et les 4 derniers
@@ -100,5 +118,5 @@ Stancer (fait). Migration `20261030110000_michelia_plus_sepa.sql` (colonne `stan
   insuffisante) ou `MS03`, sinon `expire`.
 - Avis de prélèvement : le montant et la date anniversaire, affichés à la souscription (case à cocher)
   et sur la page de la cotisation, valent pré-notification (conditions, section MichelIA+).
-- À faire : copie du mandat dans E-KO (fil des factures, à partir de `mandats_sepa`) ; changer d'IBAN
+- À faire : copie du mandat dans E-KO (fil des factures, à partir de `mandats_sepa` et du PDF) ; changer d'IBAN
   depuis l'espace compte.

@@ -10,8 +10,8 @@ import { colors, serif } from './theme';
 // Page /la-cotisation (web seulement) : l'abonnement MichelIA+ par carte ou prélèvement SEPA. Comme au
 // comptoir, la carte est tapée dans notre formulaire et part à la fonction michelia-plus, qui la
 // transmet à Stancer sans la garder ; la banque demande ensuite son 3D Secure dans un cadre. Le
-// prélèvement, lui, se signe sur la page Stancer (IBAN et code SMS), qui revient ici
-// (?retour=sepa). Il faut un compte Michel.
+// prélèvement se signe ici aussi : IBAN, titulaire et mobile, puis le code que Michel envoie par SMS.
+// Les anciens retours de la page Stancer (?retour=sepa) sont encore relus. Il faut un compte Michel.
 export function Cotisation(_props: { onClose?: () => void }) {
   // Retour du 3D Secure chargé dans son propre cadre : on prévient la page autour.
   if (window.top !== window.self) {
@@ -42,7 +42,7 @@ type Abonnement = {
   derniers_chiffres: string | null;
 };
 
-// Le premier prélèvement SEPA parti sur la page Stancer, relu au retour (onglet seulement).
+// Ancien parcours : le premier prélèvement SEPA parti sur la page Stancer, relu au retour (onglet seulement).
 const CLE_SEPA = 'michelia-plus-sepa';
 const lireSepa = () => {
   try {
@@ -50,6 +50,30 @@ const lireSepa = () => {
   } catch {
     return undefined;
   }
+};
+
+// Saisie du prélèvement : contrôles rapides avant envoi, le serveur revérifie tout (clé de l'IBAN comprise).
+const formatIban = (t: string) =>
+  t.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 34).replace(/(.{4})/g, '$1 ').trim();
+const ibanSaisi = (t: string) => /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(t.replace(/\s/g, ''));
+const mobileSaisi = (t: string) => t.replace(/[^\d]/g, '').length >= 9;
+
+// Le corps d'une réponse d'erreur de la fonction (champ fautif, essais restants).
+const corpsErreur = async (error: unknown): Promise<Record<string, unknown> | null> => {
+  try {
+    const res = (error as { context?: Response } | null)?.context;
+    return res && typeof res.json === 'function' ? await res.clone().json() : null;
+  } catch {
+    return null;
+  }
+};
+const champEnErreur = async (error: unknown) => {
+  const champ = (await corpsErreur(error))?.champ;
+  return typeof champ === 'string' ? champ : null;
+};
+const essaisRestants = async (error: unknown) => {
+  const n = (await corpsErreur(error))?.essais_restants;
+  return typeof n === 'number' ? n : null;
 };
 
 const jour = (iso: string | null) =>
@@ -65,6 +89,12 @@ function Page() {
   const [numero, setNumero] = useState('');
   const [expiration, setExpiration] = useState('');
   const [cvc, setCvc] = useState('');
+  // Prélèvement : IBAN, titulaire et mobile, puis le code reçu par SMS qui signe le mandat.
+  const [iban, setIban] = useState('');
+  const [titulaire, setTitulaire] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [code, setCode] = useState('');
+  const [codeEnvoye, setCodeEnvoye] = useState<string | null>(null);
   const [accepte, setAccepte] = useState(false);
   const [sending, setSending] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
@@ -113,7 +143,9 @@ function Page() {
           setRefus(
             paiement.startsWith('pi_')
               ? "Le mandat n'est pas signé, rien n'est prélevé. Tu peux réessayer, ou payer par carte."
-              : "La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.",
+              : moyen === 'sepa'
+                ? "Le premier prélèvement n'est pas passé, rien n'est pris. Tu peux réessayer, ou payer par carte."
+                : "La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.",
           );
           oublierSepa();
           setSecure(undefined);
@@ -124,7 +156,7 @@ function Page() {
         // Réseau capricieux : on réessaie au prochain tour.
       }
       if (++tries < 60) timer = setTimeout(confirmer, 4000);
-      else if (paiement.startsWith('pi_')) {
+      else if (paiement.startsWith('pi_') || moyen === 'sepa') {
         // La banque prend son temps : Michel relit le prélèvement de son côté, toutes les heures.
         setRefus("Stancer n'a pas encore confirmé ton mandat. Je vérifie de mon côté, reviens dans un moment.");
         setPaiement(undefined);
@@ -161,32 +193,99 @@ function Page() {
     recharger().catch(() => {});
   };
 
-  // Prélèvement : on part signer le mandat sur la page Stancer, qui revient ici.
-  const signerMandat = async () => {
+  const oublierMandat = () => {
+    setIban('');
+    setCode('');
+    setCodeEnvoye(null);
+  };
+
+  // Prélèvement, étape 1 : Michel vérifie l'IBAN et envoie le code de signature par SMS.
+  const demanderCode = async () => {
     if (sending) return;
+    if (!ibanSaisi(iban)) return setRefus("Vérifie l'IBAN : il commence par FR76 pour un compte français.");
+    if (titulaire.trim().length < 3) return setRefus('Mets le nom du titulaire du compte, comme sur ton RIB.');
+    if (!mobileSaisi(mobile)) return setRefus('Mets un numéro de mobile, pour recevoir le code.');
     if (!accepte) return setRefus("Coche la case des conditions, c'est la loi, con.");
     setSending(true);
     setRefus(null);
     try {
       const captcha = await getCaptchaToken();
       const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
-        body: { souscrire: formule, moyen: 'sepa', captcha },
+        body: { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: mobile, captcha },
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
-      if (statut === 409) return recharger();
+      if (statut === 409) {
+        if ((await corpsErreur(error))?.error === 'Signature déjà en cours')
+          return setRefus('Une signature est déjà en route dans un autre onglet. Attends deux minutes, puis recharge la page.');
+        return recharger();
+      }
+      if (statut === 400 || statut === 502) {
+        const champ = await champEnErreur(error);
+        if (champ === 'iban') return setRefus("Cet IBAN ne passe pas. Vérifie-le sur ton RIB (zone SEPA seulement).");
+        if (champ === 'titulaire') return setRefus('Mets le nom du titulaire du compte, comme sur ton RIB.');
+        if (champ === 'telephone') return setRefus("Je n'arrive pas à envoyer de SMS à ce numéro. Vérifie-le, ou paie par carte.");
+      }
       if (error) throw error;
-      if (result?.etat === 'mandat' && pageSecure(result.url) && typeof result.paiement === 'string') {
-        try {
-          sessionStorage.setItem(CLE_SEPA, result.paiement);
-        } catch {
-          // Sans stockage, le serveur relit quand même le prélèvement toutes les heures.
-        }
-        return window.location.assign(result.url);
+      if (result?.etat === 'code' && typeof result.telephone === 'string') {
+        setCode('');
+        return setCodeEnvoye(result.telephone);
       }
       setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
     } catch (e) {
-      console.error('MichelIA+ : prélèvement impossible', e);
+      console.error('MichelIA+ : code de mandat impossible', e);
+      setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Prélèvement, étape 2 : le code recopié signe le mandat, et le premier prélèvement part.
+  const signerMandat = async () => {
+    if (sending) return;
+    const saisi = code.replace(/\D/g, '');
+    if (saisi.length !== 6) return setRefus('Le code fait 6 chiffres, regarde ton SMS.');
+    setSending(true);
+    setRefus(null);
+    try {
+      const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
+        body: { signer: { code: saisi, iban, titulaire } },
+      });
+      const statut = (error as { context?: { status?: number } } | null)?.context?.status;
+      if (statut === 400) {
+        const restants = await essaisRestants(error);
+        setCode('');
+        return setRefus(
+          restants === 0
+            ? 'Code faux, et plus aucun essai. Demande un nouveau code.'
+            : `Code faux.${restants ? ` Encore ${restants} essai${restants > 1 ? 's' : ''}.` : ''}`,
+        );
+      }
+      if (statut === 410) {
+        setCodeEnvoye(null);
+        setCode('');
+        return setRefus('Ce code a expiré. Demande-moi un nouveau code.');
+      }
+      if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      if (error) throw error;
+      if (result?.etat === 'paye') {
+        oublierMandat();
+        return bienvenu();
+      }
+      if (result?.etat === 'refuse') {
+        oublierMandat();
+        return setRefus(
+          result.raison === 'iban'
+            ? "Stancer refuse ce compte, rien n'est prélevé. Vérifie l'IBAN, ou paie par carte."
+            : "Le premier prélèvement n'est pas passé, rien n'est pris. Tu peux réessayer, ou payer par carte.",
+        );
+      }
+      // Mandat signé, prélèvement en route : on le relit jusqu'à ce que Stancer réponde.
+      oublierMandat();
+      if (typeof result?.paiement === 'string') setPaiement(result.paiement);
+      setRefus("Mandat signé. J'attends la réponse de Stancer pour le premier prélèvement, deux secondes…");
+    } catch (e) {
+      console.error('MichelIA+ : signature du mandat impossible', e);
       setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
     } finally {
       setSending(false);
@@ -379,7 +478,7 @@ function Page() {
                   <Pressable
                     key={f}
                     onPress={() => setFormule(f)}
-                    disabled={!!secure || retourSepa}
+                    disabled={!!secure || !!paiement || !!codeEnvoye}
                     style={[styles.formule, formule === f && styles.formuleChoisie]}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: formule === f }}
@@ -392,7 +491,7 @@ function Page() {
                 );
               })}
             </View>
-            {!secure && !retourSepa && (
+            {!secure && !paiement && (
               <View style={styles.row}>
                 {(['carte', 'sepa'] as const).map((m) => (
                   <Pressable
@@ -411,11 +510,38 @@ function Page() {
               </View>
             )}
             {retourSepa && <Text style={styles.text}>Je relis ton mandat chez Stancer, deux secondes…</Text>}
-            {!secure && !retourSepa && moyen === 'sepa' && (
+            {!secure && !paiement && moyen === 'sepa' && !codeEnvoye && (
               <>
+                <TextInput
+                  value={iban}
+                  onChangeText={(t) => setIban(formatIban(t))}
+                  placeholder="IBAN (FR76 …)"
+                  placeholderTextColor={colors.tertiary}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  style={styles.input}
+                />
+                <TextInput
+                  value={titulaire}
+                  onChangeText={(t) => setTitulaire(t.slice(0, 64))}
+                  placeholder="Titulaire du compte"
+                  placeholderTextColor={colors.tertiary}
+                  autoComplete="name"
+                  style={styles.input}
+                />
+                <TextInput
+                  value={mobile}
+                  onChangeText={(t) => setMobile(t.replace(/[^\d+ ]/g, '').slice(0, 20))}
+                  placeholder="Mobile, pour le code de signature"
+                  placeholderTextColor={colors.tertiary}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  style={styles.input}
+                />
                 <Text style={styles.small}>
-                  Tu tapes ton IBAN sur la page de Stancer, jamais chez Michel, et tu signes le mandat avec le code reçu par SMS. Le
-                  premier prélèvement part tout de suite, puis à la même date {formule === 'mois' ? 'chaque mois' : 'chaque année'}.
+                  Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Le premier prélèvement part tout de suite,
+                  puis à la même date {formule === 'mois' ? 'chaque mois' : 'chaque année'}.
                 </Text>
                 <Pressable onPress={() => setAccepte((a) => !a)} style={styles.row} accessibilityRole="checkbox" accessibilityState={{ checked: accepte }}>
                   <Text style={styles.case}>{accepte ? '☑' : '☐'}</Text>
@@ -429,6 +555,27 @@ function Page() {
                     la date anniversaire : ce rappel vaut avis de prélèvement. Résiliable ici en deux clics.
                   </Text>
                 </Pressable>
+              </>
+            )}
+            {!secure && !paiement && moyen === 'sepa' && codeEnvoye && (
+              <>
+                <Text style={styles.text}>
+                  Je t'ai envoyé un code au {codeEnvoye}. Recopie-le pour signer le mandat sur le compte •••• {iban.replace(/\s/g, '').slice(-4)}.
+                </Text>
+                <TextInput
+                  value={code}
+                  onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="Code à 6 chiffres"
+                  placeholderTextColor={colors.tertiary}
+                  keyboardType="number-pad"
+                  autoComplete="one-time-code"
+                  style={styles.input}
+                />
+                <Text style={styles.small}>
+                  <Text style={styles.link} onPress={() => { setCodeEnvoye(null); setCode(''); setRefus(null); }}>
+                    Modifier mes informations ou recevoir un nouveau code
+                  </Text>
+                </Text>
               </>
             )}
             {!secure && !retourSepa && moyen === 'carte' && (
@@ -485,9 +632,9 @@ function Page() {
               />
             )}
             {refus && <Text style={styles.refus}>{refus}</Text>}
-            {!secure && !retourSepa && (
+            {!secure && !paiement && (
               <Pressable
-                onPress={moyen === 'sepa' ? signerMandat : souscrire}
+                onPress={moyen === 'carte' ? souscrire : codeEnvoye ? signerMandat : demanderCode}
                 disabled={sending || !prix}
                 style={({ pressed }) => [styles.payer, (sending || !prix) && styles.dimmed, pressed && styles.pressed]}
                 accessibilityRole="button"
@@ -496,13 +643,13 @@ function Page() {
                   <ActivityIndicator color={colors.onAccent} />
                 ) : (
                   <Text style={styles.payerText}>
-                    {moyen === 'sepa' ? 'Signer le mandat' : 'Cotiser'} {prix ? euros(prix) : ''}
+                    {moyen === 'carte' ? `Cotiser ${prix ? euros(prix) : ''}` : codeEnvoye ? 'Signer le mandat' : 'Recevoir mon code'}
                   </Text>
                 )}
               </Pressable>
             )}
             <Text style={styles.small}>
-              Paiement sécurisé par Stancer. {moyen === 'sepa' ? "Ton IBAN n'est jamais gardé chez Michel." : "Ta carte n'est jamais gardée chez Michel."}
+              Paiement sécurisé par Stancer. {moyen === 'sepa' ? 'Ton IBAN part chez Stancer ; Michel range ton mandat signé dans un coffre privé.' : "Ta carte n'est jamais gardée chez Michel."}
             </Text>
           </View>
         )}

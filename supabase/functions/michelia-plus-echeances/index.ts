@@ -8,7 +8,7 @@
 // Et même rejouée, elle ne prélève qu'une fois par période : l'identifiant unique envoyé à Stancer
 // dépend de l'abonnement, de la période et du nombre d'échecs, et Stancer refuse un doublon.
 import { admin, stancer, stancerConfigured } from "../_shared/stancer.ts";
-import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, safeError } from "../_shared/abonnement.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, reprendrePremiersSepa, safeError } from "../_shared/abonnement.ts";
 
 const PAR_PASSAGE = 20;
 
@@ -28,7 +28,12 @@ Deno.serve(async (req) => {
   // Souscriptions jamais payées : on fait le ménage au bout d'une demi-heure ; une page de prélèvement
   // SEPA jamais signée, au bout d'un jour.
   await abandonnerSepa(86_400_000);
+  // Codes de signature de plus d'un jour : leur empreinte d'IBAN (salée, mais forçable) ne reste pas en base.
+  const { error: purge } = await admin.from("mandats_sepa_codes").delete().lt("created_at", new Date(Date.now() - 86_400_000).toISOString());
+  if (purge) console.error("MichelIA+ : purge des codes de mandat impossible", purge.message);
   await menageEnAttente(1_800_000);
+  // Mandats signés sur le site dont le premier prélèvement n'a pas eu de réponse nette : relancés.
+  await reprendrePremiersSepa(PAR_PASSAGE);
 
   // Échéances restées en cours (Stancer lent à répondre, page SEPA pas encore revenue) : relues.
   const { data: enCours } = await admin.from("abonnement_echeances").select("paiement_id, stancer_intent")
