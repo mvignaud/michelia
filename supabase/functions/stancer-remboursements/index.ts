@@ -4,12 +4,10 @@
 // d'abord, et inscrit le total remboursé (rembourse_cents, rembourse_le). L'e-mail de remboursement et
 // l'avoir E-KO partent ensuite de « facturer ». Sans danger si quelqu'un d'autre l'appelle : elle ne fait
 // que relire Stancer et recopier ce qu'il dit.
-import { admin, isCardPaymentId, stancer, stancerConfigured } from "../_shared/stancer.ts";
+import { admin, isCardPaymentId, remboursementsDe, stancer, stancerConfigured } from "../_shared/stancer.ts";
 
 const PAR_PASSAGE = 40;
 const JOURS = 120;
-// Un remboursement demandé, envoyé ou fait ; payment_canceled : paiement annulé avant d'être encaissé.
-const REMBOURSE = ["to_refund", "refund_sent", "refunded", "payment_canceled"];
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -22,23 +20,11 @@ async function paiementDe(row: { paiement_id: string; paiement_carte: string | n
   return isCardPaymentId(id) ? id : null;
 }
 
-// Total remboursé d'un paiement, d'après la liste de ses remboursements (objets ou identifiants).
+// Total remboursé d'un paiement ; un paiement annulé avant capture compte pour remboursé en entier.
 async function rembourse(paymentId: string): Promise<number | null> {
-  let payment = await stancer("GET", `/v1/checkout/${paymentId}`);
-  // Paiement né d'un payment intent (page Stancer) : peut-être seulement lisible en v2.
-  if (!payment.ok || !payment.data) payment = await stancer("GET", `/payments/${paymentId}`);
-  if (!payment.ok || !payment.data) {
-    console.error("Remboursements : paiement illisible", paymentId, payment.status);
-    return null;
-  }
-  // Paiement annulé avant capture : rien n'a été encaissé.
-  if (["canceled", "cancelled"].includes(String(payment.data.status ?? ""))) return Number(payment.data.amount) || 0;
-  let total = 0;
-  for (const item of Array.isArray(payment.data.refunds) ? payment.data.refunds : []) {
-    const refund = typeof item === "string" ? (await stancer("GET", `/v1/refunds/${encodeURIComponent(item)}`)).data : item;
-    if (REMBOURSE.includes(String(refund?.status ?? ""))) total += Number(refund?.amount) || 0;
-  }
-  return total;
+  const r = await remboursementsDe(paymentId);
+  if (!r) return null;
+  return r.annule ?? r.liste.reduce((total, x) => total + x.montant, 0);
 }
 
 Deno.serve(async (req) => {

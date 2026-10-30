@@ -82,6 +82,35 @@ export async function stancer(method: string, path: string, body?: unknown): Pro
   return { ok: res.ok, status: res.status, data };
 }
 
+// Statuts d'un remboursement demandé, envoyé ou fait ; payment_canceled : paiement annulé avant d'être encaissé.
+const REFUND_OK = ["to_refund", "refund_sent", "refunded", "payment_canceled"];
+
+export type Remboursement = { id: string; montant: number; cree: number };
+
+// Les remboursements d'un paiement (paym_…), du plus ancien au plus récent, et son montant s'il a été
+// annulé avant capture (rien encaissé). null si le paiement est illisible.
+export async function remboursementsDe(paymentId: string): Promise<{ annule: number | null; liste: Remboursement[] } | null> {
+  let payment = await stancer("GET", `/v1/checkout/${paymentId}`);
+  // Paiement né d'un payment intent (page Stancer) : peut-être seulement lisible en v2.
+  if (!payment.ok || !payment.data) payment = await stancer("GET", `/payments/${paymentId}`);
+  if (!payment.ok || !payment.data) {
+    console.error("Remboursements : paiement illisible", paymentId, payment.status);
+    return null;
+  }
+  // Paiement annulé avant capture : rien n'a été encaissé.
+  if (["canceled", "cancelled"].includes(String(payment.data.status ?? ""))) {
+    return { annule: Number(payment.data.amount) || 0, liste: [] };
+  }
+  const liste: Remboursement[] = [];
+  for (const item of Array.isArray(payment.data.refunds) ? payment.data.refunds : []) {
+    const refund = typeof item === "string" ? (await stancer("GET", `/v1/refunds/${encodeURIComponent(item)}`)).data : item;
+    if (!REFUND_OK.includes(String(refund?.status ?? ""))) continue;
+    liste.push({ id: String(refund.id ?? item), montant: Number(refund.amount) || 0, cree: Number(refund.created) || 0 });
+  }
+  liste.sort((a, b) => a.cree - b.cree);
+  return { annule: null, liste };
+}
+
 // Statuts d'un paiement Stancer qui veulent dire « l'argent arrive ».
 const PAID = ["to_capture", "capture_sent", "captured"];
 // Statuts définitifs d'échec : inutile d'attendre.

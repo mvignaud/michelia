@@ -9,6 +9,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { avoirVente, EkoError, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
 import { envoyerAvoir, envoyerRecu } from "../_shared/recu.ts";
+import { isCardPaymentId, remboursementsDe } from "../_shared/stancer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -65,6 +66,23 @@ const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, p
 // Pourboires concernés : web, réels, payés chez un prestataire du locataire.
 const pourboires = () =>
   admin.from("pourboires").select(COLONNES).eq("canal", "web").eq("essai", false).in("prestataire", PRESTATAIRES);
+
+// Le remboursement Stancer (refd_…) d'un avoir de Michel : le n-ième remboursement du paiement pour le
+// n-ième avoir du pourboire, si les montants concordent. Sinon null, et E-KO lit les remboursements du
+// paiement (deux remboursements relevés au même passage font un seul avoir).
+async function remboursementStancer(
+  a: { id: number; montant_cents: number; pourboire_id: number },
+  l: { prestataire: string; paiement_carte: string | null },
+): Promise<string | null> {
+  if (l.prestataire !== "stancer" || !isCardPaymentId(l.paiement_carte)) return null;
+  const [r, { data: freres }] = await Promise.all([
+    remboursementsDe(l.paiement_carte),
+    admin.from("avoirs").select("id").eq("pourboire_id", a.pourboire_id).order("id"),
+  ]);
+  const rang = (freres ?? []).findIndex((f) => f.id === a.id);
+  const refund = rang >= 0 ? r?.liste[rang] : undefined;
+  return refund && refund.montant === a.montant_cents && refund.id.startsWith("refd_") ? refund.id : null;
+}
 
 Deno.serve(async () => {
   const c = await config();
@@ -249,7 +267,7 @@ Deno.serve(async () => {
     // Seuls les avoirs dont la facture E-KO existe déjà, filtrés avant la limite : un pourboire jamais
     // facturé ne bloque pas la file.
     const { data: aFaire, error: ef } = await admin.from("avoirs")
-      .select("id, numero, montant_cents, rembourse_le, pourboires!inner(facture_code, facture_reglee_at, prestataire, paiement_id, paiement_carte)")
+      .select("id, numero, montant_cents, rembourse_le, pourboire_id, pourboires!inner(facture_code, facture_reglee_at, prestataire, paiement_id, paiement_carte)")
       .is("eko_code", null)
       .is("eko_erreur", null)
       .not("pourboires.facture_reglee_at", "is", null)
@@ -261,6 +279,7 @@ Deno.serve(async () => {
       const l = a.pourboires as unknown as Pick<Ligne, "facture_code" | "prestataire" | "paiement_id" | "paiement_carte">;
       try {
         const code = await avoirVente({
+          remboursement: await remboursementStancer(a, l),
           facture: l.facture_code!,
           numero: a.numero,
           montantTtcCents: a.montant_cents,
