@@ -15,6 +15,12 @@ import { colors, serif } from './theme';
 export function Comptoir(_props: { onClose?: () => void }) {
   // Retour du 3D Secure chargé dans son propre cadre : la page autour s'occupe du reste.
   if (window.top !== window.self) return <Text style={[styles.text, styles.padded]}>C'est payé, merci !</Text>;
+  // Arrivé ici depuis une page où la mesure d'audience tourne déjà (même document) : on recharge, pour
+  // que les champs de carte vivent dans une page sans aucun script tiers.
+  if ('gtag' in window) {
+    window.location.replace(window.location.href);
+    return null;
+  }
   return <Page />;
 }
 

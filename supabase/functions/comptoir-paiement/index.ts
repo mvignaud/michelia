@@ -238,10 +238,15 @@ async function reserver(genre: "carte" | "paiement", qui: { id: string; ip: stri
   return String(data);
 }
 
-// Turnstile à chaque carte envoyée, si la clé secrète est posée (TURNSTILE_SECRET_KEY).
+// Turnstile à chaque carte envoyée (clé secrète TURNSTILE_SECRET_KEY, la même que dans Supabase Auth).
 const TURNSTILE_SECRET_KEY = Deno.env.get("TURNSTILE_SECRET_KEY") ?? "";
+// Sans la clé, seules les clés de test Stancer passent : en réel, on refuse plutôt que d'ouvrir la porte.
 async function captchaOk(token: unknown, ip: string): Promise<boolean> {
-  if (!TURNSTILE_SECRET_KEY) return true;
+  if (!TURNSTILE_SECRET_KEY) {
+    if (stancerTest()) return true;
+    console.error("Comptoir : TURNSTILE_SECRET_KEY manquant, cartes refusées en réel");
+    return false;
+  }
   if (typeof token !== "string" || !token || token.length > 2048) return false;
   const form = new URLSearchParams({ secret: TURNSTILE_SECRET_KEY, response: token });
   if (ip) form.set("remoteip", ip);
