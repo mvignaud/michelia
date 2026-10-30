@@ -369,7 +369,7 @@ function Page() {
                   <>
                     <TextInput
                       value={numero}
-                      onChangeText={(t) => setNumero(t.replace(/[^\d ]/g, '').slice(0, 23))}
+                      onChangeText={(t) => setNumero(formatNumero(t))}
                       placeholder="Numéro de carte"
                       placeholderTextColor={colors.tertiary}
                       keyboardType="number-pad"
@@ -379,7 +379,7 @@ function Page() {
                     <View style={styles.row}>
                       <TextInput
                         value={expiration}
-                        onChangeText={(t) => setExpiration(t.replace(/[^\d/]/g, '').slice(0, 7))}
+                        onChangeText={(t) => setExpiration(formatExpiration(t))}
                         placeholder="MM/AA"
                         placeholderTextColor={colors.tertiary}
                         keyboardType="number-pad"
@@ -472,6 +472,21 @@ function Page() {
 }
 
 const PAYMENT_ID = 'comptoir-paiement';
+
+// Le pavé numérique du téléphone n'a ni espace ni « / » : on les pose nous-mêmes en tapant.
+const formatNumero = (t: string) =>
+  t.replace(/\D/g, '').slice(0, 19).replace(/(\d{4})(?=\d)/g, '$1 ');
+
+const formatExpiration = (t: string) => {
+  // Saisie automatique du navigateur, parfois en MM/AAAA.
+  const auto = t.match(/^\s*(\d{1,2})\s*\/\s*(\d{4})\s*$/);
+  if (auto) return `${auto[1].padStart(2, '0')}/${auto[2].slice(2)}`;
+  let chiffres = t.replace(/\D/g, '');
+  // Un mois qui commence par 2 à 9 ne peut être que 02 à 09.
+  if (/^[2-9]/.test(chiffres)) chiffres = `0${chiffres}`;
+  chiffres = chiffres.slice(0, 4);
+  return chiffres.length > 2 ? `${chiffres.slice(0, 2)}/${chiffres.slice(2)}` : chiffres;
+};
 // Les champs de carte Stancer viennent de là, et leurs messages aussi.
 const STANCER_ORIGIN = 'https://payment.stancer.com';
 const deStancer = (url: unknown): url is string => {
