@@ -17,7 +17,8 @@ const palierDe = (produit: string) => produit.replace(/^pourboire_/, '').replace
 
 let configured = false;
 
-async function configure(cle: string) {
+// Partagé avec l'écran MichelIA+ (Cotisation.tsx), qui y rattache ensuite le compte Michel.
+export async function configure(cle: string) {
   if (configured) return;
   // Même identifiant que Supabase (membre ou visiteur anonyme) : utile pour retrouver un achat.
   const { data } = await supabase.auth.getSession();
@@ -29,6 +30,8 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<Data>();
   const [products, setProducts] = useState<Record<string, PurchasesStoreProduct>>({}); // par id de palier
   const [failed, setFailed] = useState(false);
+  // La boutique a répondu (avec ou sans produits) : plus de roue qui tourne dans le vide.
+  const [charges, setCharges] = useState(false);
   const [paying, setPaying] = useState<string | null>(null);
   const [refus, setRefus] = useState<string | null>(null);
   const [thanks, setThanks] = useState<string | null>(null);
@@ -46,6 +49,7 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
         Purchases.PRODUCT_CATEGORY.NON_SUBSCRIPTION,
       );
       setProducts(Object.fromEntries(found.map((p) => [palierDe(p.identifier), p])));
+      setCharges(true);
     })().catch(() => setFailed(true));
 
     // Un membre connecté retrouve son prénom pour le carnet (modifiable, facultatif).
@@ -131,7 +135,12 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
               />
             </View>
 
-            {paliers.length === 0 && !failed && <ActivityIndicator color={colors.accent} style={styles.padded} />}
+            {paliers.length === 0 && !failed && !charges && <ActivityIndicator color={colors.accent} style={styles.padded} />}
+            {paliers.length === 0 && charges && (
+              <View style={styles.card}>
+                <Text style={styles.text}>La caisse de la boutique est encore fermée. Repasse un peu plus tard, con.</Text>
+              </View>
+            )}
             <View style={styles.paliers}>
               {paliers.map((p) => (
                 <Pressable
