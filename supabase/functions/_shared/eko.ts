@@ -46,7 +46,8 @@ export async function tiersGenerique(nom: string): Promise<number> {
 
 export type Vente = {
   tierId: number;
-  paiementId: string; // identifiant du paiement chez le prestataire (clés d'idempotence, règlement)
+  paiementId: string; // identifiant du paiement chez le prestataire (clés d'idempotence)
+  transaction: string; // règlement chez le prestataire (paym_… chez Stancer) : E-KO y rattache les remboursements
   reference: string; // numéro de reçu MichelIA, aussi numéro de commande chez le prestataire
   libelle: string;
   montantTtcCents: number;
@@ -90,18 +91,19 @@ export async function facturerVente(v: Vente, code: string | null, noter: (code:
       amount: ttc,
       currency: "EUR",
       method: "card_online",
-      reference: v.paiementId,
-      psp: { provider: v.prestataire, payment_id: v.paiementId },
+      reference: v.transaction,
+      psp: { provider: v.prestataire, payment_id: v.transaction },
     }, `reglement-${v.paiementId}`);
   }
   return code;
 }
 
 // Avoir E-KO sur une facture émise, pour un remboursement fait chez le prestataire : jamais envoyé au
-// client (le client reçoit l'avoir de Michel). Adresse demandée à E-KO le 30/10/2026
-// (/mnt/project-files/factures/demande-api-eko-avoirs.md) : tant qu'elle n'existe pas (404/405), rend null
-// et l'appelant réessaiera au passage suivant. Rejouable : même Idempotency-Key, et E-KO ne fait jamais
-// deux avoirs pour un même remboursement. Rend le numéro de l'avoir (AV…).
+// client (le client reçoit l'avoir de Michel). E-KO crée du même coup le décaissement, lié au règlement
+// d'origine (psp.payment_id = paiementId). Tant que l'adresse n'est pas en service (404/405), rend null et
+// l'appelant réessaiera au passage suivant. Rejouable : même Idempotency-Key, E-KO rend le même avoir.
+// Un 422 (remboursement inconnu chez le prestataire, facture pas émise, règlement introuvable) ne se
+// corrige pas en réessayant à l'identique : l'appelant le note et s'arrête. Rend le numéro de l'avoir (AV…).
 export async function avoirVente(a: {
   facture: string; numero: string; montantTtcCents: number; date: string; prestataire: string; paiementId: string;
 }): Promise<string | null> {
