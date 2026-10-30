@@ -1,12 +1,12 @@
 // Fonction « stancer-webhook » : enregistre les pourboires du comptoir payés avec Stancer, quand
 // Stancer prévient (voir docs/COMPTOIR.md). Filet de sécurité de la confirmation faite par la page :
 // si le visiteur ferme l'onglet juste après avoir payé, le pourboire est quand même enregistré.
-// La signature Stancer-Signature (« t=…,v1=… ») est vérifiée avec STANCER_WEBHOOK_SECRET :
+// La signature Stancer-Signature (« t=…,v1=… ») est vérifiée avec le secret rangé en base par
+// comptoir-paiement à l'enregistrement du webhook (ou STANCER_WEBHOOK_SECRET s'il est posé) :
 // HMAC-SHA256 de « {t}.{corps brut} », comparé en temps constant, à 5 minutes près. Le corps ne sert
 // qu'à trouver le payment intent : le paiement est toujours relu chez Stancer (_shared/stancer.ts).
-import { confirmPayment, isPaymentIntentId } from "../_shared/stancer.ts";
+import { confirmPayment, isPaymentIntentId, webhookSecrets } from "../_shared/stancer.ts";
 
-const WEBHOOK_SECRET = Deno.env.get("STANCER_WEBHOOK_SECRET") ?? "";
 const TOLERANCE_SECONDS = 300;
 
 const reply = (status: number, body: string) => new Response(body, { status });
@@ -27,8 +27,15 @@ async function hmac(key: Uint8Array<ArrayBuffer>, payload: string): Promise<stri
   return toHex(await crypto.subtle.sign("HMAC", cle, new TextEncoder().encode(payload)));
 }
 
+// Les clés HMAC d'un secret : la doc Stancer le décode en hexadécimal ; s'il n'en est pas, ses octets tels quels.
+function keysOf(secret: string): Uint8Array<ArrayBuffer>[] {
+  const keys: Uint8Array<ArrayBuffer>[] = [new TextEncoder().encode(secret)];
+  if (/^([0-9a-f]{2})+$/i.test(secret)) keys.unshift(new Uint8Array(secret.match(/../g)!.map((h) => parseInt(h, 16))));
+  return keys;
+}
+
 async function validSignature(body: string, header: string): Promise<boolean> {
-  if (!WEBHOOK_SECRET || !header) return false;
+  if (!header) return false;
   let timestamp = "";
   const signatures: string[] = [];
   for (const part of header.split(",")) {
@@ -39,11 +46,8 @@ async function validSignature(body: string, header: string): Promise<boolean> {
   const age = Math.abs(Date.now() / 1000 - Number(timestamp));
   if (!timestamp || !Number.isFinite(age) || age > TOLERANCE_SECONDS || !signatures.length) return false;
 
-  // La doc Stancer décode le secret en hexadécimal ; s'il n'en est pas, on prend ses octets tels quels.
-  const keys: Uint8Array<ArrayBuffer>[] = [new TextEncoder().encode(WEBHOOK_SECRET)];
-  if (/^([0-9a-f]{2})+$/i.test(WEBHOOK_SECRET)) {
-    keys.unshift(new Uint8Array(WEBHOOK_SECRET.match(/../g)!.map((h) => parseInt(h, 16))));
-  }
+  const keys = (await webhookSecrets()).flatMap(keysOf);
+  if (!keys.length) return false;
   const payload = `${timestamp}.${body}`;
   const expected = await Promise.all(keys.map((k) => hmac(k, payload)));
   // Pas de court-circuit : toutes les signatures sont comparées.

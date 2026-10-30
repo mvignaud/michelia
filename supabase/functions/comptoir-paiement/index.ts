@@ -13,11 +13,14 @@ import {
   cleanEmail,
   cleanFirstName,
   confirmPayment,
+  ensureWebhook,
   isPaymentIntentId,
   stancer,
   stancerConfigured,
   stancerTest,
 } from "../_shared/stancer.ts";
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 // Même version que Stripe.js chargé par la page (@stripe/stripe-js 10.x = « endive ») :
@@ -188,5 +191,7 @@ async function createStancerPayment(palier: Palier, body: any, essai: boolean, o
     console.error("Paiement en attente non enregistré", error.message);
     return reply(500, { error: "Paiement indisponible" }, origin);
   }
+  // Premier paiement du mode (test ou réel) : on enregistre le webhook chez Stancer, sans faire attendre.
+  EdgeRuntime.waitUntil(ensureWebhook().catch((e) => console.error("Stancer : webhook", e)));
   return reply(200, { id, url }, origin);
 }

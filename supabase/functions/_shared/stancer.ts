@@ -17,6 +17,39 @@ export const stancerConfigured = () => /^s(test|prod)_\S+$/.test(STANCER_API_KEY
 // Clé de test : aucun argent réel ne bouge, les pourboires sont marqués « essai ».
 export const stancerTest = () => STANCER_API_KEY.startsWith("stest_");
 
+const MODE = STANCER_API_KEY.startsWith("sprod_") ? "prod" : "test";
+
+// Enregistre une fois (par mode, test ou réel) l'adresse de stancer-webhook chez Stancer, qui n'a pas
+// de rubrique Webhooks dans son espace client, et range le secret de signature en base. La ligne est
+// posée avant l'appel : deux paiements simultanés n'enregistrent pas deux fois. En cas d'échec, la
+// ligne vide est retirée pour réessayer au paiement suivant ; le paiement, lui, n'attend pas.
+export async function ensureWebhook(): Promise<void> {
+  if (!stancerConfigured()) return;
+  const { data: posee, error } = await admin
+    .from("stancer_webhook")
+    .upsert({ mode: MODE }, { onConflict: "mode", ignoreDuplicates: true })
+    .select("mode");
+  if (error || !posee?.length) return; // Déjà fait (ou en cours), ou table absente.
+  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/stancer-webhook`;
+  const res = await stancer("POST", "/webhooks/", { url });
+  const secret = res.data?.secret;
+  if (!res.ok || typeof secret !== "string" || !secret) {
+    console.error("Stancer : webhook non enregistré", res.status, JSON.stringify(res.data ?? null).slice(0, 300));
+    await admin.from("stancer_webhook").delete().eq("mode", MODE).is("secret", null);
+    return;
+  }
+  await admin.from("stancer_webhook").update({ webhook_id: String(res.data?.id ?? ""), secret }).eq("mode", MODE);
+  console.log("Stancer : webhook enregistré", MODE, res.data?.id);
+}
+
+// Secrets de signature connus : celui des secrets Supabase s'il existe, puis ceux rangés en base.
+export async function webhookSecrets(): Promise<string[]> {
+  const secrets = [Deno.env.get("STANCER_WEBHOOK_SECRET") ?? ""];
+  const { data } = await admin.from("stancer_webhook").select("secret");
+  for (const row of data ?? []) secrets.push(row.secret ?? "");
+  return secrets.filter(Boolean);
+}
+
 // Un payment intent Stancer : pi_ suivi de lettres et chiffres.
 export const isPaymentIntentId = (id: unknown): id is string =>
   typeof id === "string" && /^pi_[A-Za-z0-9]{6,64}$/.test(id);
