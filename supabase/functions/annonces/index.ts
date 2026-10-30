@@ -18,6 +18,8 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const POSTAL_API_URL = (Deno.env.get("POSTAL_API_URL") ?? "").replace(/\/+$/, "");
 const POSTAL_API_KEY = Deno.env.get("POSTAL_API_KEY") ?? "";
 const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@michel.beer>";
+// Les réponses des gens arrivent dans la boîte de contact (l'expéditeur, lui, ne lit rien).
+const MAIL_REPLY_TO = Deno.env.get("MAIL_REPLY_TO") ?? "Michel (MichelIA) <contact@michel.beer>";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 const UNSUBSCRIBE_SECRET = Deno.env.get("UNSUBSCRIBE_SECRET") ?? "";
 
@@ -147,6 +149,7 @@ async function sendEmail(message: Message, to: Recipient): Promise<boolean> {
       body: JSON.stringify({
         to: [to.email],
         from: MAIL_FROM,
+        reply_to: MAIL_REPLY_TO,
         subject: personalize(message.subject, to.first_name),
         plain_body: plain,
         html_body: htmlBody(message, to.first_name, unsubscribeUrl),
