@@ -298,7 +298,7 @@ function Page() {
             <Image source={require('../assets/brand/michel-portrait.png')} style={styles.avatarImage} accessibilityLabel="Michel" />
           </View>
           <Text style={styles.title}>Le comptoir de Michel</Text>
-          <Pressable onPress={() => window.location.assign('/')} accessibilityRole="link">
+          <Pressable onPress={() => window.location.assign('/chat')} accessibilityRole="link">
             <Text style={styles.back}>Parler à Michel</Text>
           </Pressable>
         </View>

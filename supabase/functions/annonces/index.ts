@@ -114,7 +114,7 @@ function htmlBody(message: Message, firstName: string | null, unsubscribeUrl: st
 <tr><td style="background:#FFFFFF;border-radius:16px;padding:28px 28px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;color:#2B2420;">
 ${paragraphs}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 0;"><tr><td style="background:#7A2E1D;border-radius:12px;">
-<a href="${SITE_URL}" style="display:inline-block;padding:14px 26px;font-weight:bold;font-size:16px;color:#FFF8EE;text-decoration:none;">Causer avec Michel</a>
+<a href="${SITE_URL}/chat" style="display:inline-block;padding:14px 26px;font-weight:bold;font-size:16px;color:#FFF8EE;text-decoration:none;">Causer avec Michel</a>
 </td></tr></table>
 </td></tr>
 <tr><td align="center" style="padding:20px 8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#A39586;">
@@ -133,7 +133,7 @@ async function sendEmail(message: Message, to: Recipient): Promise<boolean> {
   const headers: Record<string, string> = {};
   if (message.audience === "news") {
     const token = `${to.user_id}.${await sign(to.user_id)}`;
-    unsubscribeUrl = `${SITE_URL}/?desabonnement=${token}`;
+    unsubscribeUrl = `${SITE_URL}/chat?desabonnement=${token}`;
     const [u, t] = token.split(".");
     headers["List-Unsubscribe"] = `<${SUPABASE_URL}/functions/v1/annonces?u=${u}&t=${t}>`;
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";

@@ -4,39 +4,10 @@
 // « Tout juste servi » reprend toute seule les dernières entrées de app/nouveautes/ : la page bouge à chaque nouveauté.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { CSS_VERSION, dateLongue, enLigne, lireNouveautes, PIED, TETE, TYPES, versHtml } from './nouveautes-lib.mjs';
+import { CASSEROLES, CSS_VERSION, dateLongue, enLigne, lireCaMijote, lireNouveautes, PIED, TETE, TYPES, versHtml } from './nouveautes-lib.mjs';
 
-const FICHIER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ca-mijote.md');
-// Les trois casseroles, dans l'ordre de la page, avec leur étiquette.
+// Les dernières nouveautés reprises en bas de page, sous « Tout juste servi ».
 const SERVIS = 5;
-const CASSEROLES = {
-  'Au feu': { classe: 'type-nouveau', etiquette: 'En cours' },
-  'Sur la planche': { classe: 'type-corrige', etiquette: 'Prévu' },
-  'Au frais': { classe: 'type-attente', etiquette: 'Plus tard' },
-};
-
-function lire() {
-  const brut = fs.readFileSync(FICHIER, 'utf8').replace(/\r\n/g, '\n');
-  const m = brut.match(/^---\nmaj: (\d{4}-\d{2}-\d{2})\n---\n([\s\S]*)$/);
-  if (!m) throw new Error('ca-mijote.md : en-tête « ---\\nmaj: AAAA-MM-JJ\\n--- » attendu');
-  const corps = m[2].replace(/<!--[\s\S]*?-->/g, '');
-  const sections = corps.split(/^## /m).slice(1).map((bloc) => {
-    const [titre, ...reste] = bloc.split('\n');
-    const lignes = reste.join('\n').trim().split('\n');
-    const plats = lignes.filter((l) => l.startsWith('- ')).map((l) => {
-      const p = l.match(/^- \*\*(.+?)\*\* ?: (.+)$/);
-      if (!p) throw new Error(`ca-mijote.md : plat illisible « ${l} » (attendu « - **Titre** : texte »)`);
-      return { titre: p[1], texte: p[2][0].toUpperCase() + p[2].slice(1) };
-    });
-    const intro = lignes.filter((l) => !l.startsWith('- ')).join('\n').trim();
-    return { titre: titre.trim(), intro, plats };
-  });
-  const noms = sections.map((s) => s.titre);
-  if (noms.join('|') !== Object.keys(CASSEROLES).join('|'))
-    throw new Error(`ca-mijote.md : sections attendues, dans l'ordre : ${Object.keys(CASSEROLES).join(', ')}`);
-  return { maj: m[1], sections };
-}
 
 function page({ maj, sections }, servis) {
   // La date affichée suit aussi le carnet : une nouveauté servie, c'est la cuisine qui a bougé.
@@ -92,7 +63,7 @@ ${PIED}
 `;
 }
 
-const donnees = lire();
+const donnees = lireCaMijote();
 const servis = lireNouveautes().slice(0, SERVIS);
 const arg = process.argv[2];
 if (arg === '--verifier') {

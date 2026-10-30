@@ -88,7 +88,7 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
-        <Page onClose={() => window.location.assign('/')} />
+        <Page onClose={() => window.location.assign('/chat')} />
       </SafeAreaView>
     </SafeAreaProvider>
   ) : (
@@ -190,7 +190,7 @@ function Chat() {
     };
   }, [userId, memberId]);
 
-  // Lien « Me connecter » de la page /la-cotisation : michel.beer/?compte=connexion ouvre le compte.
+  // Lien « Me connecter » de la page /la-cotisation : michel.beer/chat?compte=connexion ouvre le compte.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const url = new URL(window.location.href);

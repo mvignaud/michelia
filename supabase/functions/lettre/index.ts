@@ -262,7 +262,7 @@ ${autres}
 <p style="margin:0 0 18px;font-family:${SERIF};font-size:20px;font-style:italic;color:${BRIQUE};">Michel</p>
 <p style="margin:0 0 22px;font-size:14px;color:#6B5E52;">${escapeHtml(pick(PS, l.numero))}</p>
 <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:${BRIQUE};border-radius:12px;">
-<a href="${SITE_URL}" style="display:inline-block;padding:14px 26px;font-weight:bold;font-size:16px;color:#FFF8EE;text-decoration:none;">Causer avec Michel</a>
+<a href="${SITE_URL}/chat" style="display:inline-block;padding:14px 26px;font-weight:bold;font-size:16px;color:#FFF8EE;text-decoration:none;">Causer avec Michel</a>
 </td></tr></table>
 <p style="margin:14px 0 0;font-size:14px;"><a href="${carnet}" style="color:${BRIQUE};">Tout le carnet des nouveautés</a></p>
 </td></tr>
@@ -287,7 +287,7 @@ function plainBody(l: Lettre, firstName: string | null, unsubscribeUrl: string):
     l.autres ? `Et ${l.autres} autre(s) chose(s) dans mon carnet : ${SITE_URL}/confit-de-canard` : "",
     "Allez, porte-toi bien, et à dans quinze jours.\nMichel",
     pick(PS, l.numero),
-    `Causer avec Michel : ${SITE_URL}`,
+    `Causer avec Michel : ${SITE_URL}/chat`,
     `Ne plus recevoir les nouvelles : ${unsubscribeUrl}`,
   ];
   return parts.filter(Boolean).join("\n\n");
@@ -295,7 +295,7 @@ function plainBody(l: Lettre, firstName: string | null, unsubscribeUrl: string):
 
 async function sendEmail(l: Lettre, to: Recipient): Promise<boolean> {
   const token = `${to.user_id}.${await sign(to.user_id)}`;
-  const unsubscribeUrl = `${SITE_URL}/?desabonnement=${token}`;
+  const unsubscribeUrl = `${SITE_URL}/chat?desabonnement=${token}`;
   const [u, t] = token.split(".");
   try {
     const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {

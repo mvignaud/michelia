@@ -5,7 +5,7 @@
   "description": "L'intelligence artificielle gratuite qui parle comme un papi du Gers.",
   "lang": "fr",
   "dir": "ltr",
-  "start_url": "/?source=pwa",
+  "start_url": "/chat?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

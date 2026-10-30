@@ -64,6 +64,38 @@ export function lireNouveautes() {
   return entrees.sort((a, b) => b.date.localeCompare(a.date) || derniere(b) - derniere(a) || b.nom.localeCompare(a.nom));
 }
 
+const CA_MIJOTE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ca-mijote.md');
+// « Ça mijote » (app/ca-mijote.md), lu par la page /ca-mijote et par la page d'accueil.
+// Les trois casseroles, dans l'ordre de la page, avec leur étiquette.
+export const CASSEROLES = {
+  'Au feu': { classe: 'type-nouveau', etiquette: 'En cours' },
+  'Sur la planche': { classe: 'type-corrige', etiquette: 'Prévu' },
+  'Au frais': { classe: 'type-attente', etiquette: 'Plus tard' },
+};
+
+export function lireCaMijote() {
+  const brut = fs.readFileSync(CA_MIJOTE, 'utf8').replace(/\r\n/g, '\n');
+  const m = brut.match(/^---\nmaj: (\d{4}-\d{2}-\d{2})\n---\n([\s\S]*)$/);
+  if (!m) throw new Error('ca-mijote.md : en-tête « ---\\nmaj: AAAA-MM-JJ\\n--- » attendu');
+  const corps = m[2].replace(/<!--[\s\S]*?-->/g, '');
+  const sections = corps.split(/^## /m).slice(1).map((bloc) => {
+    const [titre, ...reste] = bloc.split('\n');
+    const lignes = reste.join('\n').trim().split('\n');
+    const plats = lignes.filter((l) => l.startsWith('- ')).map((l) => {
+      const p = l.match(/^- \*\*(.+?)\*\* ?: (.+)$/);
+      if (!p) throw new Error(`ca-mijote.md : plat illisible « ${l} » (attendu « - **Titre** : texte »)`);
+      return { titre: p[1], texte: p[2][0].toUpperCase() + p[2].slice(1) };
+    });
+    const intro = lignes.filter((l) => !l.startsWith('- ')).join('\n').trim();
+    return { titre: titre.trim(), intro, plats };
+  });
+  const noms = sections.map((s) => s.titre);
+  if (noms.join('|') !== Object.keys(CASSEROLES).join('|'))
+    throw new Error(`ca-mijote.md : sections attendues, dans l'ordre : ${Object.keys(CASSEROLES).join(', ')}`);
+  return { maj: m[1], sections };
+}
+
+
 // Rendu HTML partagé par les pages générées (nouveautés, « Ça mijote »).
 
 // La feuille de style change avec les pages : son empreinte dans l'adresse évite qu'un navigateur
@@ -103,7 +135,7 @@ export const dateLongue = (iso) => {
 
 
 // En-tête commun aux pages générées : le logo MichelIA, comme sur les pages légales.
-export const TETE = `<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/">Parler à Michel</a></div></header>`;
+export const TETE = `<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/chat">Parler à Michel</a></div></header>`;
 
 // Pied de page commun aux pages générées.
 export const PIED = `<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/ca-mijote">Ça mijote</a> · <a href="/cahier-de-doleances">Améliore Michel</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>`;
