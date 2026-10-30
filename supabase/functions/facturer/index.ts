@@ -2,7 +2,7 @@
 // E-KO (jamais envoyée au client), et le payeur reçoit son reçu PDF aux couleurs de Michel.
 // Deux interrupteurs dans app_config : facturation_eko_active et recus_actifs. Sans facture (facturation
 // coupée, jeton EKO_API_TOKEN absent, E-KO en panne), le reçu porte un numéro propre à Michel (R2026-000123).
-// Appelée toutes les 5 minutes par pg_cron (migration 20261030020000_facturation_eko.sql).
+// Appelée toutes les 5 minutes par pg_cron (migration 20261030040000_facturation_eko.sql).
 // Sans danger si quelqu'un d'autre l'appelle : elle ne traite que les pourboires en attente.
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
