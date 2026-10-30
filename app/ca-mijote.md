@@ -20,9 +20,8 @@ En bas de la page, « Tout juste servi » reprend tout seul les 5 dernières nou
 
 Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
-- **Le comptoir ouvre ses portes** : tout est prêt pour me payer un café, une croustade ou une garbure, sur le site comme dans les applis. J'attends que la paperasse soit signée pour lever le rideau.
+- **Le comptoir dans les applis** : me payer un café depuis l'iPhone ou l'Android, par la boutique d'Apple ou de Google. Sur le site, le comptoir est déjà ouvert ; dans les applis, j'attends que la paperasse soit signée.
 - **Un reçu à chaque paiement** : quand tu me paies quelque chose, tu reçois aussitôt par e-mail un reçu en PDF, à mes couleurs, propre comme un sou neuf.
-- **Un comptoir bien de chez nous** : les paiements du site passent chez une maison française, qui prend moins sur chaque café. La caisse est installée, je la fais tourner à blanc avant d'ouvrir.
 - **Michel sur l'App Store et Google Play** : les applis sont chez Apple et Google, qui les regardent sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
 
 ## Sur la planche
