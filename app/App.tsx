@@ -23,10 +23,11 @@ import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
 import { Comptoir } from './src/Comptoir';
 import { cleAppli, loadComptoir } from './src/comptoir';
-import { ComptoirCard, countSentMessage } from './src/ComptoirCard';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { Doleances } from './src/Doleances';
 import { InstallCard } from './src/InstallCard';
+import { InvitationCard } from './src/InvitationCard';
+import { inviter, type Invitation, type Moment } from './src/invitations';
 import { NotifyCard } from './src/NotifyCard';
 import { forgetLoginGreeting, loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
@@ -103,9 +104,11 @@ function Chat() {
   const [account, setAccount] = useState<AccountMode | null>(null);
   const [admin, setAdmin] = useState(false);
   const [sharing, setSharing] = useState<Card | null>(null);
-  const [sentCount, setSentCount] = useState(0);
-  // Applis : comptoir par achat intégré, proposé seulement s'il est ouvert pour la boutique de l'appareil.
-  const [comptoirAppli, setComptoirAppli] = useState(false);
+  const sentRef = useRef(0);
+  // Le comptoir est-il ouvert pour cet appareil ? Sur le web, la page /comptoir ; dans les applis,
+  // seulement l'achat intégré, s'il est ouvert pour la boutique de l'appareil (jamais de lien vers le web).
+  const [comptoirOuvert, setComptoirOuvert] = useState(false);
+  const [invitation, setInvitation] = useState<Invitation | null>(null);
   const [comptoir, setComptoir] = useState(false);
   // Le cahier de doléances par-dessus le chat : 'idee' depuis la bulle flottante, 'bug' après une mauvaise note.
   const [doleances, setDoleances] = useState<'idee' | 'bug' | null>(null);
@@ -137,9 +140,8 @@ function Chat() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS === 'web') return;
     loadComptoir()
-      .then((data) => setComptoirAppli(!!cleAppli(data)))
+      .then((data) => setComptoirOuvert(Platform.OS === 'web' ? data.actif : !!cleAppli(data)))
       .catch(() => undefined);
   }, []);
 
@@ -242,8 +244,7 @@ function Chat() {
       question,
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
-    countSentMessage();
-    setSentCount((n) => n + 1);
+    sentRef.current += 1;
     setDraft('');
     setAttached(undefined);
     setBusy(true);
@@ -272,9 +273,26 @@ function Chat() {
           ? e.message
           : 'Pétard, ça a planté.';
       updateAnswer((b) => ({ ...b, content: message, failed: true }));
+      return;
     } finally {
       setBusy(false);
     }
+    proposer('causette');
+  }
+
+  // Une invitation de Michel (pourboire ou inscription), au plus une par visite : voir src/invitations.ts.
+  function proposer(moment: Moment) {
+    inviter({ moment, envoyes: sentRef.current, membre: member, pourboire: comptoirOuvert })
+      .then((next) => next && setInvitation(next))
+      .catch(() => undefined);
+  }
+
+  function accepterInvitation() {
+    const genre = invitation?.genre;
+    setInvitation(null);
+    if (genre === 'inscription') setAccount('signup');
+    else if (Platform.OS === 'web') window.location.assign('/comptoir');
+    else setComptoir(true);
   }
 
   // Les étoiles : affichées tout de suite, remises comme avant si la base refuse.
@@ -285,6 +303,7 @@ function Chat() {
     const before = item.note;
     const asked = bubbles[index - 1];
     setBubbles((all) => all.map((b) => (b.id === item.id ? { ...b, note, cle } : b)));
+    if (note >= 4) proposer('note');
     noterReponse({
       cle,
       note,
@@ -505,7 +524,13 @@ function Chat() {
           </View>
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
-            <ComptoirCard member={member} tick={sentCount} />
+            {invitation && !account && (
+              <InvitationCard
+                invitation={invitation}
+                onAccept={accepterInvitation}
+                onClose={() => setInvitation(null)}
+              />
+            )}
             {attached && (
               <View style={styles.preview}>
                 <Image
@@ -581,7 +606,7 @@ function Chat() {
                   </Text>
                 </Text>
               ))}
-              {comptoirAppli && (
+              {Platform.OS !== 'web' && comptoirOuvert && (
                 <Text style={styles.legalText}>
                   {' · '}
                   <Text style={styles.legalLink} onPress={() => setComptoir(true)} accessibilityRole="link">
