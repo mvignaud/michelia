@@ -1,6 +1,7 @@
 // Client minimal de l'API de l'ERP E-KO (GOLDEN PRINT), doc : /mnt/project-files/factures/documentation-api-eko.md.
 // Jeton Bearer EKO_API_TOKEN (secret des Edge Functions), le locataire vient du jeton.
-// Habilitations du jeton : tiers.view, tiers.create, invoices.create, invoices.issue, payments.create.
+// Habilitations du jeton : tiers.view, tiers.create, invoices.create, invoices.issue, payments.create,
+// et invoices.credit pour les avoirs.
 //
 // Facture créée avec sa ligne (POST /invoices), émise sans aucun envoi au client (POST /invoices/{code}/issue),
 // puis réglée par le paiement en ligne déjà encaissé (POST /payments, card_online + psp). Création et
@@ -94,4 +95,27 @@ export async function facturerVente(v: Vente, code: string | null, noter: (code:
     }, `reglement-${v.paiementId}`);
   }
   return code;
+}
+
+// Avoir E-KO sur une facture émise, pour un remboursement fait chez le prestataire : jamais envoyé au
+// client (le client reçoit l'avoir de Michel). Adresse demandée à E-KO le 30/10/2026
+// (/mnt/project-files/factures/demande-api-eko-avoirs.md) : tant qu'elle n'existe pas (404/405), rend null
+// et l'appelant réessaiera au passage suivant. Rejouable : même Idempotency-Key, et E-KO ne fait jamais
+// deux avoirs pour un même remboursement. Rend le numéro de l'avoir (AV…).
+export async function avoirVente(a: {
+  facture: string; numero: string; montantTtcCents: number; date: string; prestataire: string; paiementId: string;
+}): Promise<string | null> {
+  try {
+    const avoir = await eko("POST", `/invoices/${encodeURIComponent(a.facture)}/credit-note`, {
+      amount_ttc: a.montantTtcCents / 100,
+      reason: "Remboursement",
+      reference: a.numero,
+      issue: true,
+      refund: { provider: a.prestataire, refund_id: a.numero, payment_id: a.paiementId, date: a.date },
+    }, `avoir-${a.numero}`);
+    return String(avoir.data.code);
+  } catch (e) {
+    if (e instanceof EkoError && (e.status === 404 || e.status === 405)) return null;
+    throw e;
+  }
 }

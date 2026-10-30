@@ -7,7 +7,7 @@
 // Sans danger si quelqu'un d'autre l'appelle : elle ne traite que les pourboires en attente.
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
-import { ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
+import { avoirVente, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
 import { envoyerAvoir, envoyerRecu } from "../_shared/recu.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -176,7 +176,6 @@ Deno.serve(async () => {
 
   // 3. Les remboursements : chaque part remboursée pas encore couverte devient un avoir de Michel, tiré
   // en base d'un seul coup avec son compteur (tirer_avoirs, migration 20261030070000_mes_recus.sql).
-  // L'avoir E-KO se fera ici quand l'API d'E-KO saura en créer.
   if (recus) {
     const { error: et } = await admin.rpc("tirer_avoirs");
     if (et) {
@@ -227,7 +226,6 @@ Deno.serve(async () => {
       if (envoye) {
         await admin.from("avoirs").update({ envoye_at: new Date().toISOString(), envoi_erreur: null }).eq("id", a.id);
         rembourses++;
-        if (l?.facture_reglee_at) console.warn(`Avoir ${a.numero} : avoir à faire dans E-KO sur la facture ${l.facture_code}`);
       } else {
         echecs++;
         console.error(`Avoir ${a.numero} : e-mail de remboursement refusé`);
@@ -240,5 +238,38 @@ Deno.serve(async () => {
     }
   }
 
-  return json(200, { ok: true, factures, recus: envoyes, remboursements: rembourses, echecs });
+  // 4. Chaque avoir de Michel a son avoir dans E-KO, sur la facture du pourboire (jamais envoyé au
+  // client). Attend que la facture existe ; tant qu'E-KO n'a pas l'adresse des avoirs, rien ne bouge.
+  let avoirsEko = 0;
+  if (facturer) {
+    const { data: aFaire, error: ef } = await admin.from("avoirs")
+      .select("id, numero, montant_cents, rembourse_le, pourboire_id")
+      .is("eko_code", null)
+      .order("id")
+      .limit(PAR_PASSAGE);
+    if (ef) return json(500, { error: ef.message });
+    for (const a of aFaire ?? []) {
+      const { data } = await pourboires().eq("id", a.pourboire_id).maybeSingle();
+      const l = data as Ligne | null;
+      if (!l?.facture_reglee_at || !l.facture_code) continue;
+      try {
+        const code = await avoirVente({
+          facture: l.facture_code,
+          numero: a.numero,
+          montantTtcCents: a.montant_cents,
+          date: jourParis(new Date(a.rembourse_le)),
+          prestataire: l.prestataire,
+          paiementId: l.paiement_carte ?? l.paiement_id,
+        });
+        if (!code) break; // pas encore d'avoirs dans l'API d'E-KO : on réessaiera
+        await admin.from("avoirs").update({ eko_code: code }).eq("id", a.id);
+        avoirsEko++;
+      } catch (e) {
+        echecs++;
+        console.error(`Avoir ${a.numero} : avoir E-KO refusé`, e instanceof Error ? e.message : e);
+      }
+    }
+  }
+
+  return json(200, { ok: true, factures, recus: envoyes, remboursements: rembourses, avoirs_eko: avoirsEko, echecs });
 });
