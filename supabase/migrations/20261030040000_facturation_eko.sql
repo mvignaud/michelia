@@ -14,6 +14,22 @@ alter table public.pourboires add column if not exists recu_reserve_at timestamp
 alter table public.pourboires add column if not exists recu_erreur text;
 alter table public.pourboires add column if not exists recu_tentatives integer not null default 0;
 
+-- Numéro de reçu, tiré avant le paiement pour servir aussi de numéro de commande chez le prestataire
+-- (Stancer order_id) : R2026-000123. Une seule série, sans trou volontaire ni doublon.
+create sequence if not exists public.recu_numero_seq;
+create or replace function public.prochain_numero_recu()
+returns text
+language sql
+volatile
+security definer
+set search_path = public
+as $$
+  select 'R' || to_char(now() at time zone 'Europe/Paris', 'YYYY') || '-' || lpad(nextval('public.recu_numero_seq')::text, 6, '0');
+$$;
+revoke all on function public.prochain_numero_recu() from public, anon, authenticated;
+alter table public.comptoir_attente add column if not exists numero_recu text;
+alter table public.pourboires add column if not exists numero_recu text unique;
+
 insert into public.app_config (key, value) values
   -- Facturation lancée : elle attend sans bruit que le secret EKO_API_TOKEN soit posé.
   ('facturation_eko_active', 'true'),

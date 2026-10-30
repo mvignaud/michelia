@@ -1,6 +1,6 @@
 // Reçu de paiement aux couleurs de Michel, envoyé au client par e-mail (courriers.ts) en pièce jointe PDF.
 // La facture officielle vit dans l'ERP E-KO de GOLDEN PRINT (jamais envoyée au client) : le reçu en
-// reprend le numéro. TVA à 20 % sur des prix TTC.
+// reprend le numéro quand elle existe déjà. TVA à 20 % sur des prix TTC.
 import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
 import { LOGO_PNG_BASE64 } from "./logo-recu.ts";
 import { envoyerCourrier, paiementRecu } from "./courriers.ts";
@@ -20,8 +20,8 @@ const hex = (h: string) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.sli
 const C = { fond: hex("#FBF4E8"), texte: hex("#2B2420"), gris: hex("#7D6E62"), accent: hex("#7A2E1D"), ocre: hex("#D9A441"), surAccent: hex("#FFF8EE") };
 
 export type Recu = {
-  numero: string; // numéro de la facture E-KO, ou numéro de reçu propre à Michel
-  facture: boolean; // numero est-il celui de la facture ?
+  numero: string; // numéro de reçu (R2026-000123), aussi numéro de commande chez le prestataire
+  facture: string | null; // numéro de la facture E-KO, quand elle existe déjà
   date: Date;
   email: string;
   prenom?: string | null;
@@ -59,7 +59,7 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
       const nu = ch.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
       return [...nu].every((c) => connus.has(c.codePointAt(0)!)) && nu ? nu : "?";
     }).join("");
-  r = { ...r, numero: latin(r.numero), email: latin(r.email), prenom: r.prenom && !latin(r.prenom).includes("?") ? latin(r.prenom) : null, libelle: latin(r.libelle) };
+  r = { ...r, numero: latin(r.numero), facture: r.facture ? latin(r.facture) : null, email: latin(r.email), prenom: r.prenom && !latin(r.prenom).includes("?") ? latin(r.prenom) : null, libelle: latin(r.libelle) };
 
   page.drawRectangle({ x: 0, y: 0, width, height, color: C.fond });
   page.drawRectangle({ x: 0, y: height - 120, width, height: 120, color: C.accent });
@@ -73,7 +73,7 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
   let y = height - 180;
   page.drawText("Reçu de paiement", { x: m, y, size: 22, font: gras, color: C.texte });
   y -= 26;
-  page.drawText(`${r.facture ? "Facture" : "Reçu"} n° ${r.numero} · ${jour(r.date)}`, { x: m, y, size: 11, font: normal, color: C.gris });
+  page.drawText(`Reçu n° ${r.numero}${r.facture ? ` · Facture n° ${r.facture}` : ""} · ${jour(r.date)}`, { x: m, y, size: 11, font: normal, color: C.gris });
   y -= 40;
   const bonjour = r.prenom ? `Merci ${r.prenom} !` : "Merci !";
   page.drawText(bonjour, { x: m, y, size: 14, font: gras, color: C.accent });

@@ -90,10 +90,10 @@ ${escapeHtml(VENDEUR)}<br>
 
 // --- Paiements ponctuels -----------------------------------------------------------------
 
-export const paiementRecu = (p: { prenom?: string | null; montantCents: number; libelle: string; numero: string; facture: boolean }) =>
+export const paiementRecu = (p: { prenom?: string | null; montantCents: number; libelle: string; numero: string; facture: string | null }) =>
   composer(`Ton reçu Michel (n° ${p.numero})`, p.prenom, [
     `Merci pour ton paiement, ça me fait chaud au cœur. Ton reçu est en pièce jointe, range-le au chaud.`,
-    { lignes: [[p.libelle, euros(p.montantCents)], [p.facture ? "Facture n°" : "Reçu n°", p.numero]] },
+    { lignes: [[p.libelle, euros(p.montantCents)], ["Reçu n°", p.numero], ...(p.facture ? [["Facture n°", p.facture] as [string, string]] : [])] },
   ]);
 
 export const remboursement = (p: { prenom?: string | null; montantCents: number; libelle: string; numero: string; date: Date }) =>

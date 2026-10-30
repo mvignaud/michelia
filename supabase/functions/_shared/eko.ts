@@ -45,7 +45,8 @@ export async function tiersGenerique(nom: string): Promise<number> {
 
 export type Vente = {
   tierId: number;
-  paiementId: string; // identifiant du paiement chez le prestataire, référence de toutes les pièces
+  paiementId: string; // identifiant du paiement chez le prestataire (clés d'idempotence, règlement)
+  reference: string; // numéro de reçu MichelIA, aussi numéro de commande chez le prestataire
   libelle: string;
   montantTtcCents: number;
   date: string; // AAAA-MM-JJ, heure de Paris
@@ -60,7 +61,7 @@ export async function facturerVente(v: Vente, code: string | null, noter: (code:
     const creee = await eko("POST", "/invoices", {
       tier_id: v.tierId,
       kind: "standard",
-      reference: v.paiementId,
+      reference: v.reference,
       title: v.libelle,
       currency: "EUR",
       issue_date: v.date,

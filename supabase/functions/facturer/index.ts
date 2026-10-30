@@ -1,7 +1,7 @@
 // Fonction « facturer » : chaque pourboire payé sur le web devient une facture GOLDEN PRINT dans l'ERP
 // E-KO (jamais envoyée au client), et le payeur reçoit son reçu PDF aux couleurs de Michel.
 // Deux interrupteurs dans app_config : facturation_eko_active et recus_actifs. Sans facture (facturation
-// coupée, jeton EKO_API_TOKEN absent, E-KO en panne), le reçu porte un numéro propre à Michel (R2026-000123).
+// coupée, jeton EKO_API_TOKEN absent, E-KO en panne), le reçu porte seulement son numéro (R2026-000123).
 // Appelée toutes les 5 minutes par pg_cron (migration 20261030040000_facturation_eko.sql).
 // Sans danger si quelqu'un d'autre l'appelle : elle ne traite que les pourboires en attente.
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
@@ -43,15 +43,22 @@ function libelles(raw: string | undefined): Record<string, string> {
   }
 }
 
-// Numéro du reçu tant que la facture E-KO n'existe pas : propre à Michel, tiré de la ligne du pourboire.
-const numeroRecu = (id: number, date: Date) => `R${jourParis(date).slice(0, 4)}-${String(id).padStart(6, "0")}`;
+// Numéro de reçu : tiré à la création du paiement (numéro de commande chez le prestataire), sinon ici,
+// dans la même série.
+async function numeroRecu(l: { id: number; numero_recu: string | null }): Promise<string> {
+  if (l.numero_recu) return l.numero_recu;
+  const { data, error } = await admin.rpc("prochain_numero_recu");
+  if (error || !data) throw new Error(`numéro de reçu : ${error?.message ?? "vide"}`);
+  await admin.from("pourboires").update({ numero_recu: data }).eq("id", l.id);
+  return String(data);
+}
 
 type Ligne = {
   id: number; paiement_id: string; prestataire: string; montant_cents: number; devise: string; palier: string;
   prenom: string | null; email: string | null; created_at: string; facture_code: string | null;
-  facture_reglee_at: string | null; facture_tentatives: number; recu_tentatives: number;
+  facture_reglee_at: string | null; facture_tentatives: number; recu_tentatives: number; numero_recu: string | null;
 };
-const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives";
+const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives, numero_recu";
 
 // Pourboires concernés : web, réels, payés chez un prestataire du locataire.
 const pourboires = () =>
@@ -99,6 +106,7 @@ Deno.serve(async () => {
         await facturerVente({
           tierId,
           paiementId: l.paiement_id,
+          reference: await numeroRecu(l),
           libelle: libelle(l),
           montantTtcCents: l.montant_cents,
           date: jourParis(new Date(l.created_at)),
@@ -114,7 +122,7 @@ Deno.serve(async () => {
     }
   }
 
-  // 2. Les reçus, avec le numéro de facture quand elle existe, sinon un numéro de reçu Michel.
+  // 2. Les reçus : leur numéro (celui de la commande chez le prestataire), et celui de la facture si elle existe.
   if (recus) {
     const { data, error } = await pourboires()
       .not("email", "is", null)
@@ -141,8 +149,8 @@ Deno.serve(async () => {
       let envoye = false;
       try {
         envoye = l.devise === "eur" && await envoyerRecu({
-          numero: facture ?? numeroRecu(l.id, date),
-          facture: !!facture,
+          numero: await numeroRecu(l),
+          facture,
           date,
           email: l.email!,
           prenom: l.prenom,
@@ -151,7 +159,7 @@ Deno.serve(async () => {
           moyen: "Carte bancaire",
         });
       } catch (e) {
-        console.error(`Pourboire ${l.id} : reçu impossible à fabriquer`, e instanceof Error ? e.message : e);
+        console.error(`Pourboire ${l.id} : reçu impossible à préparer`, e instanceof Error ? e.message : e);
       }
       if (envoye) {
         await admin.from("pourboires").update({ recu_envoye_at: new Date().toISOString() }).eq("id", l.id);
