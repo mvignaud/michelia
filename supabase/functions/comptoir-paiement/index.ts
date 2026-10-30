@@ -37,6 +37,8 @@ const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const STRIPE_VERSION = "2026-09-30.endive";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/$/, "");
+// Adresse de retour du 3D Secure : cette fonction, qui accepte le POST de la banque (voir plus bas).
+const RETOUR_3DS = `${Deno.env.get("SUPABASE_URL")}/functions/v1/comptoir-paiement?retour=3ds`;
 
 const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*")
   .split(",")
@@ -72,6 +74,11 @@ async function config(key: string): Promise<string | undefined> {
 
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin");
+  // Retour du 3D Secure : la banque renvoie le cadre ici en POST (formulaire), ce que le site statique
+  // ne sait pas recevoir. On le renvoie en GET sur la page du comptoir, qui prévient la page autour.
+  if (new URL(req.url).searchParams.get("retour") === "3ds") {
+    return new Response(null, { status: 303, headers: { Location: `${SITE_URL}/comptoir?retour=3ds` } });
+  }
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
   if (req.method !== "POST") return reply(405, { error: "Méthode non permise" }, origin);
   // Un navigateur d'un autre site n'a rien à faire ici (appels sans Origin, hors navigateur, tolérés).
@@ -307,6 +314,6 @@ async function payer(req: Request, body: any, origin: string | null): Promise<Re
     accept: req.headers.get("accept") ?? "",
     langues: req.headers.get("accept-language") ?? "",
   };
-  // Après le 3D Secure, la banque renvoie le cadre sur cette page, qui prévient la page du comptoir.
-  return reply(200, await payWithCard(body.payer, carte, appareil, `${SITE_URL}/comptoir?retour=3ds`), origin);
+  // Après le 3D Secure, la banque renvoie le cadre ici, puis sur la page du comptoir, qui prévient la page.
+  return reply(200, await payWithCard(body.payer, carte, appareil, RETOUR_3DS), origin);
 }

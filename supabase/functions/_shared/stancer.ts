@@ -131,8 +131,19 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
     statut = String(payment.data.status ?? "");
     montant = Number(payment.data.amount);
     devise = String(payment.data.currency ?? "eur").toLowerCase();
-    if (!statut && AUTH_FAILED.includes(String(payment.data.auth?.status ?? ""))) statut = "refused";
+    const auth = String(payment.data.auth?.status ?? "");
+    if (!statut && AUTH_FAILED.includes(auth)) statut = "refused";
     capturer = () => stancer("PATCH", `/v1/checkout/${cardPaymentId}`, { status: "capture" });
+    // 3D Secure réussi mais paiement pas encore lancé : c'est à nous de demander la capture.
+    if (!statut && auth === "success") {
+      const capture = await capturer();
+      if (!capture.ok) {
+        console.error("Stancer : capture après 3D Secure refusée", capture.status, safeError(capture.data));
+        return { etat: "attente" };
+      }
+      statut = String(capture.data?.status ?? "") || "to_capture";
+    }
+    if (!PAID.includes(statut)) console.log("Stancer : paiement carte en attente", cardPaymentId, statut || "-", auth || "-");
   } else {
     const intent = await stancer("GET", `/payment_intents/${intentId}`);
     if (!intent.ok || !intent.data) {
