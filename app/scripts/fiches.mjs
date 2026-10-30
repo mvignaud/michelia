@@ -4,7 +4,9 @@
 // app/nouveautes/builds/<n>.md. Lancé par la tâche GitHub « Fiches des stores » (.github/workflows/fiches.yml).
 // Sans --appliquer, il compare seulement et dit ce qui changerait.
 //
-//   node scripts/fiches.mjs [--appliquer] [--seulement apple,google] [--build 9]
+//   node scripts/fiches.mjs [--appliquer] [--seulement apple,google] [--build 12] [--build-android 9]
+// Les numéros EAS sont propres à chaque plateforme : --build-android donne le code de version Google
+// quand il diffère du numéro des notes (par défaut, le même).
 //
 // Clés : mêmes variables que boutiques.mjs (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, PLAY_SERVICE_ACCOUNT_JSON).
 // Les captures App Store restent à la main (App Store Connect) : leur envoi par l'API est lourd et elles changent rarement.
@@ -21,6 +23,7 @@ const LANGUE = 'fr-FR';
 
 const { APPLIQUER, valeur, agir, lancer } = mode();
 const build = valeur('--build');
+const buildAndroid = valeur('--build-android') ?? build;
 
 // Notes de version préparées par notes-stores.mjs : le bloc de code sous chaque titre de boutique.
 function notes(boutique) {
@@ -185,18 +188,18 @@ async function google() {
       let trouve = false;
       for (const piste of PISTES) {
         const track = await api(`${e}/tracks/${piste}`).catch((err) => (err.status === 404 ? null : Promise.reject(err)));
-        const release = track?.releases?.find((r) => r.versionCodes?.includes(String(build)));
+        const release = track?.releases?.find((r) => r.versionCodes?.includes(String(buildAndroid)));
         if (!release) continue;
         trouve = true;
         const actuel = release.releaseNotes?.find((n) => n.language === LANGUE)?.text;
         if (actuel === texte) {
-          dire(`- notes du build ${build} (${piste}) : à jour`);
+          dire(`- notes du build ${buildAndroid} (${piste}) : à jour`);
           continue;
         }
         release.releaseNotes = [...(release.releaseNotes ?? []).filter((n) => n.language !== LANGUE), { language: LANGUE, text: texte }];
-        await changer(`notes du build ${build} (${piste})`, () => api(`${e}/tracks/${piste}`, { method: 'PUT', body: track }));
+        await changer(`notes du build ${buildAndroid} (${piste})`, () => api(`${e}/tracks/${piste}`, { method: 'PUT', body: track }));
       }
-      if (!trouve) dire(`- notes : build ${build} absent des pistes Google (pas encore envoyé ?)`);
+      if (!trouve) dire(`- notes : build ${buildAndroid} absent des pistes Google (pas encore envoyé ?)`);
     }
 
     if (APPLIQUER && changements) {
