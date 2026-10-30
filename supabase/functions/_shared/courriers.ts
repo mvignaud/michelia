@@ -23,17 +23,17 @@ export const VENDEUR = "GOLDEN PRINT SAS · 14 route d’Espas, 32370 Manciet ·
 
 export type Courrier = { sujet: string; texte: string; html: string };
 
-const euros = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
-const jour = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Paris" });
+export const euros = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
+export const jour = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Paris" });
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 // Un bloc du message : un paragraphe, ou un petit tableau « libellé : valeur » pour les chiffres.
-type Bloc = string | { lignes: [string, string][] } | { bouton: string; url: string };
+export type Bloc = string | { lignes: [string, string][] } | { bouton: string; url: string };
 
-function composer(sujet: string, prenom: string | null | undefined, blocs: Bloc[], signature = "Allez, porte-toi bien.\nMichel"): Courrier {
+export function composer(sujet: string, prenom: string | null | undefined, blocs: Bloc[], signature = "Allez, porte-toi bien.\nMichel"): Courrier {
   const salut = `Adishatz${prenom ? ` ${prenom}` : ""} !`;
   const texte = [
     salut,
@@ -181,7 +181,8 @@ export const prelevementRejete = (p: { prenom?: string | null; montantCents: num
 export type PieceJointe = { nom: string; type: string; base64: string };
 
 // Envoie un courrier ; false si Postal n'est pas configuré ou refuse (l'appelant journalise).
-export async function envoyerCourrier(to: string, c: Courrier, tag: string, pieces: PieceJointe[] = []): Promise<boolean> {
+// replyTo remplace la boîte de contact quand la réponse doit aller ailleurs (alertes de Mathieu).
+export async function envoyerCourrier(to: string, c: Courrier, tag: string, pieces: PieceJointe[] = [], replyTo = MAIL_REPLY_TO): Promise<boolean> {
   if (!POSTAL_API_URL || !POSTAL_API_KEY) return false;
   try {
     const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {
@@ -190,7 +191,7 @@ export async function envoyerCourrier(to: string, c: Courrier, tag: string, piec
       body: JSON.stringify({
         to: [to],
         from: MAIL_FROM,
-        reply_to: MAIL_REPLY_TO,
+        reply_to: replyTo,
         subject: c.sujet,
         plain_body: c.texte,
         html_body: c.html,
