@@ -8,7 +8,7 @@
 // La carte traverse la fonction le temps d'un appel à Stancer : jamais gardée, jamais dans les journaux.
 // Mêmes garde-fous que le comptoir : Turnstile à chaque carte et plafonds d'essais (comptoir_reserver).
 import { admin, cleanCard, isCardPaymentId, stancer, stancerConfigured, stancerCustomer, stancerTest } from "../_shared/stancer.ts";
-import { confirmerEcheance, finDePeriode, type Formule, libelle, prixDe, safeError } from "../_shared/abonnement.ts";
+import { confirmerEcheance, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, prixDe, safeError } from "../_shared/abonnement.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/$/, "");
 // Retour du 3D Secure : cette fonction, qui accepte le POST de la banque et renvoie sur la page.
@@ -117,13 +117,17 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
   const prix = await prixDe(formule);
   if (!prix) return reply(500, { error: "Prix illisible" }, origin);
 
-  // Un abonnement en attente par essai de souscription ; deux cartes au plus par essai.
+  // Un abonnement en attente par essai de souscription ; deux cartes au plus par essai. Un seul en
+  // attente par compte (index unique abonnements_vivant_idx) : un double clic ou un second onglet
+  // reçoit 409 au lieu d'un second paiement. Un essai abandonné depuis 5 minutes laisse la place.
+  await menageEnAttente(300_000, qui.id);
   const essai = stancerTest();
   const { data: abonnement, error } = await admin
     .from("abonnements")
     .insert({ user_id: qui.id, source: "web", formule, moyen: "carte", statut: "en_attente", prix_cents: prix, email: qui.email, essai })
     .select("id")
     .single();
+  if (error?.code === "23505") return reply(409, { error: "Souscription déjà en cours" }, origin);
   if (error || !abonnement) {
     console.error("MichelIA+ : abonnement non créé", error?.message);
     return reply(500, { error: "Abonnement indisponible" }, origin);
@@ -155,7 +159,10 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
   });
   const paymentId = res.data?.id;
   if (!res.ok || !isCardPaymentId(paymentId)) {
-    console.error("MichelIA+ : premier paiement refusé", res.status, safeError(res.data));
+    console.error(res.status >= 500 ? "MichelIA+ : ALERTE premier paiement sans réponse nette, à vérifier chez Stancer" : "MichelIA+ : premier paiement refusé", abonnement.id, res.status, safeError(res.data));
+    // Refus net : la souscription s'arrête, la personne peut réessayer. Sinon (Stancer en panne,
+    // paiement peut-être créé), elle reste en attente et le ménage la reprend plus tard.
+    if (res.status < 500) await echecSur(abonnement.id);
     return reply(200, { etat: res.status >= 500 ? "attente" : "refuse" }, origin);
   }
   const debut = new Date();

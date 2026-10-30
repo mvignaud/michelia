@@ -6,8 +6,8 @@ export const ANALYTICS_ENABLED = !!GA_ID;
 type Gtag = (...args: unknown[]) => void;
 let started = false;
 
-// Jamais sur /comptoir : aucun script tiers ne doit tourner à côté des champs de carte (PCI DSS 6.4.3).
-export const pageSansMesure = () => location.pathname.startsWith('/comptoir');
+// Jamais sur /comptoir ni /la-cotisation : aucun script tiers ne doit tourner à côté des champs de carte (PCI DSS 6.4.3).
+export const pageSansMesure = () => /^\/(comptoir|la-cotisation)/.test(location.pathname);
 
 export function startAnalytics() {
   if (started || !GA_ID || pageSansMesure()) return;

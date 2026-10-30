@@ -3,9 +3,11 @@
 // MichelIA+ arrivées à terme sur le site, avec la carte enregistrée chez Stancer au premier paiement
 // (jeton card_…), sans la personne. Elle relit aussi les échéances restées en cours, arrête les
 // abonnements résiliés arrivés au bout, et ceux qui ont raté trop d'échéances (_shared/abonnement.ts).
-// Sans danger si quelqu'un d'autre l'appelle : elle ne fait que ce qui est dû, une fois.
+// Seul le cron l'appelle : il envoie le secret « michelia_plus_cron » du coffre (vault), vérifié ici.
+// Et même rejouée, elle ne prélève qu'une fois par période : l'identifiant unique envoyé à Stancer
+// dépend de l'abonnement, de la période et du nombre d'échecs, et Stancer refuse un doublon.
 import { admin, stancer, stancerConfigured } from "../_shared/stancer.ts";
-import { confirmerEcheance, finDePeriode, type Formule, libelle, safeError } from "../_shared/abonnement.ts";
+import { confirmerEcheance, finDePeriode, type Formule, libelle, menageEnAttente, safeError } from "../_shared/abonnement.ts";
 
 const PAR_PASSAGE = 20;
 
@@ -14,15 +16,16 @@ const json = (status: number, body: unknown) =>
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { error: "Méthode non permise" });
+  const { data: cron } = await admin.rpc("michelia_plus_cron_ok", { p_secret: req.headers.get("x-michel-cron") ?? "" });
+  if (cron !== true) return json(401, { error: "Non autorisé" });
   if (!stancerConfigured()) return json(200, { preleves: 0 });
   const maintenant = new Date().toISOString();
 
   // Résiliés arrivés au bout de la période payée : terminé.
   await admin.from("abonnements").update({ statut: "expire", updated_at: maintenant })
     .eq("source", "web").eq("statut", "resilie").lte("fin_periode", maintenant);
-  // Souscriptions jamais payées : on fait le ménage au bout d'un jour.
-  await admin.from("abonnements").delete()
-    .eq("source", "web").eq("statut", "en_attente").lt("created_at", new Date(Date.now() - 86_400_000).toISOString());
+  // Souscriptions jamais payées : on fait le ménage au bout d'une demi-heure.
+  await menageEnAttente(1_800_000);
 
   // Échéances restées en cours (Stancer lent à répondre) : relues.
   const { data: enCours } = await admin.from("abonnement_echeances").select("paiement_id")
@@ -32,7 +35,7 @@ Deno.serve(async (req) => {
   // Échéances dues : carte enregistrée, période finie, pas d'essai prévu plus tard.
   const { data: dus, error } = await admin
     .from("abonnements")
-    .select("id, formule, prix_cents, fin_periode, stancer_carte, stancer_client, prochain_essai, essai")
+    .select("id, formule, prix_cents, fin_periode, stancer_carte, stancer_client, prochain_essai, echecs, essai")
     .eq("source", "web")
     .eq("moyen", "carte")
     .in("statut", ["actif", "impaye"])
@@ -70,17 +73,39 @@ Deno.serve(async (req) => {
 
     const { data: numero } = await admin.rpc("prochain_numero_recu");
     const numeroRecu = typeof numero === "string" && numero.length <= 36 ? numero : null;
-    const suffixe = crypto.getRandomValues(new Uint8Array(3)).reduce((t, b) => t + b.toString(16).padStart(2, "0"), "");
+    // Même période, même nombre d'échecs : même identifiant, donc jamais deux prélèvements.
+    const uniqueId = `abo_${a.id}.${debut.toISOString().slice(0, 10).replaceAll("-", "")}.${a.echecs ?? 0}`;
     const res = await stancer("POST", "/v1/checkout/", {
       amount: a.prix_cents,
       currency: "eur",
       description: libelle(a.formule as Formule),
-      unique_id: `abo_${a.id}.${suffixe}`,
+      unique_id: uniqueId,
       ...(numeroRecu ? { order_id: numeroRecu } : {}),
       ...(a.stancer_client ? { customer: a.stancer_client } : {}),
       card: a.stancer_carte,
       capture: true,
     });
+    // Doublon (409) : ce prélèvement est déjà parti à un passage précédent, qui est tombé avant de
+    // l'enregistrer. Pas un échec : on rattache le paiement existant à la période.
+    if (res.status === 409) {
+      const existant = res.data?.error?.message?.id;
+      console.error("MichelIA+ : ALERTE prélèvement déjà envoyé pour cette période", a.id, uniqueId, typeof existant === "string" ? existant : "id inconnu");
+      if (typeof existant === "string" && /^paym_[A-Za-z0-9]{6,64}$/.test(existant)) {
+        const { data: vu } = await stancer("GET", `/v1/checkout/${existant}`);
+        await admin.from("abonnement_echeances").upsert({
+          abonnement_id: a.id,
+          paiement_id: existant,
+          montant_cents: a.prix_cents,
+          periode_debut: debut.toISOString(),
+          periode_fin: fin.toISOString(),
+          numero_recu: typeof vu?.order_id === "string" && vu.order_id.length <= 36 ? vu.order_id : null,
+          essai: a.essai,
+        }, { onConflict: "paiement_id", ignoreDuplicates: true });
+        const etat = await confirmerEcheance(existant);
+        if (etat.etat === "paye") preleves++;
+      }
+      continue;
+    }
     const paymentId = res.data?.id;
     if (!res.ok || typeof paymentId !== "string") {
       console.error("MichelIA+ : échéance refusée par Stancer", a.id, res.status, safeError(res.data));

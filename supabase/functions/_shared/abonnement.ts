@@ -127,11 +127,17 @@ export async function confirmerEcheance(paiementId: string): Promise<Etat> {
   return { etat: "paye", fin_periode: echeance.periode_fin };
 }
 
-// Une échéance refusée : au premier paiement, rien ne change (la personne réessaie) ; ensuite,
-// l'abonnement passe impayé et Michel réessaie dans quelques jours, jusqu'à ECHECS_MAX fois.
-async function echecSur(abonnementId: number): Promise<void> {
+// Une échéance refusée : au premier paiement, la souscription s'arrête là (la personne peut
+// réessayer tout de suite) ; ensuite, l'abonnement passe impayé et Michel réessaie dans quelques
+// jours, jusqu'à ECHECS_MAX fois.
+export async function echecSur(abonnementId: number): Promise<void> {
   const { data } = await admin.from("abonnements").select("statut, echecs").eq("id", abonnementId).single();
-  if (!data || data.statut === "en_attente" || data.statut === "expire") return;
+  if (!data || data.statut === "expire") return;
+  if (data.statut === "en_attente") {
+    await admin.from("abonnements").update({ statut: "expire", updated_at: new Date().toISOString() })
+      .eq("id", abonnementId).eq("statut", "en_attente");
+    return;
+  }
   const echecs = (data.echecs ?? 0) + 1;
   await admin
     .from("abonnements")
@@ -142,4 +148,20 @@ async function echecSur(abonnementId: number): Promise<void> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", abonnementId);
+}
+
+// Souscriptions sur le site jamais payées, plus vieilles que ageMs : supprimées, sauf celles dont le
+// premier paiement est encore en cours ou payé (la suppression emporterait son échéance).
+export async function menageEnAttente(ageMs: number, userId?: string): Promise<void> {
+  let q = admin.from("abonnements").select("id").eq("source", "web").eq("statut", "en_attente")
+    .lt("created_at", new Date(Date.now() - ageMs).toISOString()).limit(100);
+  if (userId) q = q.eq("user_id", userId);
+  const { data: vieux } = await q;
+  const ids = (vieux ?? []).map((a) => a.id);
+  if (!ids.length) return;
+  const { data: vivants } = await admin.from("abonnement_echeances").select("abonnement_id")
+    .in("abonnement_id", ids).in("statut", ["en_cours", "paye"]);
+  const garder = new Set((vivants ?? []).map((e) => e.abonnement_id));
+  const jeter = ids.filter((id) => !garder.has(id));
+  if (jeter.length) await admin.from("abonnements").delete().in("id", jeter).eq("statut", "en_attente");
 }

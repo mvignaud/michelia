@@ -52,9 +52,19 @@ Fonction `michelia-plus` :
   passe l'abonnement `actif` et range le jeton `card_…` et les 4 derniers chiffres.
 - `{resilier: true}` : `resilie`, le droit court jusqu'à `fin_periode`.
 
+Un seul essai de souscription à la fois par compte (`abonnements_vivant_idx` couvre aussi `en_attente`
+sur le site) : un double clic ou un second onglet reçoit 409. Un premier paiement refusé passe la ligne
+`expire` (la personne peut réessayer tout de suite) ; un essai abandonné depuis 5 minutes, sans
+paiement en cours, est effacé au suivant.
+
 Fonction `michelia-plus-echeances` (pg_cron, à la 7e minute de chaque heure) : prélève les échéances
 dues avec `card: "card_…"` (sans 3D Secure, paiement à l'initiative du marchand), relit celles restées
 en cours, passe `expire` les résiliés arrivés au bout et nettoie les souscriptions jamais payées.
+Elle n'accepte que le cron : en-tête `x-michel-cron`, secret `michelia_plus_cron` créé dans le coffre
+(vault) par la migration et vérifié par `michelia_plus_cron_ok()`. Jamais deux prélèvements pour une
+période : `unique_id` Stancer = `abo_<id>.<AAAAMMJJ début de période>.<échecs>` (Stancer refuse un
+doublon par 409, rattaché à la période sans compter d'échec, avec une ALERTE dans les journaux) et
+index unique `abonnement_echeances_periode_idx` (une échéance non refusée par période).
 Échéance refusée : `impaye`, nouvel essai 3 jours plus tard, arrêt au 3e échec. Chaque échéance est
 une ligne de `abonnement_echeances` avec son numéro de reçu (même série que les pourboires).
 
@@ -69,6 +79,6 @@ créancier SEPA (ICS) de GOLDEN PRINT, `FR98ZZZ8A3E64`, déclaré auprès de Sta
 
 ## Ouvrir
 
-1. Coller `20261030100000_michelia_plus_carte.sql` (quotas, droit lu par `chat`, cron des échéances).
+1. Coller `20261030100000_michelia_plus_carte.sql` (quotas, droit lu par `chat`, index anti-doublons, secret et cron des échéances).
 2. Déployer `chat`, `michelia-plus` et `michelia-plus-echeances` depuis main.
 3. Vrai essai par un administrateur sur `/la-cotisation?essai=1` (puis remboursement), puis `update app_config set value = 'true' where key = 'michelia_plus_actif';`
