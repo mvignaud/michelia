@@ -44,3 +44,8 @@ verify_jwt = false
 # Appelée par RevenueCat, qui n'a pas de JWT Supabase : l'authenticité vient de l'en-tête
 # Authorization, comparé dans la fonction à REVENUECAT_WEBHOOK_AUTH.
 verify_jwt = false
+
+[functions.facturer]
+# Appelée par pg_cron sans clé : elle ne traite que les pourboires web payés et pas encore facturés,
+# avec des clés d'idempotence chez E-KO ; un appel de plus ne crée rien en double.
+verify_jwt = false
