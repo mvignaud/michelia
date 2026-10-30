@@ -27,6 +27,7 @@ export type Recu = {
   libelle: string; // ex. « Pourboire : un café pour Michel »
   montantTtcCents: number;
   moyen: string; // ex. « Carte bancaire »
+  transaction?: string | null; // identifiant du paiement chez le prestataire (paym_… chez Stancer)
   rembourseCents?: number; // déjà remboursé au client (reçu redemandé depuis l'espace compte)
 };
 
@@ -66,7 +67,7 @@ async function pdfPiece(r: Recu, avoir?: Avoir): Promise<Uint8Array> {
       return [...nu].every((c) => connus.has(c.codePointAt(0)!)) && nu ? nu : "?";
     }).join("");
   if (avoir) avoir = { ...avoir, numero: latin(avoir.numero) };
-  r = { ...r, numero: latin(r.numero), facture: r.facture ? latin(r.facture) : null, email: latin(r.email), prenom: r.prenom && !latin(r.prenom).includes("?") ? latin(r.prenom) : null, libelle: latin(r.libelle) };
+  r = { ...r, numero: latin(r.numero), facture: r.facture ? latin(r.facture) : null, email: latin(r.email), transaction: r.transaction ? latin(r.transaction) : null, prenom: r.prenom && !latin(r.prenom).includes("?") ? latin(r.prenom) : null, libelle: latin(r.libelle) };
 
   page.drawRectangle({ x: 0, y: 0, width, height, color: C.fond });
   page.drawRectangle({ x: 0, y: height - 120, width, height: 120, color: C.accent });
@@ -121,6 +122,7 @@ async function pdfPiece(r: Recu, avoir?: Avoir): Promise<Uint8Array> {
   ligne(avoir ? "Total remboursé TTC" : "Total payé TTC", signe + euros(ttc), gras, 13);
   if (!avoir && r.rembourseCents) ligne("Remboursé", `- ${euros(r.rembourseCents)}`, gras);
   ligne(avoir ? "Remboursé sur" : "Moyen de paiement", r.moyen);
+  if (r.transaction) ligne("N° de transaction", r.transaction);
   ligne(avoir ? "Pour" : "Payé par", r.email);
 
   y = 90;
