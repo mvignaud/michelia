@@ -30,7 +30,7 @@ function explain(error: { message?: string; code?: string } | null): Error | nul
     invalid_credentials: 'E-mail ou mot de passe incorrect.',
     user_already_exists: 'Un compte existe déjà avec cet e-mail.',
     email_exists: 'Un compte existe déjà avec cet e-mail.',
-    weak_password: 'Mot de passe trop faible : 8 caractères au moins.',
+    weak_password: 'Mot de passe trop faible : 8 caractères au moins, avec une minuscule, une majuscule, un chiffre et un symbole.',
     email_not_confirmed: "Confirme d'abord ton e-mail avec le lien reçu.",
     over_email_send_rate_limit: "Trop d'e-mails envoyés, réessaie dans quelques minutes.",
     captcha_failed: 'Vérification anti-robot échouée, réessaie.',
