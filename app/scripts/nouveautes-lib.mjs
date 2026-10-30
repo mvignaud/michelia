@@ -1,5 +1,6 @@
 // Lecture des nouveautés de Michel : un fichier Markdown par évolution dans app/nouveautes/.
 // Aucune dépendance : un en-tête « clé: valeur » entre deux lignes ---, puis le texte de Michel.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +65,14 @@ export function lireNouveautes() {
 }
 
 // Rendu HTML partagé par les pages générées (nouveautés, « Ça mijote »).
+
+// La feuille de style change avec les pages : son empreinte dans l'adresse évite qu'un navigateur
+// ou le service worker serve l'ancienne version, sans les étiquettes.
+export const CSS_VERSION = crypto
+  .createHash('sha256')
+  .update(fs.readFileSync(new URL('../public/legal.css', import.meta.url)))
+  .digest('hex')
+  .slice(0, 8);
 export const echapper = (s) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
