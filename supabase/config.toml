@@ -49,3 +49,8 @@ verify_jwt = false
 # Appelée par pg_cron sans clé : elle ne traite que les pourboires web payés et pas encore facturés,
 # avec des clés d'idempotence chez E-KO ; un appel de plus ne crée rien en double.
 verify_jwt = false
+
+[functions.stancer-remboursements]
+# Appelée par pg_cron sans clé : elle ne fait que relire les paiements chez Stancer et recopier le
+# montant remboursé ; un appel de plus ne change rien.
+verify_jwt = false
