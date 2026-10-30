@@ -240,6 +240,10 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
   if (enCours?.length) return reply(409, { error: "Signature déjà en cours" }, origin);
   // Un nouveau code remplace l'essai précédent du compte, s'il n'a pas abouti.
   await abandonnerSepa(900_000, qui.id);
+  // Un prélèvement encore en route (ancienne page Stancer pas finie) : on attend qu'il soit tranché.
+  const { data: enRoute } = await admin.from("abonnement_echeances").select("id, abonnements!inner(user_id, statut, moyen)")
+    .eq("statut", "en_cours").eq("abonnements.user_id", qui.id).eq("abonnements.statut", "en_attente").eq("abonnements.moyen", "sepa").limit(1);
+  if (enRoute?.length) return reply(409, { error: "Signature déjà en cours" }, origin);
   await admin.from("abonnements").update({ statut: "expire", updated_at: new Date().toISOString() })
     .eq("user_id", qui.id).eq("source", "web").eq("moyen", "sepa").eq("statut", "en_attente").is("stancer_sepa", null);
   await menageEnAttente(300_000, qui.id);
