@@ -74,6 +74,6 @@ Avec les clés de **test** (`sk_test_`/`rk_test_` dans le secret, `pk_test_` dan
 
 ## Côté Michel
 
-- Le rappel « Payer un café à Michel » apparaît dans le chat web, aux membres connectés, après le 20e message du mois, au plus une fois par semaine.
+- Les invitations de Michel (`app/src/invitations.ts`) : après une note de 4 ou 5 étoiles, ou au fil de la causette (4 messages pour l’inscription, 12 pour le pourboire), une carte propose de s’inscrire (visiteurs non connectés) ou de passer au comptoir. Une seule par visite, le même sujet au plus une fois par jour (inscription) ou tous les 3 jours (pourboire). Dans les applis, le pourboire n’est proposé que si l’achat intégré est ouvert (`comptoir_appli_actif` et clé de la boutique), jamais de lien vers le web.
 - Back-office > Tableau de bord : « Coût par utilisateur actif (30 j) » et « Pourboires du mois ».
 - La jauge « la note du mois » compare le coût Claude du mois (converti avec `usd_eur`, à ajuster) aux pourboires reçus.
