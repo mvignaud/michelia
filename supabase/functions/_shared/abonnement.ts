@@ -415,5 +415,5 @@ export async function menageEnAttente(ageMs: number, userId?: string): Promise<v
     .in("abonnement_id", ids).in("statut", ["en_cours", "paye"]);
   const garder = new Set((vivants ?? []).map((e) => e.abonnement_id));
   const jeter = ids.filter((id) => !garder.has(id));
-  if (jeter.length) await admin.from("abonnements").delete().in("id", jeter).eq("statut", "en_attente");
+  if (jeter.length) await admin.from("abonnements").delete().in("id", jeter).eq("statut", "en_attente").is("stancer_sepa", null);
 }
