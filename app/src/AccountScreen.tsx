@@ -42,6 +42,7 @@ import { AvatarEditor } from './AvatarEditor';
 import type { Avatar } from './avatar';
 import { LinkedAccounts } from './LinkedAccounts';
 import { MesRecus } from './MesRecus';
+import { MonAbonnement } from './MonAbonnement';
 import { DAILY_KEY } from './NotifyCard';
 import { COUNTRIES, PhoneField, fullPhone } from './PhoneField';
 import { pushState, setDailyPush } from './push';
@@ -57,11 +58,13 @@ type Props = {
   onAdmin?: () => void;
   avatar?: Avatar;
   onAvatar?: (avatar: Avatar) => void;
+  // Applis : ouvre l'écran MichelIA+ (absent tant que la caisse des applis est fermée).
+  onCotisation?: () => void;
 };
 
 const MIN_AGE = 18;
 
-export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmin, avatar, onAvatar }: Props) {
+export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmin, avatar, onAvatar, onCotisation }: Props) {
   const member = isMember(session);
   const [mode, setMode] = useState<AccountMode>(member && initialMode !== 'reset' ? 'profile' : initialMode);
   const [firstName, setFirstName] = useState('');
@@ -407,6 +410,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
         </Pressable>
 
         {mode === 'profile' && session && <LinkedAccounts session={session} apple={apple} />}
+        {mode === 'profile' && session && <MonAbonnement userId={session.user.id} onOuvrir={onCotisation} />}
         {mode === 'profile' && session && <MesRecus userId={session.user.id} />}
 
         <View style={styles.links}>

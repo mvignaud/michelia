@@ -763,6 +763,14 @@ function Chat() {
               setAccount(null);
               setAdmin(true);
             }}
+            onCotisation={
+              cotisationOuverte
+                ? () => {
+                    setAccount(null);
+                    setCotisation(true);
+                  }
+                : undefined
+            }
           />
         )}
         {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
