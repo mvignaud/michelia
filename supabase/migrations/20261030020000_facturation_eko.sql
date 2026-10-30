@@ -1,5 +1,4 @@
 -- Factures de Michel dans l'ERP E-KO de GOLDEN PRINT, et reçu PDF envoyé au payeur.
--- Les reçus partent dès maintenant ; la facturation attend l'évolution de l'API E-KO.
 -- La fonction « facturer », appelée toutes les 5 minutes, prend chaque pourboire web payé (hors essais,
 -- hors applis), crée sa facture dans E-KO (jamais envoyée au client, au nom du client générique
 -- « ClientMichel Web »), puis envoie le reçu au payeur s'il a laissé son e-mail. Le jeton E-KO
@@ -7,15 +6,16 @@
 -- Rejouable sans risque.
 
 alter table public.pourboires add column if not exists facture_code text;
+alter table public.pourboires add column if not exists facture_reglee_at timestamptz;
 alter table public.pourboires add column if not exists recu_envoye_at timestamptz;
 alter table public.pourboires add column if not exists facture_erreur text;
 alter table public.pourboires add column if not exists facture_tentatives integer not null default 0;
 
 insert into public.app_config (key, value) values
-  -- 'true' pour lancer la facturation.
-  ('facturation_eko_active', 'false'),
-  -- Seuls les pourboires payés à partir de cette date (heure UTC) sont facturés : rien avant l'ouverture.
-  ('facturation_eko_depuis', '2999-01-01'),
+  -- Facturation lancée : elle attend sans bruit que le secret EKO_API_TOKEN soit posé.
+  ('facturation_eko_active', 'true'),
+  -- Seuls les pourboires payés à partir de cette date (UTC) sont facturés : ouverture réelle du comptoir Stancer.
+  ('facturation_eko_depuis', '2026-10-29T23:26:00Z'),
   -- Nom exact du client générique dans E-KO (créé tout seul s'il n'existe pas).
   ('facturation_eko_client', 'ClientMichel Web'),
   -- Reçus PDF envoyés au payeur, indépendamment de la facturation : tant qu'elle est coupée, le reçu
