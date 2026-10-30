@@ -7,7 +7,7 @@
 // Sans danger si quelqu'un d'autre l'appelle : elle ne traite que les pourboires en attente.
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
-import { avoirVente, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
+import { avoirVente, EkoError, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
 import { envoyerAvoir, envoyerRecu } from "../_shared/recu.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -105,9 +105,13 @@ Deno.serve(async () => {
     for (const l of (tierId ? data ?? [] : []) as Ligne[]) {
       try {
         if (l.devise !== "eur") throw new Error(`devise ${l.devise} non gérée`);
+        // E-KO retrouve un remboursement Stancer par le paym_ du règlement : sans lui, pas de facture
+        // (le relevé des remboursements le complète).
+        if (l.prestataire === "stancer" && !l.paiement_carte) throw new Error("paiement Stancer (paym_) pas encore connu");
         await facturerVente({
           tierId,
           paiementId: l.paiement_id,
+          transaction: l.paiement_carte ?? l.paiement_id,
           reference: await numeroRecu(l),
           libelle: libelle(l),
           montantTtcCents: l.montant_cents,
@@ -247,6 +251,7 @@ Deno.serve(async () => {
     const { data: aFaire, error: ef } = await admin.from("avoirs")
       .select("id, numero, montant_cents, rembourse_le, pourboires!inner(facture_code, facture_reglee_at, prestataire, paiement_id, paiement_carte)")
       .is("eko_code", null)
+      .is("eko_erreur", null)
       .not("pourboires.facture_reglee_at", "is", null)
       .not("pourboires.facture_code", "is", null)
       .order("id")
@@ -268,7 +273,12 @@ Deno.serve(async () => {
         avoirsEko++;
       } catch (e) {
         echecs++;
-        console.error(`Avoir ${a.numero} : avoir E-KO refusé`, e instanceof Error ? e.message : e);
+        const message = e instanceof Error ? e.message : String(e);
+        console.error(`Avoir ${a.numero} : avoir E-KO refusé`, message);
+        // Refus sur le fond : réessayer à l'identique n'y changera rien. Vider eko_erreur pour relancer.
+        if (e instanceof EkoError && e.status === 422) {
+          await admin.from("avoirs").update({ eko_erreur: message.slice(0, 500) }).eq("id", a.id);
+        }
       }
     }
   }
