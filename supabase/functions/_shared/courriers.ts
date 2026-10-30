@@ -7,6 +7,8 @@
 const POSTAL_API_URL = (Deno.env.get("POSTAL_API_URL") ?? "").replace(/\/+$/, "");
 const POSTAL_API_KEY = Deno.env.get("POSTAL_API_KEY") ?? "";
 const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@michel.beer>";
+// Les réponses des gens arrivent dans la boîte de contact (l'expéditeur, lui, ne lit rien).
+const MAIL_REPLY_TO = Deno.env.get("MAIL_REPLY_TO") ?? "Michel (MichelIA) <contact@michel.beer>";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 
 const BRIQUE = "#7A2E1D";
@@ -188,6 +190,7 @@ export async function envoyerCourrier(to: string, c: Courrier, tag: string, piec
       body: JSON.stringify({
         to: [to],
         from: MAIL_FROM,
+        reply_to: MAIL_REPLY_TO,
         subject: c.sujet,
         plain_body: c.texte,
         html_body: c.html,
