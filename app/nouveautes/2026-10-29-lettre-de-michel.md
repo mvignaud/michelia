@@ -3,6 +3,7 @@ date: 2026-10-29
 titre: La lettre de Michel, tous les quinze jours
 type: nouveau
 plateformes: web, ios, android
+pr: 43
 sans_build: oui
 store: Michel t'écrit tous les quinze jours pour te dire ce qui a changé.
 build: 8
