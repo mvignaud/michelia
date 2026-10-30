@@ -50,6 +50,42 @@ create index if not exists avoirs_pourboire_idx on public.avoirs (pourboire_id);
 alter table public.avoirs enable row level security;
 revoke all on public.avoirs from anon, authenticated;
 
+-- Tire d'un seul coup (une transaction) un avoir pour chaque part remboursée pas encore couverte, et
+-- avance rembourse_avoir_cents : jamais d'avoir en double ni de part oubliée. Un remboursement partiel
+-- puis le reste font deux avoirs ; le premier porte la date du remboursement, les suivants la date du
+-- relevé. Jamais les paiements d'essai ni les achats des applis. Appelée par la fonction facturer.
+create or replace function public.tirer_avoirs()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  n integer;
+begin
+  with parts as (
+    update public.pourboires p
+    set rembourse_avoir_cents = p.rembourse_cents
+    from (
+      select id, rembourse_avoir_cents as deja from public.pourboires
+      where rembourse_cents > rembourse_avoir_cents and rembourse_le is not null
+        and canal = 'web' and not essai and email is not null
+      for update
+    ) a
+    where p.id = a.id
+    returning p.id, p.rembourse_cents - a.deja as montant,
+      case when a.deja = 0 then p.rembourse_le else now() end as le
+  )
+  insert into public.avoirs (pourboire_id, montant_cents, rembourse_le)
+  select id, montant, le from parts order by le, id;
+  get diagnostics n = row_count;
+  return n;
+end;
+$$;
+
+revoke all on function public.tirer_avoirs() from public, anon, authenticated;
+grant execute on function public.tirer_avoirs() to service_role;
+
 -- Le compte du payeur, pris dans le paiement en attente au moment où le pourboire est écrit.
 create or replace function public.pourboire_compte()
 returns trigger

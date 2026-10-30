@@ -58,9 +58,8 @@ type Ligne = {
   id: number; paiement_id: string; prestataire: string; montant_cents: number; devise: string; palier: string;
   prenom: string | null; email: string | null; created_at: string; facture_code: string | null;
   facture_reglee_at: string | null; facture_tentatives: number; recu_tentatives: number; numero_recu: string | null;
-  rembourse_cents: number; rembourse_le: string | null; rembourse_avoir_cents: number;
 };
-const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives, numero_recu, rembourse_cents, rembourse_le, rembourse_avoir_cents";
+const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives, numero_recu";
 
 // Pourboires concernés : web, réels, payés chez un prestataire du locataire.
 const pourboires = () =>
@@ -173,35 +172,14 @@ Deno.serve(async () => {
     }
   }
 
-  // 3. Les remboursements : chaque part remboursée pas encore couverte devient un avoir de Michel (un
-  // remboursement partiel puis le reste font deux avoirs). La part est réservée d'abord
-  // (rembourse_avoir_cents avancé sous condition) : deux appels simultanés ne tirent jamais deux avoirs.
-  // Jamais pour un paiement d'essai. L'avoir E-KO se fera ici quand l'API d'E-KO saura en créer.
+  // 3. Les remboursements : chaque part remboursée pas encore couverte devient un avoir de Michel, tiré
+  // en base d'un seul coup avec son compteur (tirer_avoirs, migration 20261030070000_mes_recus.sql).
+  // L'avoir E-KO se fera ici quand l'API d'E-KO saura en créer.
   if (recus) {
-    const { data, error } = await pourboires()
-      .not("email", "is", null)
-      .not("rembourse_le", "is", null)
-      .order("rembourse_le", { ascending: false })
-      .limit(100);
-    if (error) return json(500, { error: error.message });
-    for (const l of ((data ?? []) as Ligne[]).filter((l) => l.rembourse_cents > l.rembourse_avoir_cents).slice(0, PAR_PASSAGE)) {
-      const { data: pris } = await admin.from("pourboires")
-        .update({ rembourse_avoir_cents: l.rembourse_cents })
-        .eq("id", l.id)
-        .eq("rembourse_avoir_cents", l.rembourse_avoir_cents)
-        .select("id");
-      if (!pris?.length) continue;
-      const { error: e } = await admin.from("avoirs").insert({
-        pourboire_id: l.id,
-        montant_cents: l.rembourse_cents - l.rembourse_avoir_cents,
-        rembourse_le: l.rembourse_le,
-      });
-      if (e) {
-        erreur(l, "avoir", e.message);
-        await admin.from("pourboires").update({ rembourse_avoir_cents: l.rembourse_avoir_cents }).eq("id", l.id);
-      } else if (l.facture_reglee_at) {
-        console.warn(`Pourboire ${l.id} remboursé : avoir à faire dans E-KO sur la facture ${l.facture_code}`);
-      }
+    const { error: et } = await admin.rpc("tirer_avoirs");
+    if (et) {
+      echecs++;
+      console.error("Avoirs non tirés", et.message);
     }
 
     // Puis l'e-mail de remboursement, avoir en pièce jointe. Réservation atomique comme pour les reçus.
@@ -246,6 +224,7 @@ Deno.serve(async () => {
       if (envoye) {
         await admin.from("avoirs").update({ envoye_at: new Date().toISOString(), envoi_erreur: null }).eq("id", a.id);
         rembourses++;
+        if (l?.facture_reglee_at) console.warn(`Avoir ${a.numero} : avoir à faire dans E-KO sur la facture ${l.facture_code}`);
       } else {
         echecs++;
         console.error(`Avoir ${a.numero} : e-mail de remboursement refusé`);
