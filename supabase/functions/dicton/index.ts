@@ -62,7 +62,9 @@ async function write(kind: Kind, now: Date, config: Record<string, string>) {
 
   const message = await anthropic.messages.create({
     model: config.model ?? "claude-haiku-5-5",
-    max_tokens: 200,
+    // Large : la réflexion du modèle compte dans ce plafond. À 200, elle mangeait tout
+    // et aucune phrase ne sortait (30/10). La phrase elle-même reste courte.
+    max_tokens: 1024,
     output_config: { effort: "low" },
     system: config.system_prompt ? [{ type: "text", text: config.system_prompt }] : undefined,
     messages: [
@@ -75,7 +77,10 @@ async function write(kind: Kind, now: Date, config: Record<string, string>) {
   const text = cleanSaying(
     message.content.map((block) => (block.type === "text" ? block.text : "")).join(" "),
   );
-  if (text.length < 10) throw new Error(`dicton trop court : ${JSON.stringify(text)}`);
+  if (text.length < 10) {
+    const blocks = message.content.map((block) => block.type).join(",");
+    throw new Error(`dicton trop court : ${JSON.stringify(text)} (${message.stop_reason}, ${blocks})`);
+  }
   return { text, usage: message.usage };
 }
 
