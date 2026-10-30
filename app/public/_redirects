@@ -1,3 +1,9 @@
+# Depuis la page d'accueil (30/10/2026) : « / » présente Michel, le chat est à /chat (dist/chat.html).
+# Les pages qui vivent dans le chat gardent leur adresse : réécriture (200), l'adresse ne change pas.
+/comptoir /chat 200
+/la-cotisation /chat 200
+/cahier-de-doleances /chat 200
+/parler-a-michel /chat 301
 # Le carnet des nouveautés s'appelle confit-de-canard ; l'adresse sérieuse y mène aussi.
 /nouveautes /confit-de-canard 301
 /nouveautes.html /confit-de-canard 301

@@ -1,7 +1,8 @@
 // Service worker de MichelIA : l'appli s'ouvre même sans réseau, et Michel le dit gentiment.
 // Seules les ressources du site sont mises en cache : jamais les appels à Supabase, Google ou Cloudflare.
-const VERSION = 'michelia-v1';
-const ESSENTIEL = ['/', '/hors-ligne.html', '/manifest.webmanifest', '/icones/icone-192.png'];
+// v2 : la page d'accueil à « / », le chat à « /chat ».
+const VERSION = 'michelia-v2';
+const ESSENTIEL = ['/', '/chat', '/hors-ligne.html', '/manifest.webmanifest', '/icones/icone-192.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(ESSENTIEL)));
@@ -28,9 +29,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok && url.pathname === '/') {
+          if (response.ok && (url.pathname === '/' || url.pathname === '/chat')) {
             const copy = response.clone();
-            caches.open(VERSION).then((cache) => cache.put('/', copy));
+            caches.open(VERSION).then((cache) => cache.put(url.pathname, copy));
           }
           return response;
         })
@@ -87,7 +88,7 @@ self.addEventListener('push', (event) => {
       body: message.body || '',
       icon: '/icones/icone-192.png',
       lang: 'fr',
-      data: { url: message.url || '/' },
+      data: { url: message.url || '/chat' },
     }),
   );
 });
@@ -95,11 +96,11 @@ self.addEventListener('push', (event) => {
 // Notification touchée : on revient sur l'onglet déjà ouvert, ou on en ouvre un.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = new URL(event.notification.data?.url || '/', self.location.origin).href;
+  const url = new URL(event.notification.data?.url || '/chat', self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
       const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
-      if (open && url === self.location.origin + '/') return open.focus();
+      if (open && url === self.location.origin + '/chat') return open.focus();
       return self.clients.openWindow(url);
     }),
   );

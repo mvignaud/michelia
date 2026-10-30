@@ -370,7 +370,7 @@ function Page() {
             <Image source={require('../assets/brand/michel-portrait.png')} style={styles.avatarImage} accessibilityLabel="Michel" />
           </View>
           <Text style={styles.title}>MichelIA+</Text>
-          <Pressable onPress={() => window.location.assign('/')} accessibilityRole="link">
+          <Pressable onPress={() => window.location.assign('/chat')} accessibilityRole="link">
             <Text style={styles.back}>Retour au chat</Text>
           </Pressable>
         </View>
@@ -463,7 +463,7 @@ function Page() {
         {offre && abonnement === null && (offre.actif || essai) && membre === false && (
           <View style={styles.card}>
             <Text style={styles.text}>Pour cotiser, il te faut un compte Michel : c'est là que je range ta cotisation et tes reçus.</Text>
-            <Pressable onPress={() => window.location.assign('/?compte=connexion')} style={({ pressed }) => [styles.payer, pressed && styles.pressed]} accessibilityRole="link">
+            <Pressable onPress={() => window.location.assign('/chat?compte=connexion')} style={({ pressed }) => [styles.payer, pressed && styles.pressed]} accessibilityRole="link">
               <Text style={styles.payerText}>Me connecter ou créer un compte</Text>
             </Pressable>
           </View>
