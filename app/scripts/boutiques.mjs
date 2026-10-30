@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Produits du comptoir dans les boutiques : crée ou met à jour les 4 pourboires (achats consommables)
-// sur l'App Store, Google Play et RevenueCat, à partir de la liste PALIERS ci-dessous.
+// Produits des boutiques : crée ou met à jour les 4 pourboires du comptoir (achats consommables) et les
+// 2 abonnements MichelIA+ (auto-renouvelables) sur l'App Store, Google Play et RevenueCat, à partir des
+// listes PALIERS et ABONNEMENTS ci-dessous.
 // Lancé par la tâche GitHub « Boutiques » (.github/workflows/boutiques.yml), avec les clés rangées dans
 // les secrets du dépôt. Sans --appliquer, il ne fait que lire et dire ce qu'il ferait.
 //
@@ -28,6 +29,21 @@ const PALIERS = [
 ];
 const produit = (p, boutique) => p[boutique] ?? `pourboire_${p.id}`;
 
+// MichelIA+ (docs/MICHELIA-PLUS.md) : mêmes prix que michelia_plus_prix (app_config). Chez Google, chaque
+// abonnement a un seul forfait de base (mois / an) ; RevenueCat le nomme michelia_plus_mois:mois.
+const ABONNEMENTS = [
+  { id: 'michelia_plus_mois', forfait: 'mois', nom: 'MichelIA+ au mois', prix: '3.99', apple: 'ONE_MONTH', google: 'P1M' },
+  { id: 'michelia_plus_an', forfait: 'an', nom: "MichelIA+ à l'année", prix: '39.00', apple: 'ONE_YEAR', google: 'P1Y' },
+];
+const DESCRIPTION_ABO = 'Plus de messages et de photos par jour avec Michel.';
+const NOTE_ABO =
+  'Abonnement facultatif : Michel reste gratuit, MichelIA+ relève les plafonds de messages et de photos. ' +
+  "Écran : lien « MichelIA+ » en bas du chat de l'appli (compte Michel nécessaire).";
+const ENTITLEMENT = 'michelia_plus';
+// Pays ouverts, comme les pourboires Google.
+const PAYS = { FR: 'FRA', BE: 'BEL', LU: 'LUX' };
+const memePrix = (a, b) => Math.abs(Number(a) - Number(b)) < 0.001;
+
 const { agir, lancer, etat } = mode();
 
 // ---------- App Store Connect ----------
@@ -40,7 +56,8 @@ async function apple() {
   for (const p of PALIERS) {
     const productId = produit(p, 'apple');
     let iap = existants.find((x) => x.attributes.productId === productId);
-    dire(`- ${productId}`);
+    // L'état dit si Apple le vend déjà (en test : « READY_TO_SUBMIT » au moins, pas « MISSING_METADATA »).
+    dire(`- ${productId}${iap ? ` (${iap.attributes.state})` : ''}`);
     if (!iap) {
       await agir('créer l’achat consommable', async () => {
         iap = (
@@ -138,6 +155,175 @@ async function apple() {
         },
       }),
     );
+  }
+
+  await appleAbonnements(api);
+}
+
+// Abonnements auto-renouvelables : un groupe « MichelIA+ », deux abonnements au même niveau (on passe
+// de l'un à l'autre), prix et disponibilité en France, Belgique et Luxembourg.
+async function appleAbonnements(api) {
+  const groupes = (await api(`/v1/apps/${APPLE_APP_ID}/subscriptionGroups?limit=50`)).data;
+  let groupe = groupes.find((g) => g.attributes.referenceName === 'MichelIA+');
+  dire(`- groupe d'abonnements MichelIA+${groupe ? '' : ' (nouveau)'}`);
+  if (!groupe) {
+    await agir('créer le groupe', async () => {
+      groupe = (
+        await api('/v1/subscriptionGroups', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'subscriptionGroups',
+              attributes: { referenceName: 'MichelIA+' },
+              relationships: { app: { data: { type: 'apps', id: APPLE_APP_ID } } },
+            },
+          },
+        })
+      ).data;
+    });
+    if (!groupe) return;
+  }
+  const locsGroupe = groupe.id ? (await api(`/v1/subscriptionGroups/${groupe.id}/subscriptionGroupLocalizations`)).data : [];
+  if (!locsGroupe.some((l) => l.attributes.locale === 'fr-FR')) {
+    await agir('nom du groupe en fr-FR', () =>
+      api('/v1/subscriptionGroupLocalizations', {
+        method: 'POST',
+        body: {
+          data: {
+            type: 'subscriptionGroupLocalizations',
+            attributes: { locale: 'fr-FR', name: 'MichelIA+' },
+            relationships: { subscriptionGroup: { data: { type: 'subscriptionGroups', id: groupe.id } } },
+          },
+        },
+      }),
+    );
+  }
+
+  const existants = (await api(`/v1/subscriptionGroups/${groupe.id}/subscriptions?limit=50`)).data;
+  for (const a of ABONNEMENTS) {
+    let sub = existants.find((x) => x.attributes.productId === a.id);
+    dire(`- ${a.id}${sub ? ` (${sub.attributes.state})` : ' (nouveau)'}`);
+    if (!sub) {
+      await agir('créer l’abonnement', async () => {
+        sub = (
+          await api('/v1/subscriptions', {
+            method: 'POST',
+            body: {
+              data: {
+                type: 'subscriptions',
+                attributes: {
+                  name: a.nom,
+                  productId: a.id,
+                  subscriptionPeriod: a.apple,
+                  familySharable: false,
+                  groupLevel: 1,
+                  reviewNote: NOTE_ABO,
+                },
+                relationships: { group: { data: { type: 'subscriptionGroups', id: groupe.id } } },
+              },
+            },
+          })
+        ).data;
+      });
+      if (!sub) continue;
+    } else if (sub.attributes.reviewNote !== NOTE_ABO) {
+      await agir('note pour la vérification', () =>
+        api(`/v1/subscriptions/${sub.id}`, {
+          method: 'PATCH',
+          body: { data: { type: 'subscriptions', id: sub.id, attributes: { reviewNote: NOTE_ABO } } },
+        }),
+      );
+    }
+
+    const locs = (await api(`/v1/subscriptions/${sub.id}/subscriptionLocalizations`)).data;
+    const fr = locs.find((l) => l.attributes.locale === 'fr-FR');
+    if (!fr)
+      await agir('localisation fr-FR', () =>
+        api('/v1/subscriptionLocalizations', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'subscriptionLocalizations',
+              attributes: { locale: 'fr-FR', name: a.nom, description: DESCRIPTION_ABO },
+              relationships: { subscription: { data: { type: 'subscriptions', id: sub.id } } },
+            },
+          },
+        }),
+      );
+    else if (fr.attributes.name !== a.nom || fr.attributes.description !== DESCRIPTION_ABO)
+      await agir('mise à jour de la localisation fr-FR', () =>
+        api(`/v1/subscriptionLocalizations/${fr.id}`, {
+          method: 'PATCH',
+          body: { data: { type: 'subscriptionLocalizations', id: fr.id, attributes: { name: a.nom, description: DESCRIPTION_ABO } } },
+        }),
+      );
+
+    // Disponibilité : posée une fois.
+    let dispo = null;
+    try {
+      dispo = (await api(`/v1/subscriptions/${sub.id}/subscriptionAvailability`)).data;
+    } catch (e) {
+      if (e.status !== 404) throw e;
+    }
+    if (!dispo)
+      await agir(`disponible en ${Object.keys(PAYS).join(', ')}`, () =>
+        api('/v1/subscriptionAvailabilities', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'subscriptionAvailabilities',
+              attributes: { availableInNewTerritories: false },
+              relationships: {
+                subscription: { data: { type: 'subscriptions', id: sub.id } },
+                availableTerritories: { data: Object.values(PAYS).map((id) => ({ type: 'territories', id })) },
+              },
+            },
+          },
+        }),
+      );
+
+    // Prix : le palier français, et ses équivalents belge et luxembourgeois ; seulement là où il n'y en a pas.
+    const prix = await api(`/v1/subscriptions/${sub.id}/prices?include=territory&limit=200`);
+    const deja = new Set((prix.data ?? []).map((x) => x.relationships?.territory?.data?.id).filter(Boolean));
+    const manquants = Object.values(PAYS).filter((t) => !deja.has(t));
+    if (!manquants.length) {
+      dire('  prix déjà posés');
+      continue;
+    }
+    const points = (await api(`/v1/subscriptions/${sub.id}/pricePoints?filter[territory]=FRA&limit=8000`)).data;
+    const point = points.find((x) => memePrix(x.attributes.customerPrice, a.prix));
+    if (!point) {
+      etat.erreurs++;
+      dire(`  ✗ pas de palier de prix Apple à ${a.prix} € en France`);
+      continue;
+    }
+    const equivalents = (
+      await api(`/v1/subscriptionPricePoints/${point.id}/equalizations?filter[territory]=BEL,LUX&include=territory&limit=50`)
+    ).data;
+    const parPays = { FRA: point.id, ...Object.fromEntries(equivalents.map((x) => [x.relationships?.territory?.data?.id, x.id])) };
+    for (const t of manquants) {
+      if (!parPays[t]) {
+        etat.erreurs++;
+        dire(`  ✗ pas d'équivalent de prix pour ${t}`);
+        continue;
+      }
+      await agir(`prix ${a.prix} € (${t})`, () =>
+        api('/v1/subscriptionPrices', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'subscriptionPrices',
+              attributes: { startDate: null, preserveCurrentPrice: false },
+              relationships: {
+                subscription: { data: { type: 'subscriptions', id: sub.id } },
+                subscriptionPricePoint: { data: { type: 'subscriptionPricePoints', id: parPays[t] } },
+                territory: { data: { type: 'territories', id: t } },
+              },
+            },
+          },
+        }),
+      );
+    }
   }
 }
 
