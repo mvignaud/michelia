@@ -101,7 +101,7 @@ export async function facturerVente(v: Vente, code: string | null, noter: (code:
 // Avoir E-KO sur une facture émise, pour un remboursement fait chez le prestataire : jamais envoyé au
 // client (le client reçoit l'avoir de Michel). E-KO crée du même coup le décaissement, lié au règlement
 // d'origine (psp.payment_id = paiementId). Tant que l'adresse n'est pas en service (404/405), rend null et
-// l'appelant réessaiera au passage suivant. Rejouable : même Idempotency-Key, E-KO rend le même avoir.
+// l'appelant réessaiera au passage suivant. Rejouable : E-KO rend le même avoir pour un même remboursement.
 // Un 422 (remboursement inconnu chez le prestataire, facture pas émise, règlement introuvable) ne se
 // corrige pas en réessayant à l'identique : l'appelant le note et s'arrête. Rend le numéro de l'avoir (AV…).
 // `remboursement` : identifiant du remboursement chez le prestataire (refd_… chez Stancer), quand Michel
@@ -110,14 +110,17 @@ export async function avoirVente(a: {
   facture: string; numero: string; montantTtcCents: number; date: string; prestataire: string; paiementId: string;
   remboursement?: string | null;
 }): Promise<string | null> {
+  const refundId = a.remboursement ?? a.numero;
   try {
     const avoir = await eko("POST", `/invoices/${encodeURIComponent(a.facture)}/credit-note`, {
       amount_ttc: a.montantTtcCents / 100,
       reason: "Remboursement",
       reference: a.numero,
       issue: true,
-      refund: { provider: a.prestataire, refund_id: a.remboursement ?? a.numero, payment_id: a.paiementId, date: a.date },
-    }, `avoir-${a.numero}`);
+      refund: { provider: a.prestataire, refund_id: refundId, payment_id: a.paiementId, date: a.date },
+      // E-KO garde 24 h la réponse d'une clé, refus compris : la clé suit le remboursement envoyé. Un même
+      // refund_id ne fait jamais deux avoirs chez E-KO.
+    }, `avoir-${a.numero}-${refundId}`);
     return String(avoir.data.code);
   } catch (e) {
     if (e instanceof EkoError && (e.status === 404 || e.status === 405)) return null;
