@@ -115,6 +115,9 @@ function Chat() {
   const [comptoirOuvert, setComptoirOuvert] = useState(false);
   const [invitation, setInvitation] = useState<Invitation | null>(null);
   const [comptoir, setComptoir] = useState(false);
+  // MichelIA+ dans les applis : abonnement des boutiques, proposé quand il est ouvert et que la caisse des applis l'est.
+  const [cotisationOuverte, setCotisationOuverte] = useState(false);
+  const [cotisation, setCotisation] = useState(false);
   // Le cahier de doléances par-dessus le chat : 'idee' depuis la bulle flottante, 'bug' après une mauvaise note.
   const [doleances, setDoleances] = useState<'idee' | 'bug' | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
@@ -147,6 +150,13 @@ function Chat() {
   useEffect(() => {
     loadComptoir()
       .then((data) => setComptoirOuvert(Platform.OS === 'web' ? data.actif : !!cleAppli(data)))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    Promise.all([loadComptoir(), supabase.rpc('michelia_plus_public')])
+      .then(([data, { data: offre }]) => setCotisationOuverte(!!cleAppli(data) && !!(offre as { actif?: boolean } | null)?.actif))
       .catch(() => undefined);
   }, []);
 
@@ -674,6 +684,14 @@ function Chat() {
                   </Text>
                 </Text>
               )}
+              {cotisationOuverte && (
+                <Text style={styles.legalText}>
+                  {' · '}
+                  <Text style={styles.legalLink} onPress={() => setCotisation(true)} accessibilityRole="link">
+                    MichelIA+
+                  </Text>
+                </Text>
+              )}
               {ANALYTICS_ENABLED && (
                 <Text style={styles.legalText}>
                   {' · '}
@@ -701,6 +719,15 @@ function Chat() {
         )}
         {admin && member && <AdminScreen onClose={() => setAdmin(false)} />}
         {comptoir && <Comptoir onClose={() => setComptoir(false)} />}
+        {cotisation && (
+          <Cotisation
+            onClose={() => setCotisation(false)}
+            onCompte={() => {
+              setCotisation(false);
+              setAccount('signin');
+            }}
+          />
+        )}
         {doleances && <Doleances initialCategorie={doleances} onClose={() => setDoleances(null)} />}
         {sharing && <ShareSheet card={sharing} onClose={() => setSharing(null)} />}
         <CaptchaHost />

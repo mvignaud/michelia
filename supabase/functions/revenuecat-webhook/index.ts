@@ -17,7 +17,8 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: 
 const PRODUIT = /^pourboire_([a-z_]+?)\d*$/;
 
 // MichelIA+ dans les boutiques : michelia_plus_mois ou michelia_plus_an (chiffre au bout toléré, comme les pourboires).
-const ABONNEMENT = /^michelia_plus_(mois|an)\d*$/;
+// Chez Google, RevenueCat ajoute le forfait de base : michelia_plus_mois:mois.
+const ABONNEMENT = /^michelia_plus_(mois|an)\d*(?::[a-z0-9-]+)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const reply = (status: number, body: string) => new Response(body, { status });
