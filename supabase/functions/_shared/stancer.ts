@@ -93,43 +93,79 @@ export type Confirmation =
   | { etat: "refuse" }
   | { etat: "inconnu" };
 
+// Un paiement par carte de l'API v1 (formulaire maison) : paym_ suivi de lettres et chiffres.
+export const isCardPaymentId = (id: unknown): id is string =>
+  typeof id === "string" && /^paym_[A-Za-z0-9]{6,64}$/.test(id);
+
+// Le payment intent auquel se rattache un paiement v1 : son unique_id vaut « pi_….xxxx » (voir payWithCard).
+export const intentOfCardPayment = (uniqueId: unknown): string | null => {
+  const intent = typeof uniqueId === "string" ? uniqueId.split(".")[0] : "";
+  return isPaymentIntentId(intent) ? intent : null;
+};
+
+// Statuts d'authentification (3D Secure) v1 qui disent « c'est raté ».
+const AUTH_FAILED = ["declined", "failed", "expired"];
+
 // Relit le paiement chez Stancer (jamais sur la foi du navigateur ou du corps du webhook), capture
 // s'il est seulement autorisé, puis écrit le pourboire. Rejouable : une ligne par payment intent.
-export async function confirmPayment(intentId: string): Promise<Confirmation> {
+// Avec cardPaymentId (paym_…, formulaire maison), c'est ce paiement v1 qui fait foi, à condition
+// qu'il ait été créé pour ce payment intent (unique_id posé par notre serveur).
+export async function confirmPayment(intentId: string, cardPaymentId?: string): Promise<Confirmation> {
   const { data: attente } = await admin.from("comptoir_attente").select("*").eq("paiement_id", intentId).maybeSingle();
   // Un paiement que notre comptoir n'a pas créé ne nous regarde pas.
   if (!attente) return { etat: "inconnu" };
 
-  const intent = await stancer("GET", `/payment_intents/${intentId}`);
-  if (!intent.ok || !intent.data) {
-    console.error("Stancer : payment intent illisible", intent.status, intent.data?.error?.message ?? intent.data?.message);
-    return { etat: "attente" };
-  }
-  let statut = String(intent.data.status ?? "");
-  let montant = Number(intent.data.amount);
-  const paymentId = typeof intent.data.payment === "string" ? intent.data.payment : "";
-  if (paymentId) {
-    const payment = await stancer("GET", `/payments/${encodeURIComponent(paymentId)}`);
-    if (payment.ok && payment.data) {
-      statut = String(payment.data.status ?? statut);
-      montant = Number(payment.data.amount ?? montant);
+  let statut: string;
+  let montant: number;
+  let devise: string;
+  let capturer: () => ReturnType<typeof stancer>;
+  if (cardPaymentId) {
+    const payment = await stancer("GET", `/v1/checkout/${cardPaymentId}`);
+    if (!payment.ok || !payment.data) {
+      console.error("Stancer : paiement carte illisible", payment.status, safeError(payment.data));
+      return { etat: "attente" };
     }
+    if (intentOfCardPayment(payment.data.unique_id) !== intentId) return { etat: "inconnu" };
+    statut = String(payment.data.status ?? "");
+    montant = Number(payment.data.amount);
+    devise = String(payment.data.currency ?? "eur").toLowerCase();
+    if (!statut && AUTH_FAILED.includes(String(payment.data.auth?.status ?? ""))) statut = "refused";
+    capturer = () => stancer("PATCH", `/v1/checkout/${cardPaymentId}`, { status: "capture" });
+  } else {
+    const intent = await stancer("GET", `/payment_intents/${intentId}`);
+    if (!intent.ok || !intent.data) {
+      console.error("Stancer : payment intent illisible", intent.status, intent.data?.error?.message ?? intent.data?.message);
+      return { etat: "attente" };
+    }
+    statut = String(intent.data.status ?? "");
+    montant = Number(intent.data.amount);
+    devise = String(intent.data.currency ?? "eur").toLowerCase();
+    const paymentId = typeof intent.data.payment === "string" ? intent.data.payment : "";
+    if (paymentId) {
+      const payment = await stancer("GET", `/payments/${encodeURIComponent(paymentId)}`);
+      if (payment.ok && payment.data) {
+        statut = String(payment.data.status ?? statut);
+        montant = Number(payment.data.amount ?? montant);
+      }
+    }
+    capturer = async () => {
+      const capture = await stancer("POST", `/payment_intents/${intentId}/capture`);
+      if (capture.ok || (capture.status !== 404 && capture.status !== 405)) return capture;
+      return stancer("PATCH", `/payment_intents/${intentId}`, { capture: true });
+    };
   }
 
   // Le montant doit être celui du palier choisi (fixé côté serveur à la création), avant toute capture.
-  if (montant !== attente.montant_cents || String(intent.data.currency ?? "eur").toLowerCase() !== "eur") {
+  if (montant !== attente.montant_cents || devise !== "eur") {
     console.error("Stancer : montant inattendu", intentId, montant, attente.montant_cents);
     return { etat: "inconnu" };
   }
 
   // Autorisé mais pas encore capturé : on capture (le pourboire est « vendu » tout de suite).
   if (statut === "authorized") {
-    let capture = await stancer("POST", `/payment_intents/${intentId}/capture`);
-    if (!capture.ok && (capture.status === 404 || capture.status === 405)) {
-      capture = await stancer("PATCH", `/payment_intents/${intentId}`, { capture: true });
-    }
+    const capture = await capturer();
     if (!capture.ok) {
-      console.error("Stancer : capture refusée", capture.status, capture.data?.error?.message ?? capture.data?.message);
+      console.error("Stancer : capture refusée", capture.status, safeError(capture.data));
       return { etat: "attente" };
     }
     statut = "to_capture";
@@ -143,7 +179,7 @@ export async function confirmPayment(intentId: string): Promise<Confirmation> {
       paiement_id: intentId,
       prestataire: "stancer",
       montant_cents: montant,
-      devise: String(intent.data.currency ?? "eur").toLowerCase().slice(0, 3),
+      devise,
       palier: attente.palier,
       prenom: attente.prenom,
       email: attente.email,
@@ -233,37 +269,63 @@ const safeError = (data: any) =>
 
 export type Paiement =
   | { etat: "paye"; palier: string }
-  | { etat: "authentification"; url: string }
+  | { etat: "authentification"; url: string; paiement: string }
   | { etat: "refuse" }
   | { etat: "attente" }
   | { etat: "inconnu" };
 
-// Enregistre la carte chez Stancer, l'attache au payment intent, puis : payé, refusé, ou 3D Secure à
-// faire sur la page de la banque (adresse renvoyée par Stancer).
-export async function payWithCard(intentId: string, carte: Carte): Promise<Paiement> {
-  const card = await stancer("POST", "/cards/", {
-    number: carte.numero,
-    exp_month: carte.mois,
-    exp_year: carte.annee,
-    cvc: carte.cvc,
-  });
-  const cardId = card.data?.id;
-  if (!card.ok || typeof cardId !== "string" || !cardId.startsWith("card_")) {
-    console.error("Stancer : carte refusée", card.status, safeError(card.data));
-    return { etat: "refuse" };
-  }
-  const intent = await stancer("PATCH", `/payment_intents/${intentId}`, { card: cardId });
+// Le navigateur du visiteur, que Stancer exige pour le 3D Secure (et dont il tire la localisation).
+export type Appareil = { ip: string; userAgent: string; accept: string; langues: string };
+
+// Paie avec la carte par l'API v1 de Stancer (POST /v1/checkout/) : la v2 ne renvoie pas la page 3D Secure
+// de la banque, seulement sa page de paiement complète. Le paiement v1 reprend le montant, la
+// description, le client et le numéro de reçu du payment intent, et porte en unique_id « pi_….xxxx »
+// (un suffixe par essai, Stancer refusant deux fois le même unique_id). Réponse : payé, refusé, ou
+// l'adresse 3D Secure de la banque (auth.redirect_url), qui revient ensuite sur returnUrl.
+export async function payWithCard(intentId: string, carte: Carte, appareil: Appareil, returnUrl: string): Promise<Paiement> {
+  const { data: attente } = await admin.from("comptoir_attente").select("*").eq("paiement_id", intentId).maybeSingle();
+  if (!attente) return { etat: "inconnu" };
+  const intent = await stancer("GET", `/payment_intents/${intentId}`);
   if (!intent.ok || !intent.data) {
-    console.error("Stancer : carte non attachée", intent.status, safeError(intent.data));
-    return intent.status >= 500 ? { etat: "attente" } : { etat: "refuse" };
+    console.error("Stancer : payment intent illisible", intent.status, safeError(intent.data));
+    return { etat: "attente" };
   }
-  const statut = String(intent.data.status ?? "");
-  const url = intent.data.url;
-  if (statut === "require_authentication" && typeof url === "string" && url.startsWith("https://payment.stancer.com/")) {
-    return { etat: "authentification", url };
+  const essai = crypto.getRandomValues(new Uint8Array(3)).reduce((t, b) => t + b.toString(16).padStart(2, "0"), "");
+  const uniqueId = `${intentId}.${essai}`;
+  // Stancer limite unique_id à 36 caractères : au-delà, on ne saurait pas relier le paiement à l'intent.
+  if (uniqueId.length > 36) {
+    console.error("Stancer : identifiant de payment intent trop long", intentId);
+    return { etat: "attente" };
   }
-  // Carte refusée d'emblée : le payment intent attend un autre moyen de paiement.
-  if (statut === "require_payment_method") return { etat: "refuse" };
-  const result = await confirmPayment(intentId);
-  return result;
+  const customer = typeof intent.data.customer === "string" ? intent.data.customer : intent.data.customer?.id;
+  const res = await stancer("POST", "/v1/checkout/", {
+    amount: attente.montant_cents,
+    currency: "eur",
+    description: String(intent.data.description ?? "Pourboire Michel").slice(0, 64),
+    unique_id: uniqueId,
+    ...(typeof intent.data.order_id === "string" && intent.data.order_id ? { order_id: intent.data.order_id } : {}),
+    ...(typeof customer === "string" && customer.startsWith("cust_") ? { customer } : {}),
+    card: { number: carte.numero, exp_month: carte.mois, exp_year: carte.annee, cvc: carte.cvc },
+    auth: { status: "request", return_url: returnUrl },
+    device: {
+      ip: appareil.ip,
+      // Le port source du visiteur n'arrive pas jusqu'à la fonction : celui du site (HTTPS).
+      port: 443,
+      ...(appareil.userAgent ? { user_agent: appareil.userAgent.slice(0, 256) } : {}),
+      ...(appareil.accept ? { http_accept: appareil.accept.slice(0, 2048) } : {}),
+      ...(appareil.langues ? { languages: appareil.langues.slice(0, 32) } : {}),
+    },
+  });
+  const paymentId = res.data?.id;
+  if (!res.ok || !isCardPaymentId(paymentId)) {
+    console.error("Stancer : paiement carte refusé", res.status, safeError(res.data));
+    return res.status >= 500 ? { etat: "attente" } : { etat: "refuse" };
+  }
+  // Tant que le paiement n'est ni passé ni refusé, une adresse de redirection veut dire 3D Secure à faire.
+  const redirect = res.data.auth?.redirect_url;
+  const statut = String(res.data.status ?? "");
+  if (typeof redirect === "string" && redirect.startsWith("https://") && !PAID.includes(statut) && !FAILED.includes(statut) && statut !== "authorized") {
+    return { etat: "authentification", url: redirect, paiement: paymentId };
+  }
+  return confirmPayment(intentId, paymentId);
 }
