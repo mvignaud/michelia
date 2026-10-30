@@ -434,6 +434,13 @@ function keepAlive(task: Promise<unknown>) {
   if (runtime) runtime.waitUntil(task);
 }
 
+// Abonné MichelIA+ en ce moment ? (table abonnements ; faux si la migration n'est pas passée ou en cas d'erreur.)
+async function abonne(userId: string): Promise<boolean> {
+  const { data, error } = await admin.rpc("michelia_plus", { p_user: userId });
+  if (error) return false;
+  return data === true;
+}
+
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin");
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(origin) });
@@ -471,14 +478,20 @@ Deno.serve(async (req) => {
     return reply(500, "Michel n'est pas encore installé dans la machine.", origin);
   }
 
-  // Quota du jour : plus large pour les membres inscrits que pour les visiteurs anonymes.
+  // Quota du jour : plus large pour les membres inscrits que pour les visiteurs anonymes, et plus
+  // large encore pour les abonnés MichelIA+ (réglages *_plus de app_config).
   const guest = auth.user.is_anonymous ?? true;
+  const plus = !guest && (await abonne(auth.user.id));
   const limit = guest
     ? Number(config.daily_limit_guest ?? config.daily_limit ?? 20)
-    : Number(config.daily_limit_member ?? 200);
+    : plus
+      ? Number(config.daily_limit_plus ?? 400)
+      : Number(config.daily_limit_member ?? 200);
   const hourLimit = guest
     ? Number(config.hourly_limit_guest ?? 5)
-    : Number(config.hourly_limit_member ?? 30);
+    : plus
+      ? Number(config.hourly_limit_plus ?? 60)
+      : Number(config.hourly_limit_member ?? 30);
   if (photo && config.photos_enabled === "false") return reply(403, PHOTOS_CLOSED, origin);
   const counter = {
     p_user: auth.user.id,
@@ -492,7 +505,9 @@ Deno.serve(async (req) => {
         ...counter,
         p_photo_limit: guest
           ? Number(config.daily_photo_limit_guest ?? 3)
-          : Number(config.daily_photo_limit_member ?? 20),
+          : plus
+            ? Number(config.daily_photo_limit_plus ?? 50)
+            : Number(config.daily_photo_limit_member ?? 20),
         p_global_photo_limit: Number(config.global_daily_photo_limit ?? 1000),
       })
     : await admin.rpc("consume_message", counter);

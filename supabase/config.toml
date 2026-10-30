@@ -54,3 +54,12 @@ verify_jwt = false
 # Appelée par pg_cron sans clé : elle ne fait que relire les paiements chez Stancer et recopier le
 # montant remboursé ; un appel de plus ne change rien.
 verify_jwt = false
+
+[functions.michelia-plus]
+# Le navigateur passe la session Supabase ; la fonction vérifie elle-même le compte (pas anonyme) et
+# accepte le retour du 3D Secure (POST de la banque, sans jeton).
+verify_jwt = false
+
+[functions.michelia-plus-echeances]
+# Appelée par pg_cron sans clé : elle ne prélève que les échéances dues, une seule fois chacune.
+verify_jwt = false
