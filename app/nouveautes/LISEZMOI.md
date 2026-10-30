@@ -45,3 +45,7 @@ npm run nouveautes:verifier
 ```
 
 Une entrée mal formée fait échouer le build du site : l'erreur dit quel fichier et quelle clé.
+
+La tâche GitHub « Carnet et Ça mijote » (`.github/workflows/carnet.yml`) le vérifie sur chaque PR, et refuse une PR qui touche à l'appli, au site, aux fonctions Edge ou à la base sans ajouter de nouveauté ni modifier `app/ca-mijote.md`. Rien de visible pour les gens ? Mettre l'étiquette `sans-nouveaute` sur la PR.
+
+La page Ça mijote reprend toute seule les 5 dernières nouveautés (« Tout juste servi »).

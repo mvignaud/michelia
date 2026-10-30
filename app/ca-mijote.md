@@ -1,5 +1,5 @@
 ---
-maj: 2026-10-29
+maj: 2026-10-30
 ---
 <!--
 Ce qui mijote chez Michel : la feuille de route publique, page michel.beer/ca-mijote (/roadmap y mène).
@@ -11,6 +11,9 @@ Ajouter « (idée du cahier) » à la fin d'un plat venu du cahier de doléances
 Quand un plat est servi : le retirer d'ici, son entrée va dans app/nouveautes/.
 Rien d'interne ici (sociétés, montants, fournisseurs pas encore choisis) : c'est public.
 Changer « maj » à chaque modification.
+La tâche GitHub « Carnet et Ça mijote » vérifie chaque PR : une PR qui touche à ce que les gens voient
+doit ajouter une nouveauté ou modifier ce fichier (sinon étiquette « sans-nouveaute »).
+En bas de la page, « Tout juste servi » reprend tout seul les 5 dernières nouveautés.
 -->
 
 ## Au feu
@@ -19,13 +22,14 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
 - **Le comptoir ouvre ses portes** : tout est prêt pour me payer un café, une croustade ou une garbure, sur le site comme dans les applis. J'attends que la paperasse soit signée pour lever le rideau.
 - **Un reçu à chaque paiement** : quand tu me paies quelque chose, tu reçois aussitôt par e-mail un reçu en PDF, à mes couleurs, propre comme un sou neuf.
+- **Un comptoir bien de chez nous** : les paiements du site passent chez une maison française, qui prend moins sur chaque café. La caisse est installée, je la fais tourner à blanc avant d'ouvrir.
 - **Michel sur l'App Store et Google Play** : les applis sont chez Apple et Google, qui les regardent sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
 
 ## Sur la planche
 
 C'est épluché, c'est coupé, ça attend son tour.
 
-- **MichelIA+** : un abonnement facultatif pour les gourmands, avec des petits plus qui coûtent cher à faire tourner, comme ma voix. Michel gratuit reste gratuit, pour tout le monde, et sans pub.
+- **MichelIA+** : un abonnement facultatif pour les gourmands, avec des petits plus qui coûtent cher à faire tourner, comme ma voix. Michel gratuit reste gratuit, pour tout le monde, et sans pub. Sur le site, tu pourras payer par carte ou par prélèvement, comme pour la cotisation du club de rugby.
 - **Quoi de neuf dans l'appli** : les nouveautés du carnet directement dans l'appli, pour que tu saches ce qui a changé sans aller sur le site.
 
 ## Au frais

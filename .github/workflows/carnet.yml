@@ -1,0 +1,48 @@
+# Carnet et Ça mijote : garde-fou de chaque PR pour que michel.beer/confit-de-canard et /ca-mijote suivent le code.
+# 1. Les nouveautés (app/nouveautes/) et app/ca-mijote.md doivent être bien formées (sinon le site ne se construit pas).
+# 2. Une PR qui change ce que les gens voient (appli, site, fonctions Edge, base) ajoute une nouveauté
+#    ou modifie app/ca-mijote.md. Rien de visible ? Mettre l'étiquette « sans-nouveaute » sur la PR.
+# 3. Si app/ca-mijote.md change, sa date « maj » est celle du jour (la veille est tolérée).
+name: Carnet et Ça mijote
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  carnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Nouveautés et Ça mijote bien formées
+        working-directory: app
+        run: npm run -s nouveautes:verifier
+      - name: Carnet ou Ça mijote mis à jour
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          SANS: ${{ contains(github.event.pull_request.labels.*.name, 'sans-nouveaute') }}
+        run: |
+          fichiers=$(git diff --name-only "$BASE"..."$HEAD")
+          visible=$(echo "$fichiers" | grep -E '^(app/src/|app/App\.tsx|app/public/|app/app\.(json|config\.js)|supabase/functions/|supabase/migrations/)' || true)
+          carnet=$(echo "$fichiers" | grep -E '^app/nouveautes/[0-9].*\.md$|^app/ca-mijote\.md$' || true)
+          maj=$(git show "$HEAD":app/ca-mijote.md | sed -n 's/^maj: //p')
+          hier=$(TZ=Europe/Paris date -d yesterday +%F)
+          if echo "$fichiers" | grep -qx 'app/ca-mijote.md' && [[ "$maj" < "$hier" ]]; then
+            echo "::error file=app/ca-mijote.md::Ça mijote a changé : mettre la date « maj » à aujourd'hui (elle dit $maj)."
+            exit 1
+          fi
+          if [ -n "$visible" ] && [ -z "$carnet" ] && [ "$SANS" != "true" ]; then
+            echo "Fichiers visibles touchés :"; echo "$visible"
+            echo "::error::Cette PR change ce que les gens voient : ajouter une nouveauté dans app/nouveautes/ (voir LISEZMOI.md) ou mettre à jour app/ca-mijote.md. Rien de visible ? Étiquette « sans-nouveaute »."
+            exit 1
+          fi
+          echo "Carnet : OK"

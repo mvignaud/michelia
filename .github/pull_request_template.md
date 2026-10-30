@@ -3,7 +3,8 @@
 
 ## Nouveautés
 
-- [ ] Fichier ajouté dans `app/nouveautes/` (voir `app/nouveautes/LISEZMOI.md`), ou rien de visible pour les gens
+- [ ] Fichier ajouté dans `app/nouveautes/` (voir `app/nouveautes/LISEZMOI.md`), ou rien de visible pour les gens (étiquette `sans-nouveaute`)
+- [ ] `app/ca-mijote.md` à jour (plat servi retiré, nouvelle idée ajoutée, date `maj`)
 - [ ] Les applis en profitent sans nouveau build (`sans_build: oui`), ou il faudra un build
 
 ## À faire à la main
