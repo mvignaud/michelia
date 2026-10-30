@@ -21,7 +21,8 @@ const hex = (h: string) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.sli
 const C = { fond: hex("#FBF4E8"), texte: hex("#2B2420"), gris: hex("#7D6E62"), accent: hex("#7A2E1D"), ocre: hex("#D9A441"), surAccent: hex("#FFF8EE") };
 
 export type Recu = {
-  numero: string; // numéro de la facture E-KO
+  numero: string; // numéro de la facture E-KO, ou numéro de reçu propre à Michel
+  facture: boolean; // numero est-il celui de la facture ?
   date: Date;
   email: string;
   prenom?: string | null;
@@ -58,7 +59,7 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
   let y = height - 180;
   page.drawText("Reçu de paiement", { x: m, y, size: 22, font: gras, color: C.texte });
   y -= 26;
-  page.drawText(`Facture n° ${r.numero} · ${jour(r.date)}`, { x: m, y, size: 11, font: normal, color: C.gris });
+  page.drawText(`${r.facture ? "Facture" : "Reçu"} n° ${r.numero} · ${jour(r.date)}`, { x: m, y, size: 11, font: normal, color: C.gris });
   y -= 40;
   const bonjour = r.prenom ? `Merci ${r.prenom} !` : "Merci !";
   page.drawText(bonjour, { x: m, y, size: 14, font: gras, color: C.accent });
@@ -107,7 +108,7 @@ export async function envoyerRecu(r: Recu): Promise<boolean> {
   const nom = r.prenom ? ` ${r.prenom}` : "";
   const texte = [
     `Adishatz${nom} !`,
-    `Merci pour ton paiement de ${euros(r.montantTtcCents)}. Ton reçu est en pièce jointe (facture n° ${r.numero}).`,
+    `Merci pour ton paiement de ${euros(r.montantTtcCents)}. Ton reçu est en pièce jointe (${r.facture ? "facture" : "reçu"} n° ${r.numero}).`,
     "Allez, porte-toi bien.\nMichel",
     SITE_URL,
   ].join("\n\n");

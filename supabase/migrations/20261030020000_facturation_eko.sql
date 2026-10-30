@@ -1,4 +1,5 @@
 -- Factures de Michel dans l'ERP E-KO de GOLDEN PRINT, et reçu PDF envoyé au payeur.
+-- Les reçus partent dès maintenant ; la facturation attend l'évolution de l'API E-KO.
 -- La fonction « facturer », appelée toutes les 5 minutes, prend chaque pourboire web payé (hors essais,
 -- hors applis), crée sa facture dans E-KO (jamais envoyée au client, au nom du client générique
 -- « ClientMichel Web »), puis envoie le reçu au payeur s'il a laissé son e-mail. Le jeton E-KO
@@ -16,7 +17,11 @@ insert into public.app_config (key, value) values
   -- Seuls les pourboires payés à partir de cette date (heure UTC) sont facturés : rien avant l'ouverture.
   ('facturation_eko_depuis', '2999-01-01'),
   -- Nom exact du client générique dans E-KO (créé tout seul s'il n'existe pas).
-  ('facturation_eko_client', 'ClientMichel Web')
+  ('facturation_eko_client', 'ClientMichel Web'),
+  -- Reçus PDF envoyés au payeur, indépendamment de la facturation : tant qu'elle est coupée, le reçu
+  -- porte un numéro propre à Michel (R2026-000123). Départ : ouverture réelle du comptoir Stancer.
+  ('recus_actifs', 'true'),
+  ('recus_depuis', '2026-10-29T23:26:00Z')
 on conflict (key) do nothing;
 
 select cron.unschedule('facturer-pourboires') where exists (select 1 from cron.job where jobname = 'facturer-pourboires');
