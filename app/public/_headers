@@ -1,3 +1,14 @@
+# Sécurité, sur toutes les pages : HTTPS imposé, pas d'affichage de michel.beer dans le cadre d'un
+# autre site (le comptoir ne se fait pas piéger en iframe), adresse complète jamais envoyée aux
+# sites tiers (jeton de désabonnement), ni micro ni position.
+/*
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: frame-ancestors 'self'
+  X-Frame-Options: SAMEORIGIN
+  Permissions-Policy: geolocation=(), microphone=()
+
 /sw.js
   Cache-Control: no-cache
   Service-Worker-Allowed: /
