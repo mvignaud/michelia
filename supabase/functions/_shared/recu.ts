@@ -49,6 +49,18 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
   const italique = await doc.embedFont(StandardFonts.HelveticaOblique);
   const m = 56;
 
+  // Les polices standard du PDF ne connaissent que l'alphabet latin (WinAnsi) : une lettre hors de
+  // cet alphabet (prénom en cyrillique, émoji…) perd son accent ou devient « ? » (un tel prénom est omis),
+  // au lieu de faire échouer tout le reçu.
+  const connus = new Set(normal.getCharacterSet());
+  const latin = (t: string) =>
+    [...t].map((ch) => {
+      if (connus.has(ch.codePointAt(0)!)) return ch;
+      const nu = ch.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+      return [...nu].every((c) => connus.has(c.codePointAt(0)!)) && nu ? nu : "?";
+    }).join("");
+  r = { ...r, numero: latin(r.numero), email: latin(r.email), prenom: r.prenom && !latin(r.prenom).includes("?") ? latin(r.prenom) : null, libelle: latin(r.libelle) };
+
   page.drawRectangle({ x: 0, y: 0, width, height, color: C.fond });
   page.drawRectangle({ x: 0, y: height - 120, width, height: 120, color: C.accent });
   page.drawRectangle({ x: 0, y: height - 126, width, height: 6, color: C.ocre });

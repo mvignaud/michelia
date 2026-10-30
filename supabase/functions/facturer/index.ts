@@ -138,16 +138,21 @@ Deno.serve(async () => {
 
       const facture = l.facture_reglee_at ? l.facture_code : null;
       const date = new Date(l.created_at);
-      const envoye = l.devise === "eur" && await envoyerRecu({
-        numero: facture ?? numeroRecu(l.id, date),
-        facture: !!facture,
-        date,
-        email: l.email!,
-        prenom: l.prenom,
-        libelle: libelle(l),
-        montantTtcCents: l.montant_cents,
-        moyen: "Carte bancaire",
-      });
+      let envoye = false;
+      try {
+        envoye = l.devise === "eur" && await envoyerRecu({
+          numero: facture ?? numeroRecu(l.id, date),
+          facture: !!facture,
+          date,
+          email: l.email!,
+          prenom: l.prenom,
+          libelle: libelle(l),
+          montantTtcCents: l.montant_cents,
+          moyen: "Carte bancaire",
+        });
+      } catch (e) {
+        console.error(`Pourboire ${l.id} : reçu impossible à fabriquer`, e instanceof Error ? e.message : e);
+      }
       if (envoye) {
         await admin.from("pourboires").update({ recu_envoye_at: new Date().toISOString() }).eq("id", l.id);
         envoyes++;
