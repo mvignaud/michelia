@@ -146,6 +146,9 @@ export const abonnementAnnule = (p: { prenom?: string | null; formule: string; f
 
 export type Creancier = { nom: string; ics: string };
 
+// Le créancier de MichelIA+ : GOLDEN PRINT, identifiant créancier SEPA (ICS) donné par Mathieu le 30/10/2026.
+export const CREANCIER: Creancier = { nom: "GOLDEN PRINT SAS", ics: "FR98ZZZ8A3E64" };
+
 export const mandatSigne = (p: { prenom?: string | null; rum: string; iban4: string; creancier: Creancier; date: Date }) =>
   composer(`Ton mandat de prélèvement est enregistré`, p.prenom, [
     `Ton mandat de prélèvement SEPA est bien signé et enregistré. Garde ce message, il te sert de preuve.`,
