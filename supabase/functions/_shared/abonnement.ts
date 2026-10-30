@@ -264,12 +264,14 @@ export async function relireSepa(limite: number): Promise<number> {
     .eq("abonnements.moyen", "sepa")
     .like("paiement_id", "paym_%")
     .gt("created_at", new Date(Date.now() - RELECTURE_SEPA_JOURS * 86_400_000).toISOString())
-    .order("created_at", { ascending: true })
+    // Les moins récemment relus d'abord : chaque prélèvement passe à son tour, même s'ils sont nombreux.
+    .order("relu_le", { ascending: true, nullsFirst: true })
     .limit(limite);
   let rejets = 0;
   for (const e of payees ?? []) {
     if (!isCardPaymentId(e.paiement_id)) continue;
     const payment = await stancer("GET", `/v1/checkout/${e.paiement_id}`);
+    await admin.from("abonnement_echeances").update({ relu_le: new Date().toISOString() }).eq("id", e.id);
     if (!payment.ok || !payment.data) continue;
     const statut = String(payment.data.status ?? "");
     if (!FAILED.includes(statut) && statut !== "disputed") continue;
@@ -283,7 +285,12 @@ export async function relireSepa(limite: number): Promise<number> {
     if (!ab || ab.statut === "expire") continue;
     // La période de ce prélèvement n'est plus payée : la fin revient à son début.
     const recule = ab.fin_periode && new Date(ab.fin_periode).getTime() === new Date(e.periode_fin).getTime();
-    const echecs = (ab.echecs ?? 0) + 1;
+    // Un prélèvement accepté remet les échecs à zéro avant que la banque ne puisse le rejeter : on compte
+    // donc les rejets de cette période (chaque nouvel essai la reprend), pour que l'identifiant unique
+    // du prochain essai change et que l'arrêt arrive bien au bout de ECHECS_MAX.
+    const { count } = await admin.from("abonnement_echeances").select("id", { count: "exact", head: true })
+      .eq("abonnement_id", e.abonnement_id).eq("periode_debut", e.periode_debut).eq("statut", "refuse");
+    const echecs = Math.max((ab.echecs ?? 0) + 1, count ?? 0);
     const arreter = !REJETS_A_RETENTER.includes(code) || echecs >= ECHECS_MAX;
     await admin.from("abonnements").update({
       statut: arreter ? "expire" : ab.statut === "resilie" ? "resilie" : "impaye",

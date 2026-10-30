@@ -8,7 +8,7 @@
 // Et même rejouée, elle ne prélève qu'une fois par période : l'identifiant unique envoyé à Stancer
 // dépend de l'abonnement, de la période et du nombre d'échecs, et Stancer refuse un doublon.
 import { admin, stancer, stancerConfigured } from "../_shared/stancer.ts";
-import { abandonnerSepa, confirmerEcheance, confirmerSepa, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, safeError } from "../_shared/abonnement.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, safeError } from "../_shared/abonnement.ts";
 
 const PAR_PASSAGE = 20;
 
@@ -112,6 +112,9 @@ Deno.serve(async (req) => {
         }, { onConflict: "paiement_id", ignoreDuplicates: true });
         const etat = await confirmerEcheance(existant);
         if (etat.etat === "paye") preleves++;
+        // Déjà refusé (compte d'échecs en retard) : un échec de plus, pour que le prochain essai ait
+        // un nouvel identifiant au lieu de retomber sur ce paiement.
+        if (etat.etat === "refuse") await echecSur(a.id);
       }
       continue;
     }

@@ -7,6 +7,8 @@ alter table public.abonnement_echeances
   add column if not exists stancer_intent text unique
     check (stancer_intent is null or stancer_intent ~ '^pi_[A-Za-z0-9]{6,64}$');
 
--- Relecture des prélèvements SEPA encore rejetables (michelia-plus-echeances, toutes les heures).
+-- Relecture des prélèvements SEPA encore rejetables (michelia-plus-echeances, toutes les heures) :
+-- dernière relecture, pour les passer chacun à leur tour.
+alter table public.abonnement_echeances add column if not exists relu_le timestamptz;
 create index if not exists abonnement_echeances_recentes_idx
   on public.abonnement_echeances (created_at) where statut = 'paye';
