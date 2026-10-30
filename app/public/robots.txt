@@ -1,0 +1,8 @@
+# michel.beer : tout le monde peut lire, le plan du site est en bas.
+# Les pages à garder hors des moteurs (causettes partagées, comptoir, cotisation, cahier de doléances,
+# vérification anti-robots, page hors ligne) ne sont pas bloquées ici : elles disent « noindex »
+# elles-mêmes, et un robot bloqué ne pourrait pas le lire.
+User-agent: *
+Allow: /
+
+Sitemap: https://michel.beer/sitemap.xml

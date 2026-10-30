@@ -3,7 +3,7 @@
 // Sans dossier de sortie existant (vérification seule) : node scripts/nouveautes.mjs --verifier
 import fs from 'node:fs';
 import path from 'node:path';
-import { CSS_VERSION, dateLongue, enLigne, lireNouveautes, PIED, TETE, PLATEFORMES, TYPES, versHtml } from './nouveautes-lib.mjs';
+import { CSS_VERSION, dateLongue, enLigne, lireNouveautes, metaPage, PIED, TETE, PLATEFORMES, TYPES, versHtml } from './nouveautes-lib.mjs';
 
 function disponibilite(e) {
   if (!e.appli) return 'Sur le site';
@@ -40,7 +40,7 @@ function page(entrees) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nouveautés · MichelIA</title>
-<meta name="description" content="Ce qui change chez Michel, le papi du Gers coincé dans la machine : nouveautés du site et des applis MichelIA.">
+${metaPage({ chemin: '/confit-de-canard', titre: 'Les nouveautés de Michel, le papi du Gers coincé dans la machine', description: 'Ce qui change chez Michel, le papi du Gers coincé dans la machine : nouveautés du site et des applis MichelIA.' })}
 <link rel="stylesheet" href="/legal.css?v=${CSS_VERSION}">
 </head>
 <body>
