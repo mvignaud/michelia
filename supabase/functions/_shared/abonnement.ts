@@ -328,6 +328,81 @@ export async function echecSur(abonnementId: number): Promise<void> {
 
 // Souscriptions sur le site jamais payées, plus vieilles que ageMs : supprimées, sauf celles dont le
 // premier paiement est encore en cours ou payé (la suppression emporterait son échéance).
+// Premier prélèvement d'un mandat SEPA signé chez Michel. L'identifiant unique dépend du jour de la
+// signature : relancé (cron, après une réponse floue de Stancer ou une coupure), il retombe sur le
+// même prélèvement (409) au lieu d'en faire un second.
+export async function premierPrelevementSepa(
+  a: { id: number; formule: Formule; prix_cents: number; essai: boolean; stancer_client: string | null; stancer_sepa: string },
+  signeLe: Date,
+): Promise<Etat & { paiement?: string }> {
+  const { data: numero } = await admin.rpc("prochain_numero_recu");
+  let numeroRecu = typeof numero === "string" && numero.length <= 36 ? numero : null;
+  const uniqueId = `abo_${a.id}.${signeLe.toISOString().slice(0, 10).replaceAll("-", "")}.0`;
+  const res = await stancer("POST", "/v1/checkout/", {
+    amount: a.prix_cents,
+    currency: "eur",
+    description: libelle(a.formule),
+    unique_id: uniqueId,
+    ...(numeroRecu ? { order_id: numeroRecu } : {}),
+    ...(a.stancer_client ? { customer: a.stancer_client } : {}),
+    sepa: a.stancer_sepa,
+    capture: true,
+  });
+  let paymentId = res.data?.id;
+  if (res.status === 409) {
+    // Déjà parti à un essai précédent : on rattache ce prélèvement-là, avec son numéro de reçu.
+    paymentId = res.data?.error?.message?.id;
+    if (isCardPaymentId(paymentId)) {
+      const { data: vu } = await stancer("GET", `/v1/checkout/${paymentId}`);
+      numeroRecu = typeof vu?.order_id === "string" && vu.order_id.length <= 36 ? vu.order_id : null;
+    }
+  }
+  if (!isCardPaymentId(paymentId)) {
+    if (res.status >= 500 || res.status === 409) {
+      console.error("MichelIA+ : ALERTE premier prélèvement sans réponse nette, relancé par le cron", a.id, res.status, safeError(res.data));
+      return { etat: "attente" };
+    }
+    console.error("MichelIA+ : premier prélèvement refusé", a.id, res.status, safeError(res.data));
+    await echecSur(a.id);
+    return { etat: "refuse" };
+  }
+  const { error } = await admin.from("abonnement_echeances").upsert({
+    abonnement_id: a.id,
+    paiement_id: paymentId,
+    montant_cents: a.prix_cents,
+    periode_debut: signeLe.toISOString(),
+    periode_fin: finDePeriode(signeLe, a.formule).toISOString(),
+    numero_recu: numeroRecu,
+    essai: a.essai,
+  }, { onConflict: "paiement_id", ignoreDuplicates: true });
+  if (error) {
+    console.error("MichelIA+ : ALERTE échéance non enregistrée pour un prélèvement Stancer", paymentId, error.message);
+    return { etat: "inconnu" };
+  }
+  return { ...(await confirmerEcheance(paymentId)), paiement: paymentId };
+}
+
+// Mandats signés dont le premier prélèvement n'est pas enregistré (Stancer muet, fonction coupée) :
+// relancés au bout de 10 minutes, avec le même identifiant.
+export async function reprendrePremiersSepa(limite: number): Promise<void> {
+  const { data } = await admin.from("abonnements")
+    .select("id, formule, prix_cents, essai, stancer_client, stancer_sepa, mandats_sepa(signe_le), abonnement_echeances(id)")
+    .eq("source", "web").eq("moyen", "sepa").eq("statut", "en_attente").not("stancer_sepa", "is", null)
+    .limit(limite);
+  for (const a of data ?? []) {
+    // deno-lint-ignore no-explicit-any
+    const r = a as any;
+    if (r.abonnement_echeances?.length) continue;
+    const signe = r.mandats_sepa?.[0]?.signe_le;
+    if (!signe) {
+      console.error("MichelIA+ : ALERTE mandat posé sans signature rangée, à vérifier", a.id);
+      continue;
+    }
+    if (Date.now() - new Date(signe).getTime() < 600_000) continue;
+    await premierPrelevementSepa(r, new Date(signe));
+  }
+}
+
 export async function menageEnAttente(ageMs: number, userId?: string): Promise<void> {
   // Un mandat SEPA déjà posé (signature faite, premier prélèvement en route) n'est jamais effacé ici.
   let q = admin.from("abonnements").select("id").eq("source", "web").eq("statut", "en_attente").is("stancer_sepa", null)

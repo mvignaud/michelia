@@ -14,7 +14,7 @@
 // La carte traverse la fonction le temps d'un appel à Stancer : jamais gardée, jamais dans les journaux.
 // Mêmes garde-fous que le comptoir : Turnstile à chaque carte et plafonds d'essais (comptoir_reserver).
 import { admin, cleanCard, isCardPaymentId, isPaymentIntentId, stancer, stancerConfigured, stancerCustomer, stancerTest } from "../_shared/stancer.ts";
-import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, isSepaId, libelle, menageEnAttente, prixDe, safeError } from "../_shared/abonnement.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, isSepaId, libelle, menageEnAttente, premierPrelevementSepa, prixDe, safeError } from "../_shared/abonnement.ts";
 import { CREANCIER, envoyerCourrier, mandatSigne } from "../_shared/courriers.ts";
 import { base64, cleanIban, cleanMobile, cleanTitulaire, empreinte, envoyerSms, masquerTelephone, memeEmpreinte, nouveauCode, nouvelleRum, pdfMandat, smsConfigure } from "../_shared/mandat.ts";
 
@@ -385,39 +385,13 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
       .then((ok) => ok || console.error("MichelIA+ : e-mail du mandat non envoyé", rum)),
   );
 
-  // Premier prélèvement, sur le mandat tout juste signé.
-  const debut = new Date();
-  const numeroRecu = await prochainNumeroRecu();
-  const res = await stancer("POST", "/v1/checkout/", {
-    amount: prix,
-    currency: "eur",
-    description: libelle(formule),
-    unique_id: `abo_${abonnementId}.${debut.toISOString().slice(0, 10).replaceAll("-", "")}.0`,
-    ...(numeroRecu ? { order_id: numeroRecu } : {}),
-    ...(ab.stancer_client ? { customer: ab.stancer_client } : {}),
-    sepa: sepaId,
-    capture: true,
-  });
-  const paymentId = res.data?.id;
-  if (!res.ok || !isCardPaymentId(paymentId)) {
-    console.error(res.status >= 500 ? "MichelIA+ : ALERTE premier prélèvement sans réponse nette, à vérifier chez Stancer" : "MichelIA+ : premier prélèvement refusé", abonnementId, res.status, safeError(res.data));
-    if (res.status < 500) await echecSur(abonnementId);
-    return reply(200, { etat: res.status >= 500 ? "attente" : "refuse" }, origin);
-  }
-  const { error: noteErr } = await admin.from("abonnement_echeances").insert({
-    abonnement_id: abonnementId,
-    paiement_id: paymentId,
-    montant_cents: prix,
-    periode_debut: debut.toISOString(),
-    periode_fin: finDePeriode(debut, formule).toISOString(),
-    numero_recu: numeroRecu,
-    essai: ab.essai,
-  });
-  if (noteErr) {
-    console.error("MichelIA+ : ALERTE échéance non enregistrée pour un prélèvement Stancer", paymentId, noteErr.message);
-    return reply(500, { error: "Abonnement indisponible" }, origin);
-  }
-  return reply(200, { ...(await confirmerEcheance(paymentId)), paiement: paymentId }, origin);
+  // Premier prélèvement, sur le mandat tout juste signé. Sans réponse nette, le cron le relance avec le
+  // même identifiant (premierPrelevementSepa), donc jamais deux fois.
+  const etat = await premierPrelevementSepa(
+    { id: abonnementId, formule, prix_cents: prix, essai: ab.essai, stancer_client: ab.stancer_client, stancer_sepa: sepaId },
+    signeLe,
+  );
+  return reply(etat.etat === "inconnu" ? 500 : 200, etat, origin);
 }
 
 const eurosTexte = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;

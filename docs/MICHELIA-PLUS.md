@@ -96,7 +96,9 @@ Le mandat se signe chez Michel (`_shared/mandat.ts`), plus sur la page Stancer :
   Stancer (`POST /v1/sepa/` avec `iban`, `name`, `mandate` = RUM, `date_mandate`), range le PDF
   dans `mandats/<user>/<RUM>.pdf` et `mandats_sepa` (avec `preuve` : méthode, téléphone masqué, IP,
   navigateur, SHA-256 du PDF), envoie le mandat par e-mail, puis lance le premier prélèvement
-  (`POST /v1/checkout/` avec `sepa`, `unique_id` `abo_<id>.<AAAAMMJJ>.0`).
+  (`premierPrelevementSepa` : `POST /v1/checkout/` avec `sepa`, `unique_id` `abo_<id>.<jour de la
+  signature>.0`). Sans réponse nette (5xx, coupure), le cron le relance au bout de 10 minutes avec le
+  même identifiant (`reprendrePremiersSepa`) : un 409 rattache le prélèvement déjà parti.
 - Ancien parcours (page Stancer, `POST /v2/payment_intents/` avec `methods_allowed: ["sepa"]`,
   retour `/la-cotisation?retour=sepa`) : plus proposé, mais les retours en cours sont encore relus.
 - Retour (ancien parcours) : la page garde le `pi_…` dans l'onglet (sessionStorage) et appelle `{confirmer: pi_…}`.
