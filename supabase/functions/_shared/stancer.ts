@@ -25,6 +25,13 @@ const MODE = STANCER_API_KEY.startsWith("sprod_") ? "prod" : "test";
 // ligne vide est retirée pour réessayer au paiement suivant ; le paiement, lui, n'attend pas.
 export async function ensureWebhook(): Promise<void> {
   if (!stancerConfigured()) return;
+  // Une ligne restée sans secret plus de 2 minutes (enregistrement interrompu) est retentée.
+  await admin
+    .from("stancer_webhook")
+    .delete()
+    .eq("mode", MODE)
+    .is("secret", null)
+    .lt("created_at", new Date(Date.now() - 120_000).toISOString());
   const { data: posee, error } = await admin
     .from("stancer_webhook")
     .upsert({ mode: MODE }, { onConflict: "mode", ignoreDuplicates: true })
@@ -38,7 +45,11 @@ export async function ensureWebhook(): Promise<void> {
     await admin.from("stancer_webhook").delete().eq("mode", MODE).is("secret", null);
     return;
   }
-  await admin.from("stancer_webhook").update({ webhook_id: String(res.data?.id ?? ""), secret }).eq("mode", MODE);
+  const saved = await admin.from("stancer_webhook").update({ webhook_id: String(res.data?.id ?? ""), secret }).eq("mode", MODE);
+  if (saved.error) {
+    console.error("Stancer : secret du webhook non rangé", saved.error.message);
+    return;
+  }
   console.log("Stancer : webhook enregistré", MODE, res.data?.id);
 }
 
@@ -103,6 +114,12 @@ export async function confirmPayment(intentId: string): Promise<Confirmation> {
     }
   }
 
+  // Le montant doit être celui du palier choisi (fixé côté serveur à la création), avant toute capture.
+  if (montant !== attente.montant_cents || String(intent.data.currency ?? "eur").toLowerCase() !== "eur") {
+    console.error("Stancer : montant inattendu", intentId, montant, attente.montant_cents);
+    return { etat: "inconnu" };
+  }
+
   // Autorisé mais pas encore capturé : on capture (le pourboire est « vendu » tout de suite).
   if (statut === "authorized") {
     let capture = await stancer("POST", `/payment_intents/${intentId}/capture`);
@@ -118,11 +135,6 @@ export async function confirmPayment(intentId: string): Promise<Confirmation> {
 
   if (FAILED.includes(statut)) return { etat: "refuse" };
   if (!PAID.includes(statut)) return { etat: "attente" };
-  // Le montant payé doit être celui du palier choisi (fixé côté serveur à la création).
-  if (montant !== attente.montant_cents) {
-    console.error("Stancer : montant inattendu", intentId, montant, attente.montant_cents);
-    return { etat: "inconnu" };
-  }
 
   const { error } = await admin.from("pourboires").upsert(
     {

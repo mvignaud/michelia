@@ -8,9 +8,10 @@
 // Avec Stancer (app_config comptoir_prestataire = 'stancer') : {palier, email, prenom} crée un payment
 // intent et renvoie {url} (les champs de carte Stancer, affichés en iframe) ; {confirmer: pi_…} relit le
 // paiement chez Stancer et écrit le pourboire s'il est payé (voir _shared/stancer.ts).
-// {payer: pi_…, carte} : la carte saisie dans notre formulaire part chez Stancer (jamais gardée). Il faut
-// une session Supabase (compte anonyme créé avec le captcha Turnstile) et un nombre d'essais limité,
-// contre les robots qui testent des cartes volées.
+// {payer: pi_…, carte, captcha} : la carte saisie dans notre formulaire part chez Stancer (jamais gardée).
+// Ouvrir un paiement comme envoyer une carte demande une session Supabase (compte anonyme créé avec le
+// captcha Turnstile) et passe par des plafonds comptés en base (comptoir_reserver), contre les robots
+// qui testent des cartes volées. Seul le visiteur qui a ouvert un paiement peut y mettre une carte.
 import {
   admin,
   cleanCard,
@@ -108,7 +109,13 @@ Deno.serve(async (req) => {
     return reply(400, { error: "Palier inconnu" }, origin);
   }
 
-  if (avecStancer) return createStancerPayment(palier, body, stancerTest(), origin);
+  if (avecStancer) {
+    const qui = await visiteur(req);
+    if (!qui) return reply(401, { error: "Session requise" }, origin);
+    const place = await reserver("paiement", qui, null);
+    if (place !== "ok") return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
+    return createStancerPayment(palier, body, stancerTest(), qui.id, origin);
+  }
 
   // Stripe Tax en option (app_config stripe_tax = 'true') : les prix affichés sont TTC.
   const taxe = (await config("stripe_tax")) === "true";
@@ -169,7 +176,7 @@ async function savePrenom(sessionId: string, prenom: unknown, origin: string | n
 // Stancer : payment intent au prix du palier, carte seule (le prélèvement SEPA sera pour MichelIA+).
 // Ce que le visiteur a saisi attend dans comptoir_attente jusqu'à la confirmation du paiement.
 // deno-lint-ignore no-explicit-any
-async function createStancerPayment(palier: Palier, body: any, essai: boolean, origin: string | null): Promise<Response> {
+async function createStancerPayment(palier: Palier, body: any, essai: boolean, userId: string, origin: string | null): Promise<Response> {
   const email = cleanEmail(body?.email);
   if (!email) return reply(400, { error: "E-mail invalide" }, origin);
   const res = await stancer("POST", "/payment_intents/", {
@@ -192,6 +199,7 @@ async function createStancerPayment(palier: Palier, body: any, essai: boolean, o
     prenom: cleanFirstName(body?.prenom),
     email,
     essai,
+    user_id: userId,
   });
   if (error) {
     console.error("Paiement en attente non enregistré", error.message);
@@ -202,33 +210,59 @@ async function createStancerPayment(palier: Palier, body: any, essai: boolean, o
   return reply(200, { id, url }, origin);
 }
 
-// Essais de carte permis : par visiteur et pour tout le comptoir, sur l'heure écoulée.
-const ESSAIS_PAR_VISITEUR = 5;
-const ESSAIS_PAR_HEURE = 60;
+// Le visiteur derrière la requête : session Supabase obligatoire (compte anonyme créé avec le captcha
+// Turnstile, ou membre), et son adresse IP pour les plafonds.
+async function visiteur(req: Request): Promise<{ id: string; ip: string } | null> {
+  const jwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!jwt) return null;
+  const { data } = await admin.auth.getUser(jwt);
+  if (!data?.user) return null;
+  const ip = (req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim().slice(0, 64);
+  return { id: data.user.id, ip };
+}
+
+// Compte et inscrit l'essai d'un seul coup en base (sous verrou). Toute erreur refuse : on ne laisse
+// jamais passer une carte sans l'avoir comptée.
+async function reserver(genre: "carte" | "paiement", qui: { id: string; ip: string }, paiement: string | null): Promise<string> {
+  const { data, error } = await admin.rpc("comptoir_reserver", {
+    p_genre: genre,
+    p_user: qui.id,
+    p_ip: qui.ip,
+    p_paiement: paiement,
+  });
+  if (error) {
+    console.error("Comptoir : plafond illisible", error.message);
+    return "erreur";
+  }
+  if (data === "global") console.error(`Comptoir : ALERTE plafond global atteint (${genre}), robots possibles`);
+  return String(data);
+}
+
+// Turnstile à chaque carte envoyée, si la clé secrète est posée (TURNSTILE_SECRET_KEY).
+const TURNSTILE_SECRET_KEY = Deno.env.get("TURNSTILE_SECRET_KEY") ?? "";
+async function captchaOk(token: unknown, ip: string): Promise<boolean> {
+  if (!TURNSTILE_SECRET_KEY) return true;
+  if (typeof token !== "string" || !token || token.length > 2048) return false;
+  const form = new URLSearchParams({ secret: TURNSTILE_SECRET_KEY, response: token });
+  if (ip) form.set("remoteip", ip);
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form });
+  const data = await res.json().catch(() => null);
+  return data?.success === true;
+}
 
 // deno-lint-ignore no-explicit-any
 async function payer(req: Request, body: any, origin: string | null): Promise<Response> {
   if (!isPaymentIntentId(body.payer)) return reply(400, { error: "Paiement inconnu" }, origin);
-  const jwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  const { data: auth } = jwt ? await admin.auth.getUser(jwt) : { data: { user: null } };
-  const user = auth?.user;
-  if (!user) return reply(401, { error: "Session requise" }, origin);
-
-  const depuis = new Date(Date.now() - 3600_000).toISOString();
-  const [mien, tous] = await Promise.all([
-    admin.from("comptoir_tentatives").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", depuis),
-    admin.from("comptoir_tentatives").select("id", { count: "exact", head: true }).gte("created_at", depuis),
-  ]);
-  if (mien.error || tous.error) return reply(500, { error: "Paiement indisponible" }, origin);
-  if ((mien.count ?? 0) >= ESSAIS_PAR_VISITEUR || (tous.count ?? 0) >= ESSAIS_PAR_HEURE) {
-    return reply(429, { error: "Trop d'essais" }, origin);
-  }
-
+  const qui = await visiteur(req);
+  if (!qui) return reply(401, { error: "Session requise" }, origin);
   const carte = cleanCard(body.carte);
   if (!carte) return reply(400, { error: "Carte invalide" }, origin);
-  const { data: attente } = await admin.from("comptoir_attente").select("paiement_id").eq("paiement_id", body.payer).maybeSingle();
-  if (!attente) return reply(400, { error: "Paiement inconnu" }, origin);
+  // Seul le visiteur qui a ouvert le paiement peut y mettre une carte.
+  const { data: attente } = await admin.from("comptoir_attente").select("user_id").eq("paiement_id", body.payer).maybeSingle();
+  if (!attente || attente.user_id !== qui.id) return reply(400, { error: "Paiement inconnu" }, origin);
+  if (!(await captchaOk(body.captcha, qui.ip))) return reply(403, { error: "Vérification anti-robot échouée" }, origin);
 
-  await admin.from("comptoir_tentatives").insert({ user_id: user.id, paiement_id: body.payer });
+  const place = await reserver("carte", qui, body.payer);
+  if (place !== "ok") return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
   return reply(200, await payWithCard(body.payer, carte), origin);
 }

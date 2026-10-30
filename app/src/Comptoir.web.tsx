@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
 import { isMember, loadProfile } from './auth';
+import { getCaptchaToken } from './captcha';
 import { getAccessToken, supabase } from './supabase';
 import { colors, serif } from './theme';
 
@@ -222,20 +223,23 @@ function Page() {
         id = ouvert.id as string;
         setIntent(id);
       }
+      const captcha = await getCaptchaToken();
       const { data: result, error } = await supabase.functions.invoke('comptoir-paiement', {
-        body: { payer: id, carte: { numero: chiffres, mois: Number(date[1]), annee: Number(date[2]), cvc: cvc.trim() } },
+        body: {
+          payer: id,
+          captcha,
+          carte: { numero: chiffres, mois: Number(date[1]), annee: Number(date[2]), cvc: cvc.trim() },
+        },
       });
-      setCvc('');
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
-      if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      if (statut === 429) {
+        setIntent(undefined);
+        return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      }
       if (statut === 400) return setRefus('Vérifie le numéro de carte, la date (MM/AA) et le code au dos.');
       if (error) throw error;
       if (result?.etat === 'paye') return merciRecu(result.palier ?? paying!);
-      if (result?.etat === 'authentification' && typeof result.url === 'string' && result.url.startsWith(STANCER_ORIGIN)) {
-        setNumero('');
-        setExpiration('');
-        return setSecure(result.url);
-      }
+      if (result?.etat === 'authentification' && deStancer(result.url)) return setSecure(result.url);
       if (result?.etat === 'refuse') {
         // Un payment intent refusé ne resservira pas : le prochain essai en ouvre un neuf.
         setIntent(undefined);
@@ -248,6 +252,10 @@ function Page() {
       console.error('Comptoir : paiement impossible', e);
       setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
     } finally {
+      // La carte ne reste jamais dans la page après un envoi, quoi qu'il arrive : il faudra la retaper.
+      setNumero('');
+      setExpiration('');
+      setCvc('');
       setSending(false);
     }
   };
@@ -460,6 +468,13 @@ function Page() {
 const PAYMENT_ID = 'comptoir-paiement';
 // Les champs de carte Stancer viennent de là, et leurs messages aussi.
 const STANCER_ORIGIN = 'https://payment.stancer.com';
+const deStancer = (url: unknown): url is string => {
+  try {
+    return typeof url === 'string' && new URL(url).origin === STANCER_ORIGIN;
+  } catch {
+    return false;
+  }
+};
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
 // Les champs Stripe aux couleurs de la page (lin, bois, armagnac).
