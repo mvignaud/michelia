@@ -7,9 +7,11 @@ import { euros } from './comptoir';
 import { supabase } from './supabase';
 import { colors, serif } from './theme';
 
-// Page /la-cotisation (web seulement) : l'abonnement MichelIA+ par carte. Comme au comptoir, la carte
-// est tapée dans notre formulaire et part à la fonction michelia-plus, qui la transmet à Stancer sans
-// la garder ; la banque demande ensuite son 3D Secure dans un cadre. Il faut un compte Michel.
+// Page /la-cotisation (web seulement) : l'abonnement MichelIA+ par carte ou prélèvement SEPA. Comme au
+// comptoir, la carte est tapée dans notre formulaire et part à la fonction michelia-plus, qui la
+// transmet à Stancer sans la garder ; la banque demande ensuite son 3D Secure dans un cadre. Le
+// prélèvement, lui, se signe sur la page Stancer (IBAN et code SMS), qui revient ici
+// (?retour=sepa). Il faut un compte Michel.
 export function Cotisation(_props: { onClose?: () => void }) {
   // Retour du 3D Secure chargé dans son propre cadre : on prévient la page autour.
   if (window.top !== window.self) {
@@ -40,6 +42,16 @@ type Abonnement = {
   derniers_chiffres: string | null;
 };
 
+// Le premier prélèvement SEPA parti sur la page Stancer, relu au retour (onglet seulement).
+const CLE_SEPA = 'michelia-plus-sepa';
+const lireSepa = () => {
+  try {
+    return sessionStorage.getItem(CLE_SEPA) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const jour = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 
@@ -49,6 +61,7 @@ function Page() {
   const [abonnement, setAbonnement] = useState<Abonnement | null>();
   const [failed, setFailed] = useState(false);
   const [formule, setFormule] = useState<'mois' | 'an'>('mois');
+  const [moyen, setMoyen] = useState<'carte' | 'sepa'>('carte');
   const [numero, setNumero] = useState('');
   const [expiration, setExpiration] = useState('');
   const [cvc, setCvc] = useState('');
@@ -56,7 +69,10 @@ function Page() {
   const [sending, setSending] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
   // Le premier paiement en cours de 3D Secure, et la page de la banque.
-  const [paiement, setPaiement] = useState<string>();
+  // Ou le premier prélèvement SEPA, de retour de la page Stancer.
+  const [paiement, setPaiement] = useState<string | undefined>(() =>
+    new URLSearchParams(window.location.search).get('retour') === 'sepa' ? lireSepa() : undefined,
+  );
   const [secure, setSecure] = useState<string>();
   const [hauteur, setHauteur] = useState(480);
   const [bienvenue, setBienvenue] = useState(false);
@@ -94,7 +110,12 @@ function Page() {
         if (stopped) return;
         if (result?.etat === 'paye') return bienvenu();
         if (result?.etat === 'refuse') {
-          setRefus("La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.");
+          setRefus(
+            paiement.startsWith('pi_')
+              ? "Le mandat n'est pas signé, rien n'est prélevé. Tu peux réessayer, ou payer par carte."
+              : "La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.",
+          );
+          oublierSepa();
           setSecure(undefined);
           setPaiement(undefined);
           return;
@@ -103,6 +124,11 @@ function Page() {
         // Réseau capricieux : on réessaie au prochain tour.
       }
       if (++tries < 60) timer = setTimeout(confirmer, 4000);
+      else if (paiement.startsWith('pi_')) {
+        // La banque prend son temps : Michel relit le prélèvement de son côté, toutes les heures.
+        setRefus("Stancer n'a pas encore confirmé ton mandat. Je vérifie de mon côté, reviens dans un moment.");
+        setPaiement(undefined);
+      }
     };
     timer = setTimeout(confirmer, 4000);
     const onMessage = (event: MessageEvent) => {
@@ -118,12 +144,53 @@ function Page() {
     };
   }, [paiement]);
 
+  const oublierSepa = () => {
+    try {
+      sessionStorage.removeItem(CLE_SEPA);
+    } catch {
+      // Rien à oublier.
+    }
+  };
+
   const bienvenu = () => {
+    oublierSepa();
     setSecure(undefined);
     setPaiement(undefined);
     setRefus(null);
     setBienvenue(true);
     recharger().catch(() => {});
+  };
+
+  // Prélèvement : on part signer le mandat sur la page Stancer, qui revient ici.
+  const signerMandat = async () => {
+    if (sending) return;
+    if (!accepte) return setRefus("Coche la case des conditions, c'est la loi, con.");
+    setSending(true);
+    setRefus(null);
+    try {
+      const captcha = await getCaptchaToken();
+      const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
+        body: { souscrire: formule, moyen: 'sepa', captcha },
+      });
+      const statut = (error as { context?: { status?: number } } | null)?.context?.status;
+      if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      if (statut === 409) return recharger();
+      if (error) throw error;
+      if (result?.etat === 'mandat' && pageSecure(result.url) && typeof result.paiement === 'string') {
+        try {
+          sessionStorage.setItem(CLE_SEPA, result.paiement);
+        } catch {
+          // Sans stockage, le serveur relit quand même le prélèvement toutes les heures.
+        }
+        return window.location.assign(result.url);
+      }
+      setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
+    } catch (e) {
+      console.error('MichelIA+ : prélèvement impossible', e);
+      setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const souscrire = async () => {
@@ -193,6 +260,7 @@ function Page() {
   };
 
   const prix = formule === 'mois' ? offre?.mois_cents : offre?.an_cents;
+  const retourSepa = !!paiement?.startsWith('pi_');
   const essai = new URLSearchParams(window.location.search).has('essai');
 
   return (
@@ -234,14 +302,19 @@ function Page() {
             <Text style={styles.cardTitle}>Ta cotisation</Text>
             <Text style={styles.text}>
               MichelIA+ {abonnement.formule === 'mois' ? 'au mois' : "à l'année"}, {euros(abonnement.prix_cents)}
-              {abonnement.moyen === 'carte' && abonnement.derniers_chiffres ? `, carte •••• ${abonnement.derniers_chiffres}` : ''}.
+              {abonnement.moyen === 'carte' && abonnement.derniers_chiffres ? `, carte •••• ${abonnement.derniers_chiffres}` : ''}
+              {abonnement.moyen === 'sepa' ? `, prélèvement${abonnement.derniers_chiffres ? ` sur le compte •••• ${abonnement.derniers_chiffres}` : ''}` : ''}.
             </Text>
             {abonnement.statut === 'actif' && (
-              <Text style={styles.text}>Prochaine échéance le {jour(abonnement.fin_periode)}.</Text>
+              <Text style={styles.text}>
+                Prochaine échéance le {jour(abonnement.fin_periode)}
+                {abonnement.moyen === 'sepa' ? `, ${euros(abonnement.prix_cents)} prélevés sur ton compte` : ''}.
+              </Text>
             )}
             {abonnement.statut === 'impaye' && (
               <Text style={styles.refus}>
-                La dernière échéance n'est pas passée. Je réessaie dans quelques jours ; vérifie ta carte en attendant.
+                La dernière échéance n'est pas passée. Je réessaie dans quelques jours ; vérifie{' '}
+                {abonnement.moyen === 'sepa' ? 'ton compte' : 'ta carte'} en attendant.
               </Text>
             )}
             {abonnement.statut === 'resilie' && (
@@ -250,7 +323,7 @@ function Page() {
             {abonnement.source === 'web' && abonnement.statut === 'resilie' && (
               <>
                 <Text style={styles.small}>
-                  Tu regrettes déjà ? Reprends ta cotisation : rien n'est prélevé aujourd'hui, elle repart le {jour(abonnement.fin_periode)}, sur la même carte.
+                  Tu regrettes déjà ? Reprends ta cotisation : rien n'est prélevé aujourd'hui, elle repart le {jour(abonnement.fin_periode)}, {abonnement.moyen === 'sepa' ? 'sur le même compte' : 'sur la même carte'}.
                 </Text>
                 <Pressable onPress={reprendre} disabled={sending} style={({ pressed }) => [styles.payer, pressed && styles.pressed]} accessibilityRole="button">
                   {sending ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.payerText}>Reprendre ma cotisation</Text>}
@@ -306,7 +379,7 @@ function Page() {
                   <Pressable
                     key={f}
                     onPress={() => setFormule(f)}
-                    disabled={!!secure}
+                    disabled={!!secure || retourSepa}
                     style={[styles.formule, formule === f && styles.formuleChoisie]}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: formule === f }}
@@ -319,7 +392,46 @@ function Page() {
                 );
               })}
             </View>
-            {!secure && (
+            {!secure && !retourSepa && (
+              <View style={styles.row}>
+                {(['carte', 'sepa'] as const).map((m) => (
+                  <Pressable
+                    key={m}
+                    onPress={() => {
+                      setMoyen(m);
+                      setRefus(null);
+                    }}
+                    style={[styles.formule, moyen === m && styles.formuleChoisie]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: moyen === m }}
+                  >
+                    <Text style={[styles.formuleNom, moyen === m && styles.formuleNomChoisi]}>{m === 'carte' ? 'Par carte' : 'Par prélèvement'}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {retourSepa && <Text style={styles.text}>Je relis ton mandat chez Stancer, deux secondes…</Text>}
+            {!secure && !retourSepa && moyen === 'sepa' && (
+              <>
+                <Text style={styles.small}>
+                  Tu tapes ton IBAN sur la page de Stancer, jamais chez Michel, et tu signes le mandat avec le code reçu par SMS. Le
+                  premier prélèvement part tout de suite, puis à la même date {formule === 'mois' ? 'chaque mois' : 'chaque année'}.
+                </Text>
+                <Pressable onPress={() => setAccepte((a) => !a)} style={styles.row} accessibilityRole="checkbox" accessibilityState={{ checked: accepte }}>
+                  <Text style={styles.case}>{accepte ? '☑' : '☐'}</Text>
+                  <Text style={[styles.small, styles.half]}>
+                    J'accepte les{' '}
+                    <Text style={styles.link} onPress={() => window.open('/conditions.html', '_blank')}>
+                      conditions
+                    </Text>{' '}
+                    et je demande que MichelIA+ commence tout de suite : je renonce à mon délai de rétractation de 14 jours.
+                    J'autorise GOLDEN PRINT à prélever {prix ? euros(prix) : 'le prix affiché'} {formule === 'mois' ? 'chaque mois' : 'chaque année'} à
+                    la date anniversaire : ce rappel vaut avis de prélèvement. Résiliable ici en deux clics.
+                  </Text>
+                </Pressable>
+              </>
+            )}
+            {!secure && !retourSepa && moyen === 'carte' && (
               <>
                 <TextInput
                   value={numero}
@@ -373,9 +485,9 @@ function Page() {
               />
             )}
             {refus && <Text style={styles.refus}>{refus}</Text>}
-            {!secure && (
+            {!secure && !retourSepa && (
               <Pressable
-                onPress={souscrire}
+                onPress={moyen === 'sepa' ? signerMandat : souscrire}
                 disabled={sending || !prix}
                 style={({ pressed }) => [styles.payer, (sending || !prix) && styles.dimmed, pressed && styles.pressed]}
                 accessibilityRole="button"
@@ -383,11 +495,15 @@ function Page() {
                 {sending ? (
                   <ActivityIndicator color={colors.onAccent} />
                 ) : (
-                  <Text style={styles.payerText}>Cotiser {prix ? euros(prix) : ''}</Text>
+                  <Text style={styles.payerText}>
+                    {moyen === 'sepa' ? 'Signer le mandat' : 'Cotiser'} {prix ? euros(prix) : ''}
+                  </Text>
                 )}
               </Pressable>
             )}
-            <Text style={styles.small}>Paiement sécurisé par Stancer. Ta carte n'est jamais gardée chez Michel.</Text>
+            <Text style={styles.small}>
+              Paiement sécurisé par Stancer. {moyen === 'sepa' ? "Ton IBAN n'est jamais gardé chez Michel." : "Ta carte n'est jamais gardée chez Michel."}
+            </Text>
           </View>
         )}
 

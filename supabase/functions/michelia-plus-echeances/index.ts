@@ -1,13 +1,14 @@
 // Fonction « michelia-plus-echeances » : Stancer n'a pas d'abonnements, alors toutes les heures
 // (pg_cron, migration 20261030100000_michelia_plus_carte.sql), Michel prélève lui-même les échéances
 // MichelIA+ arrivées à terme sur le site, avec la carte enregistrée chez Stancer au premier paiement
-// (jeton card_…), sans la personne. Elle relit aussi les échéances restées en cours, arrête les
-// abonnements résiliés arrivés au bout, et ceux qui ont raté trop d'échéances (_shared/abonnement.ts).
+// (jeton card_…) ou le mandat SEPA signé (sepa_…), sans la personne. Elle relit aussi les échéances
+// restées en cours et les prélèvements SEPA encore rejetables, arrête les abonnements résiliés arrivés
+// au bout, et ceux qui ont raté trop d'échéances (_shared/abonnement.ts).
 // Seul le cron l'appelle : il envoie le secret « michelia_plus_cron » du coffre (vault), vérifié ici.
 // Et même rejouée, elle ne prélève qu'une fois par période : l'identifiant unique envoyé à Stancer
 // dépend de l'abonnement, de la période et du nombre d'échecs, et Stancer refuse un doublon.
 import { admin, stancer, stancerConfigured } from "../_shared/stancer.ts";
-import { confirmerEcheance, finDePeriode, type Formule, libelle, menageEnAttente, safeError } from "../_shared/abonnement.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, safeError } from "../_shared/abonnement.ts";
 
 const PAR_PASSAGE = 20;
 
@@ -24,20 +25,26 @@ Deno.serve(async (req) => {
   // Résiliés arrivés au bout de la période payée : terminé.
   await admin.from("abonnements").update({ statut: "expire", updated_at: maintenant })
     .eq("source", "web").eq("statut", "resilie").lte("fin_periode", maintenant);
-  // Souscriptions jamais payées : on fait le ménage au bout d'une demi-heure.
+  // Souscriptions jamais payées : on fait le ménage au bout d'une demi-heure ; une page de prélèvement
+  // SEPA jamais signée, au bout d'un jour.
+  await abandonnerSepa(86_400_000);
   await menageEnAttente(1_800_000);
 
-  // Échéances restées en cours (Stancer lent à répondre) : relues.
-  const { data: enCours } = await admin.from("abonnement_echeances").select("paiement_id")
+  // Échéances restées en cours (Stancer lent à répondre, page SEPA pas encore revenue) : relues.
+  const { data: enCours } = await admin.from("abonnement_echeances").select("paiement_id, stancer_intent")
     .eq("statut", "en_cours").lt("created_at", new Date(Date.now() - 600_000).toISOString()).limit(PAR_PASSAGE);
-  for (const e of enCours ?? []) await confirmerEcheance(e.paiement_id);
+  for (const e of enCours ?? []) {
+    await (e.stancer_intent && e.paiement_id === e.stancer_intent ? confirmerSepa(e.stancer_intent) : confirmerEcheance(e.paiement_id));
+  }
+  // Prélèvements SEPA rejetés par la banque après coup.
+  const rejets = await relireSepa(100);
 
-  // Échéances dues : carte enregistrée, période finie, pas d'essai prévu plus tard.
+  // Échéances dues : carte enregistrée ou mandat signé, période finie, pas d'essai prévu plus tard.
   const { data: dus, error } = await admin
     .from("abonnements")
-    .select("id, formule, prix_cents, fin_periode, stancer_carte, stancer_client, prochain_essai, echecs, essai")
+    .select("id, formule, moyen, prix_cents, fin_periode, stancer_carte, stancer_sepa, stancer_client, prochain_essai, echecs, essai")
     .eq("source", "web")
-    .eq("moyen", "carte")
+    .in("moyen", ["carte", "sepa"])
     .in("statut", ["actif", "impaye"])
     .lte("fin_periode", maintenant)
     .or(`prochain_essai.is.null,prochain_essai.lte.${maintenant}`)
@@ -50,8 +57,9 @@ Deno.serve(async (req) => {
 
   let preleves = 0;
   for (const a of dus ?? []) {
-    if (!a.stancer_carte) {
-      console.error("MichelIA+ : abonnement sans carte enregistrée", a.id);
+    const sepa = a.moyen === "sepa";
+    if (sepa ? !a.stancer_sepa : !a.stancer_carte) {
+      console.error(sepa ? "MichelIA+ : abonnement sans mandat SEPA" : "MichelIA+ : abonnement sans carte enregistrée", a.id);
       continue;
     }
     // On réserve l'abonnement (prochain essai dans une heure) avant tout appel : deux passages en
@@ -82,7 +90,8 @@ Deno.serve(async (req) => {
       unique_id: uniqueId,
       ...(numeroRecu ? { order_id: numeroRecu } : {}),
       ...(a.stancer_client ? { customer: a.stancer_client } : {}),
-      card: a.stancer_carte,
+      // Carte : paiement à l'initiative du marchand, sans 3D Secure. SEPA : prélèvement sur le mandat.
+      ...(sepa ? { sepa: a.stancer_sepa } : { card: a.stancer_carte }),
       capture: true,
     });
     // Doublon (409) : ce prélèvement est déjà parti à un passage précédent, qui est tombé avant de
@@ -103,6 +112,9 @@ Deno.serve(async (req) => {
         }, { onConflict: "paiement_id", ignoreDuplicates: true });
         const etat = await confirmerEcheance(existant);
         if (etat.etat === "paye") preleves++;
+        // Déjà refusé (compte d'échecs en retard) : un échec de plus, pour que le prochain essai ait
+        // un nouvel identifiant au lieu de retomber sur ce paiement.
+        if (etat.etat === "refuse") await echecSur(a.id);
       }
       continue;
     }
@@ -139,5 +151,5 @@ Deno.serve(async (req) => {
     if (etat.etat === "paye") preleves++;
     console.log("MichelIA+ : échéance", a.id, etat.etat);
   }
-  return json(200, { dus: dus?.length ?? 0, preleves });
+  return json(200, { dus: dus?.length ?? 0, preleves, rejets });
 });
