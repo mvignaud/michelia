@@ -36,6 +36,14 @@ Comment ça tourne : `comptoir-paiement` crée un payment intent Stancer au prix
 5. **Webhook** : Stancer n'a pas de rubrique Webhooks dans son espace client. Lancer `supabase/migrations/20261030010000_stancer_webhook.sql` ; au premier paiement de chaque mode (test, puis réel), `comptoir-paiement` enregistre tout seul l'adresse `https://nuulykhqaeecqerfwdsn.supabase.co/functions/v1/stancer-webhook` par l'API (`POST /v2/webhooks/`) et range le secret de signature dans la table `stancer_webhook` (service_role seulement). Rien à copier. Pour recommencer : supprimer la ligne du mode dans cette table. Sans webhook, la confirmation par la page suffit tant que le visiteur reste jusqu'au merci.
 6. **Passer en réel** : clé `sprod_…` dans `STANCER_API_KEY`, puis `comptoir_actif` à `'true'` comme pour Stripe. Pour revenir à Stripe : `comptoir_prestataire` à `'stripe'`.
 
+### Formulaire de carte maison (« full API »)
+
+Depuis le 30/10/2026, la carte se saisit dans notre propre formulaire (numéro, MM/AA, code au dos), aux couleurs de Michel. Le navigateur l'envoie à `comptoir-paiement` (`{payer: pi_…, carte}`), qui crée la carte chez Stancer (`POST /v2/cards/`), l'attache au payment intent (`PATCH /v2/payment_intents/…`) puis répond : payé, refusé, ou `authentification` avec l'adresse de la page 3D Secure de la banque, affichée en iframe. La confirmation se fait ensuite comme avant.
+
+- **Jamais gardée** : la carte n'est écrite nulle part (ni table, ni journal ; les messages d'erreur de Stancer sont journalisés sans chiffres). La page vide le code au dos après chaque envoi et la carte entière au passage en 3D Secure.
+- **Anti-robots** : il faut une session Supabase (compte anonyme créé avec le captcha Turnstile) et chaque envoi compte un essai dans `comptoir_tentatives` : 5 par visiteur et 60 en tout par heure. Migration `20261030020000_comptoir_tentatives.sql`.
+- **PCI DSS** : Stancer n'exige pas de certification sous 10 000 transactions, mais GOLDEN PRINT reste tenue aux règles PCI DSS : questionnaire d'auto-évaluation annuel (le SAQ D, puisque les cartes passent par notre serveur). Ne jamais ajouter de `console.log` du corps de la requête dans `comptoir-paiement`.
+
 ## Applis (achat intégré)
 
 1. **SQL** : lancer `supabase/migrations/20261029170000_comptoir_applis.sql` (rejouable) dans le SQL Editor.
