@@ -64,7 +64,8 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
   page.drawRectangle({ x: 0, y: height - 120, width, height: 120, color: C.accent });
   page.drawRectangle({ x: 0, y: height - 126, width, height: 6, color: C.ocre });
   // Logo de Michel servi par le site (app/public/email/logo-recu.png) ; à défaut, son nom en toutes lettres.
-  const logo = await fetch(`${SITE_URL}/email/logo-recu.png`)
+  // 3 secondes au plus, téléchargement compris : un site lent ne retarde pas les reçus.
+  const logo = await fetch(`${SITE_URL}/email/logo-recu.png`, { signal: AbortSignal.timeout(3000) })
     .then(async (r) => r.ok ? await doc.embedPng(new Uint8Array(await r.arrayBuffer())) : null)
     .catch(() => null);
   if (logo) {
