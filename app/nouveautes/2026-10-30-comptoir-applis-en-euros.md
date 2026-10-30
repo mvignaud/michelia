@@ -5,6 +5,6 @@ type: mieux
 plateformes: ios, android
 store: Comptoir : une image par pourboire, prix en euros sur iPhone
 pr: 124
-build: 16
+build: 15
 ---
 Chaque pourboire du comptoir a son image : le café, la croustade, la garbure et le repas de fête. Et sur iPhone, les prix s'affichent en euros, comme sur la fenêtre de paiement d'Apple, plus en dollars.
