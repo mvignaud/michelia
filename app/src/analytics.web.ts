@@ -6,8 +6,11 @@ export const ANALYTICS_ENABLED = !!GA_ID;
 type Gtag = (...args: unknown[]) => void;
 let started = false;
 
+// Jamais sur /comptoir : aucun script tiers ne doit tourner à côté des champs de carte (PCI DSS 6.4.3).
+export const pageSansMesure = () => location.pathname.startsWith('/comptoir');
+
 export function startAnalytics() {
-  if (started || !GA_ID) return;
+  if (started || !GA_ID || pageSansMesure()) return;
   started = true;
   const w = window as unknown as { dataLayer: unknown[]; gtag: Gtag };
   w.dataLayer = w.dataLayer || [];
@@ -17,7 +20,10 @@ export function startAnalytics() {
     w.dataLayer.push(arguments);
   };
   w.gtag('js', new Date());
-  w.gtag('config', GA_ID);
+  // Adresse sans le jeton de désabonnement des e-mails, au cas où gtag partirait avant qu'App.tsx l'efface.
+  const page = new URL(location.href);
+  page.searchParams.delete('desabonnement');
+  w.gtag('config', GA_ID, { page_location: page.href });
   const script = document.createElement('script');
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;

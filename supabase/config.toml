@@ -36,8 +36,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.comptoir-paiement]
-# Les visiteurs du comptoir n'ont pas forcément de session : la fonction ne crée qu'une session de
-# paiement Stripe, au prix lu dans app_config (jamais fourni par le client), et vérifie l'origine.
+# Pas de JWT exigé à l'entrée (Stripe et la confirmation n'en ont pas besoin) : avec Stancer, ouvrir un
+# paiement et envoyer une carte vérifient eux-mêmes la session Supabase, puis les plafonds en base.
 verify_jwt = false
 
 [functions.revenuecat-webhook]
