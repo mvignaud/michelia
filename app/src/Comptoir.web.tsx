@@ -3,15 +3,24 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
 import { isMember, loadProfile } from './auth';
-import { supabase } from './supabase';
+import { getCaptchaToken } from './captcha';
+import { getAccessToken, supabase } from './supabase';
 import { colors, serif } from './theme';
 
 // Page /comptoir (web seulement) : les pourboires, payés dans notre propre formulaire. Seuls les champs
 // de paiement viennent du prestataire : Stripe (Payment Element d'une session Checkout ui_mode elements)
-// ou Stancer (ses champs de carte en iframe, le paiement relu côté serveur avant d'être inscrit).
+// ou Stancer : notre propre formulaire de carte (envoyé à la fonction, qui le transmet à Stancer sans le
+// garder), puis la page de la banque en iframe si elle demande le 3D Secure. Le paiement est relu côté
+// serveur avant d'être inscrit.
 export function Comptoir(_props: { onClose?: () => void }) {
-  // Page de retour Stancer chargée dans son propre cadre : la page autour s'occupe du reste.
+  // Retour du 3D Secure chargé dans son propre cadre : la page autour s'occupe du reste.
   if (window.top !== window.self) return <Text style={[styles.text, styles.padded]}>C'est payé, merci !</Text>;
+  // Arrivé ici depuis une page où la mesure d'audience tourne déjà (même document) : on recharge, pour
+  // que les champs de carte vivent dans une page sans aucun script tiers.
+  if ('gtag' in window) {
+    window.location.replace(window.location.href);
+    return null;
+  }
   return <Page />;
 }
 
@@ -26,9 +35,14 @@ function Page() {
   const [prenom, setPrenom] = useState('');
   const [sending, setSending] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
-  // Stancer : le paiement ouvert (payment intent) et la hauteur de ses champs de carte.
-  const [carte, setCarte] = useState<{ id: string; url: string }>();
-  const [hauteur, setHauteur] = useState(420);
+  // Stancer : le paiement ouvert (payment intent), la carte en cours de saisie (jamais gardée après
+  // l'envoi), et la page 3D Secure de la banque quand elle en demande une.
+  const [intent, setIntent] = useState<string>();
+  const [numero, setNumero] = useState('');
+  const [expiration, setExpiration] = useState('');
+  const [cvc, setCvc] = useState('');
+  const [secure, setSecure] = useState<string>();
+  const [hauteur, setHauteur] = useState(480);
   // Merci à afficher : au retour d'un moyen de paiement à redirection (/comptoir?merci=<id du palier>)
   // ou à la fin du paiement dans la page.
   const [thanks, setThanks] = useState<string | null>(() => new URLSearchParams(window.location.search).get('merci'));
@@ -59,7 +73,11 @@ function Page() {
   const cle = avecStancer ? undefined : data?.stripe_cle_publique;
   useEffect(() => {
     setCheckout(undefined);
-    setCarte(undefined);
+    setIntent(undefined);
+    setSecure(undefined);
+    setNumero('');
+    setExpiration('');
+    setCvc('');
     setRefus(null);
     if (!paying || !cle) return;
     let cancelled = false;
@@ -102,10 +120,10 @@ function Page() {
     reloadComptoir().then(setData).catch(() => {});
   };
 
-  // Stancer : la page de paiement prévient par postMessage (taille, statut) ; on vérifie aussi
-  // régulièrement côté serveur, au cas où le message n'arrive pas. Le serveur relit chez Stancer.
+  // Stancer, 3D Secure : la page de la banque prévient par postMessage (taille, statut) ; on vérifie
+  // aussi régulièrement côté serveur, au cas où le message n'arrive pas. Le serveur relit chez Stancer.
   useEffect(() => {
-    if (!carte || !paying) return;
+    if (!secure || !intent || !paying) return;
     let stopped = false;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -113,12 +131,13 @@ function Page() {
       if (stopped) return;
       clearTimeout(timer);
       try {
-        const { data: result } = await supabase.functions.invoke('comptoir-paiement', { body: { confirmer: carte.id } });
+        const { data: result } = await supabase.functions.invoke('comptoir-paiement', { body: { confirmer: intent } });
         if (stopped) return;
         if (result?.etat === 'paye') return merciRecu(result.palier ?? paying);
         if (result?.etat === 'refuse') {
           setRefus("La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.");
-          setCarte(undefined);
+          setSecure(undefined);
+          setIntent(undefined);
           return;
         }
       } catch {
@@ -150,7 +169,7 @@ function Page() {
       clearTimeout(timer);
       window.removeEventListener('message', onMessage);
     };
-  }, [carte, paying]);
+  }, [secure, intent, paying]);
 
   const pay = async () => {
     if (!paying || sending || (!checkout && !avecStancer)) return;
@@ -158,7 +177,7 @@ function Page() {
       setRefus("Il me faut ton e-mail pour t'envoyer le reçu.");
       return;
     }
-    if (avecStancer) return ouvrirCarte();
+    if (avecStancer) return payerCarte();
     if (!checkout) return;
     setSending(true);
     setRefus(null);
@@ -188,22 +207,61 @@ function Page() {
     }
   };
 
-  // Stancer : le paiement est créé au prix du palier (côté serveur), puis ses champs de carte s'affichent.
-  const ouvrirCarte = async () => {
+  // Stancer : le paiement est créé au prix du palier (côté serveur), puis la carte part à la fonction,
+  // qui la transmet à Stancer. Il faut une session (compte anonyme, avec le captcha Turnstile).
+  const payerCarte = async () => {
+    const date = expiration.replace(/\s/g, '').match(/^(\d{1,2})\/?(\d{2}|\d{4})$/);
+    const chiffres = numero.replace(/[\s-]/g, '');
+    if (!/^\d{12,19}$/.test(chiffres) || !date || !/^\d{3,4}$/.test(cvc.trim())) {
+      setRefus('Vérifie le numéro de carte, la date (MM/AA) et le code au dos.');
+      return;
+    }
     setSending(true);
     setRefus(null);
     try {
-      const { data: ouvert, error } = await supabase.functions.invoke('comptoir-paiement', {
-        body: { palier: paying, email: email.trim(), prenom: prenom.trim() },
-      });
-      if (error || typeof ouvert?.id !== 'string' || typeof ouvert?.url !== 'string' || !ouvert.url.startsWith(STANCER_ORIGIN)) {
-        throw new Error('Paiement refusé');
+      await getAccessToken();
+      let id = intent;
+      if (!id) {
+        const { data: ouvert, error } = await supabase.functions.invoke('comptoir-paiement', {
+          body: { palier: paying, email: email.trim(), prenom: prenom.trim() },
+        });
+        if (error || typeof ouvert?.id !== 'string') throw new Error('Paiement refusé');
+        id = ouvert.id as string;
+        setIntent(id);
       }
-      setCarte({ id: ouvert.id, url: ouvert.url });
+      const captcha = await getCaptchaToken();
+      const { data: result, error } = await supabase.functions.invoke('comptoir-paiement', {
+        body: {
+          payer: id,
+          captcha,
+          carte: { numero: chiffres, mois: Number(date[1]), annee: Number(date[2]), cvc: cvc.trim() },
+        },
+      });
+      const statut = (error as { context?: { status?: number } } | null)?.context?.status;
+      if (statut === 429) {
+        setIntent(undefined);
+        return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      }
+      if (statut === 400) return setRefus('Vérifie le numéro de carte, la date (MM/AA) et le code au dos.');
+      if (error) throw error;
+      if (result?.etat === 'paye') return merciRecu(result.palier ?? paying!);
+      if (result?.etat === 'authentification' && deStancer(result.url)) return setSecure(result.url);
+      if (result?.etat === 'refuse') {
+        // Un payment intent refusé ne resservira pas : le prochain essai en ouvre un neuf.
+        setIntent(undefined);
+        return setRefus("La carte n'est pas passée. Tu peux réessayer, ou en prendre une autre.");
+      }
+      // En attente : la vérification régulière prend le relais.
+      setSecure(undefined);
+      setRefus('Je vérifie le paiement auprès de la banque, deux secondes…');
     } catch (e) {
       console.error('Comptoir : paiement impossible', e);
       setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
     } finally {
+      // La carte ne reste jamais dans la page après un envoi, quoi qu'il arrive : il faudra la retaper.
+      setNumero('');
+      setExpiration('');
+      setCvc('');
       setSending(false);
     }
   };
@@ -285,7 +343,7 @@ function Page() {
                 {essai && <Text style={styles.refus}>Mode essai : carte de test seulement, aucun argent réel.</Text>}
                 <TextInput
                   value={email}
-                  editable={!carte}
+                  editable={!intent}
                   onChangeText={setEmail}
                   placeholder="Ton e-mail, pour le reçu"
                   placeholderTextColor={colors.tertiary}
@@ -296,7 +354,7 @@ function Page() {
                 />
                 <TextInput
                   value={prenom}
-                  editable={!carte}
+                  editable={!intent}
                   onChangeText={setPrenom}
                   placeholder="Ton prénom pour le carnet des copains (facultatif)"
                   placeholderTextColor={colors.tertiary}
@@ -307,16 +365,51 @@ function Page() {
                 {!avecStancer && !checkout && <ActivityIndicator color={colors.accent} style={styles.padded} />}
                 {/* Stripe exige un conteneur sans enfant : rien d'autre dedans. */}
                 {!avecStancer && <View nativeID={PAYMENT_ID} />}
-                {carte && (
+                {avecStancer && !secure && (
+                  <>
+                    <TextInput
+                      value={numero}
+                      onChangeText={(t) => setNumero(t.replace(/[^\d ]/g, '').slice(0, 23))}
+                      placeholder="Numéro de carte"
+                      placeholderTextColor={colors.tertiary}
+                      keyboardType="number-pad"
+                      autoComplete="cc-number"
+                      style={styles.input}
+                    />
+                    <View style={styles.row}>
+                      <TextInput
+                        value={expiration}
+                        onChangeText={(t) => setExpiration(t.replace(/[^\d/]/g, '').slice(0, 7))}
+                        placeholder="MM/AA"
+                        placeholderTextColor={colors.tertiary}
+                        keyboardType="number-pad"
+                        autoComplete="cc-exp"
+                        style={[styles.input, styles.half]}
+                      />
+                      <TextInput
+                        value={cvc}
+                        onChangeText={(t) => setCvc(t.replace(/\D/g, '').slice(0, 4))}
+                        placeholder="Code au dos"
+                        placeholderTextColor={colors.tertiary}
+                        keyboardType="number-pad"
+                        autoComplete="cc-csc"
+                        secureTextEntry
+                        style={[styles.input, styles.half]}
+                      />
+                    </View>
+                    <Text style={styles.small}>Paiement sécurisé par Stancer. Ta carte n'est jamais gardée chez Michel.</Text>
+                  </>
+                )}
+                {secure && (
                   <iframe
-                    src={carte.url}
-                    title="Paiement par carte"
+                    src={secure}
+                    title="Vérification de ta banque"
                     allow="payment"
                     style={{ width: '100%', height: hauteur, border: 0, borderRadius: 12, backgroundColor: colors.background }}
                   />
                 )}
                 {refus && <Text style={styles.refus}>{refus}</Text>}
-                {!carte && (
+                {!secure && (
                   <Pressable
                     onPress={pay}
                     disabled={(!avecStancer && !checkout) || sending}
@@ -331,7 +424,7 @@ function Page() {
                       <ActivityIndicator color={colors.onAccent} />
                     ) : (
                       <Text style={styles.payerText}>
-                        {avecStancer ? 'Passer à la caisse' : 'Payer'} {euros(choisi?.prix_cents ?? 0)}
+                        Payer {euros(choisi?.prix_cents ?? 0)}
                       </Text>
                     )}
                   </Pressable>
@@ -381,6 +474,13 @@ function Page() {
 const PAYMENT_ID = 'comptoir-paiement';
 // Les champs de carte Stancer viennent de là, et leurs messages aussi.
 const STANCER_ORIGIN = 'https://payment.stancer.com';
+const deStancer = (url: unknown): url is string => {
+  try {
+    return typeof url === 'string' && new URL(url).origin === STANCER_ORIGIN;
+  } catch {
+    return false;
+  }
+};
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
 // Les champs Stripe aux couleurs de la page (lin, bois, armagnac).
@@ -429,6 +529,8 @@ const styles = StyleSheet.create({
   padded: { margin: 24 },
   pressed: { opacity: 0.6 },
   dimmed: { opacity: 0.4 },
+  row: { flexDirection: 'row', gap: 10 },
+  half: { flex: 1, minWidth: 0 },
   input: {
     backgroundColor: colors.background,
     borderWidth: 1,
