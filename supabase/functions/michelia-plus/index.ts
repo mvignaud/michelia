@@ -1,15 +1,18 @@
-// Fonction « michelia-plus » : l'abonnement MichelIA+ sur le site, par carte (voir docs/MICHELIA-PLUS.md).
+// Fonction « michelia-plus » : l'abonnement MichelIA+ sur le site, par carte ou prélèvement SEPA
+// (voir docs/MICHELIA-PLUS.md).
 // Il faut un compte Michel avec une adresse e-mail (pas un visiteur anonyme), et le navigateur passe la
 // session Supabase. Le prix vient toujours de app_config (michelia_plus_prix), jamais du navigateur.
 // {souscrire: "mois" | "an", carte, captcha} : premier paiement par l'API v1 de Stancer, carte enregistrée
 // chez Stancer pour les échéances suivantes ; renvoie payé, refusé, ou l'adresse du 3D Secure de la banque.
-// {confirmer: paym_…} : relit le paiement chez Stancer après le 3D Secure.
+// {souscrire: "mois" | "an", moyen: "sepa", captcha} : premier prélèvement sur la page Stancer, où la
+// personne signe le mandat SEPA par code SMS ; renvoie l'adresse de cette page.
+// {confirmer: paym_… | pi_…} : relit le paiement chez Stancer après le 3D Secure ou la page Stancer.
 // {resilier: true} : arrête le renouvellement ; MichelIA+ reste jusqu'à la fin de la période payée.
-// {reprendre: true} : annule la résiliation avant la fin de la période, sur la même carte.
+// {reprendre: true} : annule la résiliation avant la fin de la période, sur la même carte ou le même mandat.
 // La carte traverse la fonction le temps d'un appel à Stancer : jamais gardée, jamais dans les journaux.
 // Mêmes garde-fous que le comptoir : Turnstile à chaque carte et plafonds d'essais (comptoir_reserver).
-import { admin, cleanCard, isCardPaymentId, stancer, stancerConfigured, stancerCustomer, stancerTest } from "../_shared/stancer.ts";
-import { confirmerEcheance, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, prixDe, safeError } from "../_shared/abonnement.ts";
+import { admin, cleanCard, isCardPaymentId, isPaymentIntentId, stancer, stancerConfigured, stancerCustomer, stancerTest } from "../_shared/stancer.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, prixDe, safeError } from "../_shared/abonnement.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/$/, "");
 // Retour du 3D Secure : cette fonction, qui accepte le POST de la banque et renvoie sur la page.
@@ -84,21 +87,25 @@ Deno.serve(async (req) => {
   if (!stancerConfigured()) return reply(500, { error: "Paiement non configuré" }, origin);
 
   if (body?.confirmer !== undefined) {
-    if (!isCardPaymentId(body.confirmer) || !(await echeanceDe(body.confirmer, qui.id))) {
+    const id = body.confirmer;
+    if (!(isCardPaymentId(id) || isPaymentIntentId(id)) || !(await echeanceDe(id, qui.id))) {
       return reply(400, { error: "Paiement inconnu" }, origin);
     }
-    return reply(200, await confirmerEcheance(body.confirmer), origin);
+    return reply(200, isPaymentIntentId(id) ? await confirmerSepa(id) : await confirmerEcheance(id), origin);
   }
-  if (body?.souscrire === "mois" || body?.souscrire === "an") return souscrire(req, qui, body.souscrire, body, origin);
+  if (body?.souscrire === "mois" || body?.souscrire === "an") {
+    return body?.moyen === "sepa" ? souscrireSepa(qui, body.souscrire, body, origin) : souscrire(req, qui, body.souscrire, body, origin);
+  }
   return reply(400, { error: "Demande inconnue" }, origin);
 });
 
-// L'échéance appartient-elle bien à ce compte ?
+// L'échéance (paiement paym_… ou, pour un premier prélèvement SEPA, payment intent pi_…) appartient-elle
+// bien à ce compte ?
 async function echeanceDe(paiementId: string, userId: string): Promise<boolean> {
   const { data } = await admin
     .from("abonnement_echeances")
     .select("abonnements!inner(user_id)")
-    .eq("paiement_id", paiementId)
+    .eq(isPaymentIntentId(paiementId) ? "stancer_intent" : "paiement_id", paiementId)
     .maybeSingle();
   // deno-lint-ignore no-explicit-any
   return (data as any)?.abonnements?.user_id === userId;
@@ -122,6 +129,8 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
   // Un abonnement en attente par essai de souscription ; deux cartes au plus par essai. Un seul en
   // attente par compte (index unique abonnements_vivant_idx) : un double clic ou un second onglet
   // reçoit 409 au lieu d'un second paiement. Un essai abandonné depuis 5 minutes laisse la place.
+  // Une page de prélèvement ouverte depuis un quart d'heure sans signature laisse la place (relue chez Stancer).
+  await abandonnerSepa(900_000, qui.id);
   await menageEnAttente(300_000, qui.id);
   const essai = stancerTest();
   const { data: abonnement, error } = await admin
@@ -190,6 +199,79 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
   return reply(200, await confirmerEcheance(paymentId), origin);
 }
 
+// Prélèvement SEPA : abonnement en attente, puis payment intent Stancer réservé au SEPA. La personne
+// tape son IBAN sur la page Stancer (jamais chez Michel), signe le mandat avec le code reçu par SMS,
+// et revient sur /la-cotisation, qui demande la confirmation. Le mandat (sepa_…) sert ensuite aux
+// échéances suivantes. Une souscription en attente par compte, comme pour la carte.
+// deno-lint-ignore no-explicit-any
+async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: string | null): Promise<Response> {
+  const { data: vivant } = await admin
+    .from("abonnements")
+    .select("id")
+    .eq("user_id", qui.id)
+    .in("statut", ["actif", "impaye", "resilie"])
+    .limit(1);
+  if (vivant?.length) return reply(409, { error: "Déjà abonné" }, origin);
+  if (!(await captchaOk(body?.captcha, qui.ip))) return reply(403, { error: "Vérification anti-robot échouée" }, origin);
+  const prix = await prixDe(formule);
+  if (!prix) return reply(500, { error: "Prix illisible" }, origin);
+
+  // Une page de prélèvement ouverte depuis un quart d'heure sans signature laisse la place (relue chez Stancer).
+  await abandonnerSepa(900_000, qui.id);
+  await menageEnAttente(300_000, qui.id);
+  const essai = stancerTest();
+  const { data: abonnement, error } = await admin
+    .from("abonnements")
+    .insert({ user_id: qui.id, source: "web", formule, moyen: "sepa", statut: "en_attente", prix_cents: prix, email: qui.email, essai })
+    .select("id")
+    .single();
+  if (error?.code === "23505") return reply(409, { error: "Souscription déjà en cours" }, origin);
+  if (error || !abonnement) {
+    console.error("MichelIA+ : abonnement non créé", error?.message);
+    return reply(500, { error: "Abonnement indisponible" }, origin);
+  }
+  const place = await reserver(qui, `abo:${abonnement.id}`, "paiement");
+  if (place !== "ok") return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
+
+  const [nom, numeroRecu] = await Promise.all([nomDuCompte(qui.id), prochainNumeroRecu()]);
+  const client = await stancerCustomer(qui.email, nom, qui.id);
+  if (client) await admin.from("abonnements").update({ stancer_client: client }).eq("id", abonnement.id);
+  const res = await stancer("POST", "/payment_intents/", {
+    amount: prix,
+    currency: "eur",
+    description: libelle(formule),
+    methods_allowed: ["sepa"],
+    return_url: `${SITE_URL}${PAGE}?retour=sepa`,
+    ...(numeroRecu ? { order_id: numeroRecu } : {}),
+    ...(client ? { customer: client } : {}),
+  });
+  const intentId = res.data?.id;
+  const url = res.data?.url;
+  if (!res.ok || !isPaymentIntentId(intentId) || typeof url !== "string" || !url.startsWith("https://")) {
+    console.error("MichelIA+ : page de prélèvement refusée par Stancer", abonnement.id, res.status, safeError(res.data));
+    await echecSur(abonnement.id);
+    return reply(502, { error: "Prélèvement indisponible" }, origin);
+  }
+  const debut = new Date();
+  // L'échéance porte le payment intent tant que le prélèvement (paym_…) n'est pas connu.
+  const { error: noteErr } = await admin.from("abonnement_echeances").insert({
+    abonnement_id: abonnement.id,
+    paiement_id: intentId,
+    stancer_intent: intentId,
+    montant_cents: prix,
+    periode_debut: debut.toISOString(),
+    periode_fin: finDePeriode(debut, formule).toISOString(),
+    numero_recu: numeroRecu,
+    essai,
+  });
+  if (noteErr) {
+    console.error("MichelIA+ : échéance SEPA non enregistrée", intentId, noteErr.message);
+    await echecSur(abonnement.id);
+    return reply(500, { error: "Abonnement indisponible" }, origin);
+  }
+  return reply(200, { etat: "mandat", url, paiement: intentId }, origin);
+}
+
 // Résiliation en un geste : plus de renouvellement, le droit court jusqu'à la fin de la période payée.
 // Seulement pour un abonnement pris sur le site (ceux des applis se résilient dans la boutique).
 async function resilier(qui: Membre, origin: string | null): Promise<Response> {
@@ -210,7 +292,8 @@ async function resilier(qui: Membre, origin: string | null): Promise<Response> {
 }
 
 // Reprise d'une cotisation résiliée, tant que la période payée court encore : le renouvellement
-// repart à la même date, sur la carte déjà enregistrée chez Stancer. Rien n'est prélevé tout de suite.
+// repart à la même date, sur la carte ou le mandat SEPA déjà enregistrés chez Stancer. Rien n'est
+// prélevé tout de suite.
 // Une fois la période finie, l'abonnement est terminé et il faut souscrire à nouveau.
 async function reprendre(qui: Membre, origin: string | null): Promise<Response> {
   const { data } = await admin
@@ -218,10 +301,9 @@ async function reprendre(qui: Membre, origin: string | null): Promise<Response> 
     .update({ statut: "actif", resilie_le: null, updated_at: new Date().toISOString() })
     .eq("user_id", qui.id)
     .eq("source", "web")
-    .eq("moyen", "carte")
     .eq("statut", "resilie")
     .gt("fin_periode", new Date().toISOString())
-    .not("stancer_carte", "is", null)
+    .or("and(moyen.eq.carte,stancer_carte.not.is.null),and(moyen.eq.sepa,stancer_sepa.not.is.null)")
     .select("fin_periode");
   if (!data?.length) return reply(409, { error: "Rien à reprendre : souscris à nouveau" }, origin);
   return reply(200, { etat: "actif", fin_periode: data[0].fin_periode }, origin);
@@ -243,8 +325,8 @@ async function prochainNumeroRecu(): Promise<string | null> {
   return !error && typeof data === "string" && data.length <= 36 ? data : null;
 }
 
-async function reserver(qui: Membre, essai: string): Promise<string> {
-  const { data, error } = await admin.rpc("comptoir_reserver", { p_genre: "carte", p_user: qui.id, p_ip: qui.ip, p_paiement: essai });
+async function reserver(qui: Membre, essai: string, genre: "carte" | "paiement" = "carte"): Promise<string> {
+  const { data, error } = await admin.rpc("comptoir_reserver", { p_genre: genre, p_user: qui.id, p_ip: qui.ip, p_paiement: essai });
   if (error) {
     console.error("MichelIA+ : plafond illisible", error.message);
     return "erreur";
