@@ -104,8 +104,11 @@ export async function facturerVente(v: Vente, code: string | null, noter: (code:
 // l'appelant réessaiera au passage suivant. Rejouable : même Idempotency-Key, E-KO rend le même avoir.
 // Un 422 (remboursement inconnu chez le prestataire, facture pas émise, règlement introuvable) ne se
 // corrige pas en réessayant à l'identique : l'appelant le note et s'arrête. Rend le numéro de l'avoir (AV…).
+// `remboursement` : identifiant du remboursement chez le prestataire (refd_… chez Stancer), quand Michel
+// sait lequel c'est ; E-KO lit alors ce remboursement précis. Sinon E-KO lit ceux du paiement.
 export async function avoirVente(a: {
   facture: string; numero: string; montantTtcCents: number; date: string; prestataire: string; paiementId: string;
+  remboursement?: string | null;
 }): Promise<string | null> {
   try {
     const avoir = await eko("POST", `/invoices/${encodeURIComponent(a.facture)}/credit-note`, {
@@ -113,7 +116,7 @@ export async function avoirVente(a: {
       reason: "Remboursement",
       reference: a.numero,
       issue: true,
-      refund: { provider: a.prestataire, refund_id: a.numero, payment_id: a.paiementId, date: a.date },
+      refund: { provider: a.prestataire, refund_id: a.remboursement ?? a.numero, payment_id: a.paiementId, date: a.date },
     }, `avoir-${a.numero}`);
     return String(avoir.data.code);
   } catch (e) {
