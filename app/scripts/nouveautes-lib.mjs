@@ -127,15 +127,42 @@ export function versHtml(md) {
     .join('\n');
 }
 
-const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+export const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 export const dateLongue = (iso) => {
   const [a, m, j] = iso.split('-').map(Number);
   return `${j === 1 ? '1er' : j} ${MOIS[m - 1]} ${a}`;
 };
 
 
+// Référencement : l'adresse publique du site, et les balises communes aux pages générées (adresse
+// canonique sans « .html », aperçu de partage Open Graph, langue française).
+export const SITE = 'https://michel.beer';
+export const IMAGE_PARTAGE = `${SITE}/partage.png`;
+export function metaPage({ chemin, titre, description, type = 'website' }) {
+  const url = `${SITE}${chemin}`;
+  return [
+    `<meta name="description" content="${echapper(description)}">`,
+    `<link rel="canonical" href="${url}">`,
+    '<meta name="robots" content="index, follow, max-image-preview:large">',
+    `<meta property="og:type" content="${type}">`,
+    '<meta property="og:site_name" content="MichelIA">',
+    '<meta property="og:locale" content="fr_FR">',
+    `<meta property="og:url" content="${url}">`,
+    `<meta property="og:title" content="${echapper(titre)}">`,
+    `<meta property="og:description" content="${echapper(description)}">`,
+    `<meta property="og:image" content="${IMAGE_PARTAGE}">`,
+    '<meta property="og:image:width" content="1200">',
+    '<meta property="og:image:height" content="630">',
+    `<meta property="og:image:alt" content="MichelIA, le papi du Gers coincé dans l'ordinateur">`,
+    '<meta name="twitter:card" content="summary_large_image">',
+  ].join('\n');
+}
+// Données structurées schema.org (JSON-LD) ; « < » échappé pour ne jamais fermer la balise script.
+export const jsonLd = (donnees) =>
+  `<script type="application/ld+json">${JSON.stringify(donnees).replace(/</g, '\\u003c')}</script>`;
+
 // En-tête commun aux pages générées : le logo MichelIA, comme sur les pages légales.
 export const TETE = `<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/chat">Parler à Michel</a></div></header>`;
 
 // Pied de page commun aux pages générées.
-export const PIED = `<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/ca-mijote">Ça mijote</a> · <a href="/cahier-de-doleances">Améliore Michel</a> · <a href="/mentions-legales.html">Mentions légales</a> · <a href="/confidentialite.html">Confidentialité</a> · <a href="/conditions.html">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>`;
+export const PIED = `<footer><a href="/confit-de-canard">Nouveautés</a> · <a href="/ca-mijote">Ça mijote</a> · <a href="/cahier-de-doleances">Améliore Michel</a> · <a href="/mentions-legales">Mentions légales</a> · <a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions d'utilisation</a> · <a href="https://github.com/mvignaud/michelia">Code source</a></footer>`;

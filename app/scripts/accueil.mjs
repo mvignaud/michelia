@@ -7,7 +7,7 @@
 // Applis iOS et Android : rien ne change, elles n'ouvrent jamais la racine du site.
 import fs from 'node:fs';
 import path from 'node:path';
-import { dateLongue, echapper, enLigne, lireCaMijote, lireNouveautes, PIED, TYPES } from './nouveautes-lib.mjs';
+import { dateLongue, echapper, enLigne, jsonLd, lireCaMijote, lireNouveautes, metaPage, PIED, SITE, TYPES } from './nouveautes-lib.mjs';
 
 // Les dernières nouveautés montrées sous « Où en est Michel ».
 const SERVIS = 4;
@@ -19,6 +19,53 @@ const PALIERS = [
   ['Le repas de fête', '9,99'],
 ];
 const MARQUE = 'data-page="accueil"';
+
+// Référencement : la description des moteurs de recherche et l'aperçu des liens partagés.
+const DESCRIPTION =
+  "Michel, c'est une intelligence artificielle gratuite avec l'accent du Gers. Recettes, mails, devoirs, météo : pose ta question, il a un avis sur tout.";
+const TITRE_PARTAGE = "MichelIA, le papi du Gers coincé dans l'ordinateur";
+// Données structurées schema.org : le site, son éditeur et l'appli de chat (gratuite).
+// Pas de note ni d'avis inventés : Google ne montre les étoiles que pour de vrais avis.
+const DONNEES = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${SITE}/#site`,
+      url: `${SITE}/`,
+      name: 'MichelIA',
+      alternateName: ['Michel', 'Michel IA'],
+      inLanguage: 'fr-FR',
+      publisher: { '@id': `${SITE}/#editeur` },
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${SITE}/#editeur`,
+      name: 'MichelIA',
+      legalName: 'GOLDEN PRINT SAS',
+      url: `${SITE}/`,
+      logo: `${SITE}/icones/icone-512.png`,
+      email: 'contact@michel.beer',
+      address: { '@type': 'PostalAddress', addressLocality: 'Manciet', postalCode: '32370', addressRegion: 'Gers', addressCountry: 'FR' },
+      sameAs: ['https://github.com/mvignaud/michelia'],
+    },
+    {
+      '@type': 'WebApplication',
+      '@id': `${SITE}/chat#appli`,
+      name: 'MichelIA',
+      url: `${SITE}/chat`,
+      description: DESCRIPTION,
+      applicationCategory: 'UtilitiesApplication',
+      operatingSystem: 'Web, iOS, Android',
+      inLanguage: 'fr-FR',
+      isAccessibleForFree: true,
+      image: `${SITE}/partage.png`,
+      screenshot: `${SITE}/captures/telephone.png`,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+      publisher: { '@id': `${SITE}/#editeur` },
+    },
+  ],
+};
 
 // Les anciens liens vers la racine qui visaient le chat (connexion par e-mail ou Google, désabonnement
 // des e-mails, appli installée sur l'écran d'accueil, ?compte=connexion…) partent tout de suite vers /chat,
@@ -120,24 +167,14 @@ function page({ sections }, servis) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 ${RENVOI}
 <title>MichelIA, l'IA gratuite qui parle comme un papi du Gers</title>
-<meta name="description" content="Michel, c'est une intelligence artificielle gratuite avec l'accent du Gers. Recettes, mails, devoirs, météo : pose ta question, il a un avis sur tout.">
-<link rel="canonical" href="https://michel.beer/">
+${metaPage({ chemin: '/', titre: TITRE_PARTAGE, description: DESCRIPTION })}
 <meta name="theme-color" content="#FBF4E8">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="/favicon.ico">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icones/icone-180.png">
 <meta name="apple-mobile-web-app-title" content="Michel">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="MichelIA">
-<meta property="og:locale" content="fr_FR">
-<meta property="og:url" content="https://michel.beer/">
-<meta property="og:title" content="MichelIA, le papi du Gers coincé dans l'ordinateur">
-<meta property="og:description" content="Une IA gratuite qui parle 100 % Sud-Ouest. Pose ta question, Michel a un avis sur tout.">
-<meta property="og:image" content="https://michel.beer/partage.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta name="twitter:card" content="summary_large_image">
+${jsonLd(DONNEES)}
 <style>${CSS}</style>
 </head>
 <body>
