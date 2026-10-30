@@ -15,6 +15,10 @@ on:
         description: "Numéro de build dont pousser les notes de version (vide = aucune)"
         type: string
         default: ""
+      build_android:
+        description: "Code de version Android, s'il diffère du numéro de build (ex. notes 12, Android 9)"
+        type: string
+        default: ""
       seulement:
         description: "Stores (apple,google), vide = les deux"
         type: string
@@ -42,5 +46,6 @@ jobs:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           APPLIQUER: ${{ inputs.appliquer && '--appliquer' || '' }}
           BUILD: ${{ inputs.build }}
+          BUILD_ANDROID: ${{ inputs.build_android }}
           SEULEMENT: ${{ inputs.seulement }}
-        run: node scripts/fiches.mjs $APPLIQUER ${BUILD:+--build "$BUILD"} ${SEULEMENT:+--seulement "$SEULEMENT"}
+        run: node scripts/fiches.mjs $APPLIQUER ${BUILD:+--build "$BUILD"} ${BUILD_ANDROID:+--build-android "$BUILD_ANDROID"} ${SEULEMENT:+--seulement "$SEULEMENT"}
