@@ -119,6 +119,8 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
   let montant: number;
   let devise: string;
   let capturer: () => ReturnType<typeof stancer>;
+  // Le paiement Stancer (paym_…) derrière l'intent, gardé pour relire plus tard les remboursements.
+  let paiementCarte: string | null = cardPaymentId ?? null;
   if (cardPaymentId) {
     const payment = await stancer("GET", `/v1/checkout/${cardPaymentId}`);
     if (!payment.ok || !payment.data) {
@@ -129,8 +131,19 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
     statut = String(payment.data.status ?? "");
     montant = Number(payment.data.amount);
     devise = String(payment.data.currency ?? "eur").toLowerCase();
-    if (!statut && AUTH_FAILED.includes(String(payment.data.auth?.status ?? ""))) statut = "refused";
+    const auth = String(payment.data.auth?.status ?? "");
+    if (!statut && AUTH_FAILED.includes(auth)) statut = "refused";
     capturer = () => stancer("PATCH", `/v1/checkout/${cardPaymentId}`, { status: "capture" });
+    // 3D Secure réussi mais paiement pas encore lancé : c'est à nous de demander la capture.
+    if (!statut && auth === "success") {
+      const capture = await capturer();
+      if (!capture.ok) {
+        console.error("Stancer : capture après 3D Secure refusée", capture.status, safeError(capture.data));
+        return { etat: "attente" };
+      }
+      statut = String(capture.data?.status ?? "") || "to_capture";
+    }
+    if (!PAID.includes(statut)) console.log("Stancer : paiement carte en attente", cardPaymentId, statut || "-", auth || "-");
   } else {
     const intent = await stancer("GET", `/payment_intents/${intentId}`);
     if (!intent.ok || !intent.data) {
@@ -141,6 +154,7 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
     montant = Number(intent.data.amount);
     devise = String(intent.data.currency ?? "eur").toLowerCase();
     const paymentId = typeof intent.data.payment === "string" ? intent.data.payment : "";
+    if (isCardPaymentId(paymentId)) paiementCarte = paymentId;
     if (paymentId) {
       const payment = await stancer("GET", `/payments/${encodeURIComponent(paymentId)}`);
       if (payment.ok && payment.data) {
@@ -185,6 +199,7 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
       email: attente.email,
       essai: attente.essai,
       canal: "web",
+      paiement_carte: paiementCarte,
       // Numéro de reçu tiré à la création du paiement (colonne posée avec la facturation E-KO).
       ...(attente.numero_recu ? { numero_recu: attente.numero_recu } : {}),
     },
