@@ -291,7 +291,12 @@ function Chat() {
     const genre = invitation?.genre;
     setInvitation(null);
     if (genre === 'inscription') setAccount('signup');
-    else if (Platform.OS === 'web') window.location.assign('/comptoir');
+    else ouvrirComptoir();
+  }
+
+  // Le comptoir : la page /comptoir sur le web, l'achat intégré dans les applis.
+  function ouvrirComptoir() {
+    if (Platform.OS === 'web') window.location.assign('/comptoir');
     else setComptoir(true);
   }
 
@@ -513,14 +518,26 @@ function Chat() {
               );
             }}
           />
-          <Pressable
-            onPress={() => setDoleances('idee')}
-            style={({ pressed }) => [styles.idea, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Améliore Michel : une idée, un truc qui coince"
-          >
-            <Text style={styles.ideaText}>💡 Une idée ?</Text>
-          </Pressable>
+          <View style={[styles.floating, { pointerEvents: 'box-none' }]}>
+            {comptoirOuvert && (
+              <Pressable
+                onPress={ouvrirComptoir}
+                style={({ pressed }) => [styles.idea, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Laisser un pourboire à Michel, au comptoir"
+              >
+                <Text style={styles.ideaText}>☕ Un pourboire ?</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => setDoleances('idee')}
+              style={({ pressed }) => [styles.idea, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Améliore Michel : une idée, un truc qui coince"
+            >
+              <Text style={styles.ideaText}>💡 Une idée ?</Text>
+            </Pressable>
+          </View>
           </View>
 
           <SafeAreaView edges={['bottom']} style={styles.bottom}>
@@ -731,11 +748,8 @@ const styles = StyleSheet.create({
   starOn: { color: colors.ochre },
   rated: { color: colors.secondary, fontSize: 13, marginTop: 2, marginLeft: 6 },
   ratedLink: { color: colors.accent, fontWeight: '600', textDecorationLine: 'underline' },
+  floating: { position: 'absolute', right: 14, bottom: 12, zIndex: 5, gap: 8, alignItems: 'flex-end' },
   idea: {
-    position: 'absolute',
-    right: 14,
-    bottom: 12,
-    zIndex: 5,
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: 999,
