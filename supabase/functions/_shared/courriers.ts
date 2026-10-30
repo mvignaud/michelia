@@ -96,10 +96,10 @@ export const paiementRecu = (p: { prenom?: string | null; montantCents: number; 
     { lignes: [[p.libelle, euros(p.montantCents)], ["Reçu n°", p.numero], ...(p.facture ? [["Facture n°", p.facture] as [string, string]] : [])] },
   ]);
 
-export const remboursement = (p: { prenom?: string | null; montantCents: number; libelle: string; numero: string; date: Date }) =>
+export const remboursement = (p: { prenom?: string | null; montantCents: number; libelle: string; numero: string; avoir?: string; date: Date }) =>
   composer(`Remboursement de ${euros(p.montantCents)}`, p.prenom, [
-    `Je t'ai remboursé, pas d'histoire. L'argent revient sur ta carte d'ici quelques jours, le temps que la banque se réveille.`,
-    { lignes: [["Montant remboursé", euros(p.montantCents)], ["Pour", p.libelle], ["Reçu d'origine", p.numero], ["Date", jour(p.date)]] },
+    `Je t'ai remboursé, pas d'histoire. L'argent revient sur ta carte d'ici quelques jours, le temps que la banque se réveille.${p.avoir ? " L'avoir est en pièce jointe." : ""}`,
+    { lignes: [["Montant remboursé", euros(p.montantCents)], ["Pour", p.libelle], ["Reçu d'origine", p.numero], ...(p.avoir ? [["Avoir n°", p.avoir] as [string, string]] : []), ["Date", jour(p.date)]] },
     `Si tu ne t'attendais pas à ce remboursement, réponds simplement à ce message.`,
   ]);
 
