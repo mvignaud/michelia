@@ -58,8 +58,9 @@ type Ligne = {
   id: number; paiement_id: string; prestataire: string; montant_cents: number; devise: string; palier: string;
   prenom: string | null; email: string | null; created_at: string; facture_code: string | null;
   facture_reglee_at: string | null; facture_tentatives: number; recu_tentatives: number; numero_recu: string | null;
+  paiement_carte: string | null;
 };
-const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives, numero_recu";
+const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives, numero_recu, paiement_carte";
 
 // Pourboires concernés : web, réels, payés chez un prestataire du locataire.
 const pourboires = () =>
@@ -158,6 +159,7 @@ Deno.serve(async () => {
           libelle: libelle(l),
           montantTtcCents: l.montant_cents,
           moyen: "Carte bancaire",
+          transaction: l.paiement_carte ?? l.paiement_id,
         });
       } catch (e) {
         console.error(`Pourboire ${l.id} : reçu impossible à préparer`, e instanceof Error ? e.message : e);
@@ -216,6 +218,7 @@ Deno.serve(async () => {
             libelle: libelle(l),
             montantTtcCents: l.montant_cents,
             moyen: "Carte bancaire",
+            transaction: l.paiement_carte ?? l.paiement_id,
           },
         });
       } catch (e) {

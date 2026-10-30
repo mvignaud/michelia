@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
   if (!piece || !ligne) return reply(404, { error: "Reçu inconnu" }, origin);
 
   const { data: p } = await admin.from("pourboires")
-    .select("created_at, email, prenom, facture_code, facture_reglee_at")
+    .select("created_at, email, prenom, facture_code, facture_reglee_at, paiement_id, paiement_carte")
     .eq("numero_recu", ligne.numero)
     .maybeSingle();
   if (!p) return reply(404, { error: "Reçu inconnu" }, origin);
@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
     libelle: ligne.libelle,
     montantTtcCents: ligne.montant_cents,
     moyen: "Carte bancaire",
+    transaction: p.paiement_carte ?? p.paiement_id,
     rembourseCents: ligne.rembourse_cents,
   };
 
