@@ -2,12 +2,12 @@ import { Text, type StyleProp, type TextStyle } from 'react-native';
 
 // Mise en forme légère des réponses : **gras**, titres « # » et puces « - » / « * ».
 // Le reste du Markdown s'affiche tel quel.
-export function RichText({ text, style }: { text: string; style: StyleProp<TextStyle> }) {
+export function RichText({ text, style, selectable }: { text: string; style: StyleProp<TextStyle>; selectable?: boolean }) {
   const lines = text.split('\n').map((line) =>
     line.replace(/^#{1,6}\s+(.*)$/, '**$1**').replace(/^(\s*)[-*]\s+/, '$1• '),
   );
   return (
-    <Text style={style}>
+    <Text style={style} selectable={selectable}>
       {lines.map((line, i) => (
         <Text key={i}>
           {i > 0 ? '\n' : ''}
