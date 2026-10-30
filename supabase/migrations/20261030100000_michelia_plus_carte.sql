@@ -20,6 +20,12 @@ create unique index if not exists abonnement_echeances_periode_idx
 
 -- Une seule souscription en cours par compte sur le site, en plus d'un seul abonnement vivant :
 -- un double clic ou un second onglet ne peut pas créer un second paiement.
+-- (Deux essais en attente déjà là pour un même compte : le plus ancien passe expire, rien n'est effacé.)
+update public.abonnements a set statut = 'expire', updated_at = now()
+where a.statut = 'en_attente' and a.source = 'web' and exists (
+  select 1 from public.abonnements b
+  where b.user_id = a.user_id and b.id > a.id and b.source = 'web' and b.statut = 'en_attente'
+);
 drop index if exists public.abonnements_vivant_idx;
 create unique index abonnements_vivant_idx on public.abonnements (user_id)
   where statut in ('actif', 'impaye', 'resilie') or (statut = 'en_attente' and source = 'web');
