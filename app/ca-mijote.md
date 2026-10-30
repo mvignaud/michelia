@@ -20,6 +20,7 @@ En bas de la page, « Tout juste servi » reprend tout seul les 5 dernières nou
 
 Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
+- **MichelIA+** : un abonnement facultatif pour les gourmands, avec des petits plus qui coûtent cher à faire tourner, comme ma voix. Michel gratuit reste gratuit, pour tout le monde, et sans pub. Sur le site, tu pourras payer par carte ou par prélèvement, comme pour la cotisation du club de rugby (tu signes l'autorisation avec un code reçu par SMS). Dans l'appli, ça passera par l'App Store ou Google Play. Un seul abonnement, qui marche partout où tu me parles. Tes reçus d'abonnement viendront se ranger dans « Mes reçus », avec ceux des pourboires.
 - **Le comptoir dans les applis** : me payer un café depuis l'iPhone ou l'Android, par la boutique d'Apple ou de Google. Sur le site, le comptoir est déjà ouvert ; dans les applis, j'attends que la paperasse soit signée.
 - **Michel sur l'App Store et Google Play** : les applis sont chez Apple et Google, qui les regardent sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
 
@@ -27,7 +28,6 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
 C'est épluché, c'est coupé, ça attend son tour.
 
-- **MichelIA+** : un abonnement facultatif pour les gourmands, avec des petits plus qui coûtent cher à faire tourner, comme ma voix. Michel gratuit reste gratuit, pour tout le monde, et sans pub. Sur le site, tu pourras payer par carte ou par prélèvement, comme pour la cotisation du club de rugby. Tes reçus d'abonnement viendront se ranger dans « Mes reçus », avec ceux des pourboires.
 - **Quoi de neuf dans l'appli** : les nouveautés du carnet directement dans l'appli, pour que tu saches ce qui a changé sans aller sur le site.
 
 ## Au frais
