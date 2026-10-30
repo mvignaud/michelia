@@ -1,4 +1,4 @@
-# État des derniers builds et envois EAS, lu avec EXPO_TOKEN (aucune modification).
+# État des derniers builds et envois EAS (5 derniers de chaque), lu avec EXPO_TOKEN (aucune modification).
 # Se lance à la main : GitHub > Actions > « État Expo » > Run workflow.
 name: État Expo
 
@@ -46,6 +46,12 @@ jobs:
                 { id: "071f33b5-c576-4db2-bc57-cdf39a04e048" },
               );
               console.log(JSON.stringify(builds, null, 2));
+              const envois = await gql(
+                `query($id: String!) { app { byId(appId: $id) { submissions(filter: {}, offset: 0, limit: 5) {
+                  id platform status createdAt submittedBuild { appBuildVersion } error { errorCode message } } } } }`,
+                { id: "071f33b5-c576-4db2-bc57-cdf39a04e048" },
+              );
+              console.log(JSON.stringify(envois, null, 2));
               if (process.env.ENVOI) {
                 const envoi = await gql(
                   `query($id: ID!) { submissions { byId(submissionId: $id) { status platform error { errorCode message } logsUrl } } }`,
