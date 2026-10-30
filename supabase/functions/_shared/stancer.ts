@@ -119,6 +119,8 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
   let montant: number;
   let devise: string;
   let capturer: () => ReturnType<typeof stancer>;
+  // Le paiement Stancer (paym_…) derrière l'intent, gardé pour relire plus tard les remboursements.
+  let paiementCarte: string | null = cardPaymentId ?? null;
   if (cardPaymentId) {
     const payment = await stancer("GET", `/v1/checkout/${cardPaymentId}`);
     if (!payment.ok || !payment.data) {
@@ -141,6 +143,7 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
     montant = Number(intent.data.amount);
     devise = String(intent.data.currency ?? "eur").toLowerCase();
     const paymentId = typeof intent.data.payment === "string" ? intent.data.payment : "";
+    if (isCardPaymentId(paymentId)) paiementCarte = paymentId;
     if (paymentId) {
       const payment = await stancer("GET", `/payments/${encodeURIComponent(paymentId)}`);
       if (payment.ok && payment.data) {
@@ -185,6 +188,7 @@ export async function confirmPayment(intentId: string, cardPaymentId?: string): 
       email: attente.email,
       essai: attente.essai,
       canal: "web",
+      paiement_carte: paiementCarte,
       // Numéro de reçu tiré à la création du paiement (colonne posée avec la facturation E-KO).
       ...(attente.numero_recu ? { numero_recu: attente.numero_recu } : {}),
     },
