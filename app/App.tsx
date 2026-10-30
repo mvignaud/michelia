@@ -167,7 +167,15 @@ function Chat() {
   // La bobine : celle du compte (dessinée à l'inscription, retouchée ou non), sinon celle de l'appareil.
   useEffect(() => {
     setAvatar(avatarFromSeed(userId ?? ''));
-    if (memberId) loadAvatar(memberId).then(setAvatar).catch(() => undefined);
+    if (!memberId) return;
+    // Une réponse arrivée après un changement de compte ne doit pas écraser la nouvelle bobine.
+    let current = true;
+    loadAvatar(memberId)
+      .then((loaded) => current && setAvatar(loaded))
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
   }, [userId, memberId]);
 
   // Lien « Ne plus recevoir les nouvelles » des e-mails : michel.beer/?desabonnement=…
