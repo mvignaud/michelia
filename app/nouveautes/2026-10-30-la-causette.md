@@ -4,6 +4,7 @@ titre: Partage toute la causette, copie mes réponses
 type: nouveau
 plateformes: web, ios, android
 store: Partage toute la conversation par un lien, et copie mes réponses
+build: 15
 ---
 Tu peux maintenant partager toute notre causette. En bas de la discussion, « Partager la conversation » : tu choisis les messages, puis tu copies le texte ou tu crées un lien que tout le monde peut lire. Les photos restent chez toi, et tu retires le lien quand tu veux.
 
