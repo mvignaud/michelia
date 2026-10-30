@@ -38,6 +38,7 @@ import {
 } from './auth';
 import { isAdmin } from './admin';
 import { LinkedAccounts } from './LinkedAccounts';
+import { MesRecus } from './MesRecus';
 import { DAILY_KEY } from './NotifyCard';
 import { COUNTRIES, PhoneField, fullPhone } from './PhoneField';
 import { pushState, setDailyPush } from './push';
@@ -385,6 +386,7 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
         </Pressable>
 
         {mode === 'profile' && session && <LinkedAccounts session={session} apple={apple} />}
+        {mode === 'profile' && session && <MesRecus userId={session.user.id} />}
 
         <View style={styles.links}>
           {mode === 'signin' && (

@@ -27,7 +27,7 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
 C'est épluché, c'est coupé, ça attend son tour.
 
-- **MichelIA+** : un abonnement facultatif pour les gourmands, avec des petits plus qui coûtent cher à faire tourner, comme ma voix. Michel gratuit reste gratuit, pour tout le monde, et sans pub. Sur le site, tu pourras payer par carte ou par prélèvement, comme pour la cotisation du club de rugby.
+- **MichelIA+** : un abonnement facultatif pour les gourmands, avec des petits plus qui coûtent cher à faire tourner, comme ma voix. Michel gratuit reste gratuit, pour tout le monde, et sans pub. Sur le site, tu pourras payer par carte ou par prélèvement, comme pour la cotisation du club de rugby. Tes reçus d'abonnement viendront se ranger dans « Mes reçus », avec ceux des pourboires.
 - **Quoi de neuf dans l'appli** : les nouveautés du carnet directement dans l'appli, pour que tu saches ce qui a changé sans aller sur le site.
 
 ## Au frais

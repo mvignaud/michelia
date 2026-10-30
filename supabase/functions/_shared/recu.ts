@@ -2,7 +2,7 @@
 // La facture officielle vit dans l'ERP E-KO de GOLDEN PRINT (jamais envoyée au client) : le reçu en
 // reprend le numéro quand elle existe déjà. TVA à 20 % sur des prix TTC.
 import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
-import { envoyerCourrier, paiementRecu } from "./courriers.ts";
+import { envoyerCourrier, paiementRecu, remboursement } from "./courriers.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 
@@ -27,7 +27,11 @@ export type Recu = {
   libelle: string; // ex. « Pourboire : un café pour Michel »
   montantTtcCents: number;
   moyen: string; // ex. « Carte bancaire »
+  rembourseCents?: number; // déjà remboursé au client (reçu redemandé depuis l'espace compte)
 };
+
+// Avoir de remboursement de Michel, adressé au client : il annule tout ou partie d'un reçu.
+export type Avoir = { numero: string; montantCents: number; date: Date; recu: Recu };
 
 export function decompose(ttcCents: number) {
   const ht = Math.round(ttcCents / (1 + TAUX_TVA));
@@ -37,9 +41,12 @@ export function decompose(ttcCents: number) {
 const euros = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
 const jour = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Paris" });
 
-export async function pdfRecu(r: Recu): Promise<Uint8Array> {
+export const pdfRecu = (r: Recu) => pdfPiece(r);
+export const pdfAvoir = (a: Avoir) => pdfPiece(a.recu, a);
+
+async function pdfPiece(r: Recu, avoir?: Avoir): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Reçu ${r.numero}`);
+  doc.setTitle(avoir ? `Avoir ${avoir.numero}` : `Reçu ${r.numero}`);
   doc.setAuthor("GOLDEN PRINT SAS");
   const page = doc.addPage([595.28, 841.89]); // A4
   const { width, height } = page.getSize();
@@ -58,6 +65,7 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
       const nu = ch.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
       return [...nu].every((c) => connus.has(c.codePointAt(0)!)) && nu ? nu : "?";
     }).join("");
+  if (avoir) avoir = { ...avoir, numero: latin(avoir.numero) };
   r = { ...r, numero: latin(r.numero), facture: r.facture ? latin(r.facture) : null, email: latin(r.email), prenom: r.prenom && !latin(r.prenom).includes("?") ? latin(r.prenom) : null, libelle: latin(r.libelle) };
 
   page.drawRectangle({ x: 0, y: 0, width, height, color: C.fond });
@@ -78,14 +86,20 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
   page.drawText(devise, { x: width - m - italique.widthOfTextAtSize(devise, 11), y: height - 68, size: 11, font: italique, color: C.surAccent });
 
   let y = height - 180;
-  page.drawText("Reçu de paiement", { x: m, y, size: 22, font: gras, color: C.texte });
+  page.drawText(avoir ? "Avoir de remboursement" : "Reçu de paiement", { x: m, y, size: 22, font: gras, color: C.texte });
   y -= 26;
-  page.drawText(`Reçu n° ${r.numero}${r.facture ? ` · Facture n° ${r.facture}` : ""} · ${jour(r.date)}`, { x: m, y, size: 11, font: normal, color: C.gris });
+  const entete = avoir
+    ? `Avoir n° ${avoir.numero} · sur le reçu n° ${r.numero} du ${jour(r.date)} · ${jour(avoir.date)}`
+    : `Reçu n° ${r.numero}${r.facture ? ` · Facture n° ${r.facture}` : ""} · ${jour(r.date)}`;
+  page.drawText(entete, { x: m, y, size: 11, font: normal, color: C.gris });
   y -= 40;
-  const bonjour = r.prenom ? `Merci ${r.prenom} !` : "Merci !";
+  const bonjour = avoir ? (r.prenom ? `Bonjour ${r.prenom},` : "Bonjour,") : r.prenom ? `Merci ${r.prenom} !` : "Merci !";
   page.drawText(bonjour, { x: m, y, size: 14, font: gras, color: C.accent });
   y -= 20;
-  page.drawText("Michel a bien reçu ton paiement. Voilà ton reçu, range-le au chaud.", { x: m, y, size: 11, font: normal, color: C.texte });
+  const mot = avoir
+    ? "Michel t'a remboursé. Cet avoir annule la somme ci-dessous de ton reçu."
+    : "Michel a bien reçu ton paiement. Voilà ton reçu, range-le au chaud.";
+  page.drawText(mot, { x: m, y, size: 11, font: normal, color: C.texte });
 
   // Tableau du montant.
   y -= 50;
@@ -96,16 +110,18 @@ export async function pdfRecu(r: Recu): Promise<Uint8Array> {
     y -= size + 12;
   };
   page.drawLine({ start: { x: m, y: y + 18 }, end: { x: droite, y: y + 18 }, thickness: 1, color: C.ocre });
-  const { ht, tva, ttc } = decompose(r.montantTtcCents);
-  ligne(r.libelle, euros(ttc));
+  const signe = avoir ? "- " : "";
+  const { ht, tva, ttc } = decompose(avoir ? avoir.montantCents : r.montantTtcCents);
+  ligne(avoir ? `Remboursement : ${r.libelle}` : r.libelle, signe + euros(ttc));
   y -= 6;
-  ligne("Montant hors taxes", euros(ht));
-  ligne(`TVA ${Math.round(TAUX_TVA * 100)} %`, euros(tva));
+  ligne("Montant hors taxes", signe + euros(ht));
+  ligne(`TVA ${Math.round(TAUX_TVA * 100)} %`, signe + euros(tva));
   page.drawLine({ start: { x: m, y: y + 14 }, end: { x: droite, y: y + 14 }, thickness: 1, color: C.ocre });
   y -= 4;
-  ligne("Total payé TTC", euros(ttc), gras, 13);
-  ligne("Moyen de paiement", r.moyen);
-  ligne("Payé par", r.email);
+  ligne(avoir ? "Total remboursé TTC" : "Total payé TTC", signe + euros(ttc), gras, 13);
+  if (!avoir && r.rembourseCents) ligne("Remboursé", `- ${euros(r.rembourseCents)}`, gras);
+  ligne(avoir ? "Remboursé sur" : "Moyen de paiement", r.moyen);
+  ligne(avoir ? "Pour" : "Payé par", r.email);
 
   y = 90;
   for (const l of VENDEUR) {
@@ -128,5 +144,14 @@ export async function envoyerRecu(r: Recu): Promise<boolean> {
   const courrier = paiementRecu({ prenom: r.prenom, montantCents: r.montantTtcCents, libelle: r.libelle, numero: r.numero, facture: r.facture });
   return envoyerCourrier(r.email, courrier, "recu", [
     { nom: `recu-michel-${r.numero}.pdf`, type: "application/pdf", base64: base64(await pdfRecu(r)) },
+  ]);
+}
+
+// Envoie l'e-mail de remboursement avec l'avoir en pièce jointe ; false si Postal refuse.
+export async function envoyerAvoir(a: Avoir): Promise<boolean> {
+  const r = a.recu;
+  const courrier = remboursement({ prenom: r.prenom, montantCents: a.montantCents, libelle: r.libelle, numero: r.numero, avoir: a.numero, date: a.date });
+  return envoyerCourrier(r.email, courrier, "avoir", [
+    { nom: `avoir-michel-${a.numero}.pdf`, type: "application/pdf", base64: base64(await pdfAvoir(a)) },
   ]);
 }
