@@ -23,6 +23,7 @@ import {
   payWithCard,
   stancer,
   stancerConfigured,
+  stancerCustomer,
   stancerTest,
 } from "../_shared/stancer.ts";
 
@@ -179,13 +180,25 @@ async function savePrenom(sessionId: string, prenom: unknown, origin: string | n
 async function createStancerPayment(palier: Palier, body: any, essai: boolean, userId: string, origin: string | null): Promise<Response> {
   const email = cleanEmail(body?.email);
   if (!email) return reply(400, { error: "E-mail invalide" }, origin);
-  const res = await stancer("POST", "/payment_intents/", {
+  const prenom = cleanFirstName(body?.prenom);
+  // Le nom du compte Michel s'il y en a un (sinon le prénom saisi) et le numéro de reçu, pour que
+  // l'espace Stancer montre le client et la commande. Ni l'un ni l'autre ne bloque le paiement.
+  const [nom, numeroRecu] = await Promise.all([nomDuCompte(userId), prochainNumeroRecu()]);
+  const client = await stancerCustomer(email, nom ?? prenom, userId);
+  const base = {
     amount: palier.prix_cents,
     currency: "eur",
     description: `Pourboire Michel : ${palier.nom}`.slice(0, 64),
     methods_allowed: ["card"],
     return_url: `${SITE_URL}/comptoir?merci=${encodeURIComponent(palier.id)}`,
-  });
+  };
+  const extras = { ...(numeroRecu ? { order_id: numeroRecu } : {}), ...(client ? { customer: client } : {}) };
+  let res = await stancer("POST", "/payment_intents/", { ...base, ...extras });
+  // Si Stancer refuse le client ou la commande, le pourboire passe quand même, sans eux.
+  if (!res.ok && res.status < 500 && Object.keys(extras).length) {
+    console.error("Stancer : client ou commande refusés", res.status, JSON.stringify(res.data?.error ?? null).slice(0, 300));
+    res = await stancer("POST", "/payment_intents/", base);
+  }
   const id = res.data?.id;
   const url = res.data?.url;
   if (!res.ok || !isPaymentIntentId(id) || typeof url !== "string" || !url.startsWith("https://")) {
@@ -196,10 +209,11 @@ async function createStancerPayment(palier: Palier, body: any, essai: boolean, u
     paiement_id: id,
     palier: palier.id,
     montant_cents: palier.prix_cents,
-    prenom: cleanFirstName(body?.prenom),
+    prenom,
     email,
     essai,
     user_id: userId,
+    ...(numeroRecu ? { numero_recu: numeroRecu } : {}),
   });
   if (error) {
     console.error("Paiement en attente non enregistré", error.message);
@@ -208,6 +222,20 @@ async function createStancerPayment(palier: Palier, body: any, essai: boolean, u
   // Premier paiement du mode (test ou réel) : on enregistre le webhook chez Stancer, sans faire attendre.
   EdgeRuntime.waitUntil(ensureWebhook().catch((e) => console.error("Stancer : webhook", e)));
   return reply(200, { id, url }, origin);
+}
+
+// Prénom et nom du compte Michel (rien pour un visiteur sans compte).
+async function nomDuCompte(userId: string): Promise<string | null> {
+  const { data } = await admin.from("profiles").select("first_name, last_name").eq("id", userId).maybeSingle();
+  const nom = [data?.first_name, data?.last_name].map((n) => cleanFirstName(n)).filter(Boolean).join(" ");
+  return nom || null;
+}
+
+// Numéro de reçu (« R2026-000123 ») tiré dans la série de la facturation E-KO ; rien tant que la
+// migration de la facturation n'est pas collée.
+async function prochainNumeroRecu(): Promise<string | null> {
+  const { data, error } = await admin.rpc("prochain_numero_recu");
+  return !error && typeof data === "string" && data.length <= 36 ? data : null;
 }
 
 // Le visiteur derrière la requête : session Supabase obligatoire (compte anonyme créé avec le captcha

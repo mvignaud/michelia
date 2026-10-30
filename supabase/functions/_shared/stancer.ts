@@ -6,6 +6,8 @@ import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 const STANCER_API_KEY = Deno.env.get("STANCER_API_KEY") ?? "";
 const API = "https://api.stancer.com/v2";
+// Les clients (customers) sont encore sur l'API v1 de Stancer.
+const API_V1 = "https://api.stancer.com";
 
 export const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -67,7 +69,7 @@ export const isPaymentIntentId = (id: unknown): id is string =>
 
 // deno-lint-ignore no-explicit-any
 export async function stancer(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; data: any }> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(path.startsWith("/v1/") ? `${API_V1}${path}` : `${API}${path}`, {
     method,
     headers: {
       Authorization: `Basic ${btoa(`${STANCER_API_KEY}:`)}`,
@@ -147,6 +149,8 @@ export async function confirmPayment(intentId: string): Promise<Confirmation> {
       email: attente.email,
       essai: attente.essai,
       canal: "web",
+      // Numéro de reçu tiré à la création du paiement (colonne posée avec la facturation E-KO).
+      ...(attente.numero_recu ? { numero_recu: attente.numero_recu } : {}),
     },
     { onConflict: "paiement_id", ignoreDuplicates: true },
   );
@@ -173,6 +177,21 @@ export function cleanEmail(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const email = raw.trim().toLowerCase();
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+// Le client chez Stancer (nom et e-mail), pour qu'il apparaisse dans l'espace Stancer. Facultatif :
+// si Stancer refuse, le paiement part sans client. Un e-mail déjà connu de Stancer (409) renvoie le
+// client existant.
+export async function stancerCustomer(email: string, nom: string | null, externalId: string): Promise<string | null> {
+  const res = await stancer("POST", "/v1/customers/", {
+    email,
+    ...(nom && nom.length >= 4 ? { name: nom.slice(0, 64) } : {}),
+    external_id: externalId.slice(0, 36),
+  });
+  const id = res.data?.id ?? res.data?.error?.message?.id;
+  if (typeof id === "string" && id.startsWith("cust_")) return id;
+  console.error("Stancer : client non créé", res.status, safeError(res.data));
+  return null;
 }
 
 // --- Formulaire de carte maison (« full API » Stancer) ---
