@@ -14,3 +14,7 @@
 # L'abonnement MichelIA+ s'appelle la cotisation ; les adresses sérieuses y mènent.
 /abonnement /la-cotisation 301
 /michelia-plus /la-cotisation 301
+# Les causettes partagées (michel.beer/la-causette/<id>) s'ouvrent dans le chat, en lecture seule ;
+# l'adresse sérieuse /partage/<id> y mène aussi.
+/la-causette/* /chat 200
+/partage/* /la-causette/:splat 301

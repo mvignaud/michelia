@@ -23,7 +23,10 @@ import { unsubscribeFromNews } from './src/admin';
 import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
+import { Causette } from './src/Causette';
+import { causetteId, copier, plain, type Echange } from './src/causette';
 import { Comptoir } from './src/Comptoir';
+import { ConversationSheet } from './src/ConversationSheet';
 import { Cotisation } from './src/Cotisation';
 import { cleAppli, loadComptoir } from './src/comptoir';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
@@ -84,6 +87,9 @@ const PAGES = { '/comptoir': Comptoir, '/la-cotisation': Cotisation, '/cahier-de
 export default function App() {
   const path = Platform.OS === 'web' ? window.location.pathname.replace(/\/+$/, '') : '';
   const Page = PAGES[path as keyof typeof PAGES];
+  // Une causette partagée (michel.beer/la-causette/<id>) : page publique en lecture seule.
+  const causette = causetteId(path);
+  if (causette) return <Causette id={causette} />;
   return Page ? (
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen}>
@@ -108,6 +114,9 @@ function Chat() {
   const [account, setAccount] = useState<AccountMode | null>(null);
   const [admin, setAdmin] = useState(false);
   const [sharing, setSharing] = useState<Card | null>(null);
+  // Toute la conversation à partager (lien public ou texte), et la réponse qu'on vient de copier.
+  const [conversation, setConversation] = useState<Echange[] | null>(null);
+  const [copied, setCopied] = useState<string>();
   const [avatar, setAvatar] = useState<Avatar>(() => avatarFromSeed(''));
   const sentRef = useRef(0);
   // Le comptoir est-il ouvert pour cet appareil ? Sur le web, la page /comptoir ; dans les applis,
@@ -342,6 +351,24 @@ function Chat() {
     else setComptoir(true);
   }
 
+  // Ce qui part quand on partage la conversation : le texte échangé, comme pour la mémoire (sans les
+  // mots locaux ni les échanges en échec), mais sans les photos (une photo seule, sans texte, ne part pas).
+  function echanges(): Echange[] {
+    return bubbles
+      .filter((b) => !b.local)
+      .filter((b, i, all) => !b.failed && !all[i + 1]?.failed && b.content.trim())
+      .map(({ role, content }) => ({ role, content }));
+  }
+
+  function copierReponse(item: Bubble) {
+    copier(plain(item.content))
+      .then(() => {
+        setCopied(item.id);
+        setTimeout(() => setCopied((id) => (id === item.id ? undefined : id)), 2000);
+      })
+      .catch(() => {});
+  }
+
   // Les étoiles : affichées tout de suite, remises comme avant si la base refuse.
   function rate(index: number, note: number) {
     const item = bubbles[index];
@@ -479,6 +506,14 @@ function Chat() {
                     </Pressable>
                   ))}
                 </View>
+              ) : !busy && echanges().some((e) => e.role === 'assistant') ? (
+                <Pressable
+                  onPress={() => setConversation(echanges())}
+                  style={({ pressed }) => [styles.shareAll, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.shareAllText}>Partager la conversation</Text>
+                </Pressable>
               ) : undefined
             }
             renderItem={({ item, index }) => {
@@ -500,9 +535,13 @@ function Chat() {
                     <Text style={styles.photoNote}>📷 Photo</Text>
                   ) : null}
                   {item.role === 'user' || item.failed ? (
-                    !!item.content && <Text style={styles.userText}>{item.content}</Text>
+                    !!item.content && (
+                      <Text style={styles.userText} selectable>
+                        {item.content}
+                      </Text>
+                    )
                   ) : item.content ? (
-                    <RichText text={item.content} style={styles.michelText} />
+                    <RichText text={item.content} style={styles.michelText} selectable />
                   ) : (
                     <Text style={styles.thinking}>Michel cherche ses lunettes…</Text>
                   )}
@@ -549,6 +588,15 @@ function Chat() {
                       hitSlop={8}
                     >
                       <Text style={styles.shareLinkText}>Partager</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => copierReponse(item)}
+                      style={({ pressed }) => [styles.shareLink, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Copier le texte de cette réponse"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.shareLinkText}>{copied === item.id ? 'Copié !' : 'Copier'}</Text>
                     </Pressable>
                   </View>
                   {!!item.note && (
@@ -730,6 +778,7 @@ function Chat() {
         )}
         {doleances && <Doleances initialCategorie={doleances} onClose={() => setDoleances(null)} />}
         {sharing && <ShareSheet card={sharing} onClose={() => setSharing(null)} />}
+        {conversation && <ConversationSheet echanges={conversation} onClose={() => setConversation(null)} />}
         <CaptchaHost />
         <CookieBanner ref={cookiesRef} />
       </SafeAreaView>
@@ -835,6 +884,8 @@ const styles = StyleSheet.create({
   ideaText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   shareLink: {},
   shareLinkText: { color: colors.secondary, fontSize: 13, fontWeight: '600' },
+  shareAll: { alignSelf: 'center', marginTop: 14, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.accentSoft },
+  shareAllText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   thinking: { color: colors.secondary, fontSize: 15, fontStyle: 'italic' },
   suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   chip: {
