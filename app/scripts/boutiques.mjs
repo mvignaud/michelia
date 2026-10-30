@@ -12,6 +12,10 @@
 //   PLAY_SERVICE_ACCOUNT_JSON                   compte de service Google Play (JSON complet)
 //   REVENUECAT_API_KEY                          clé secrète RevenueCat API v2 (sk_…)
 // Aucune clé n'est jamais affichée.
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { APPLE_APP_ID, PACKAGE, appleApi, dire, googleToken, http, mode } from './stores-lib.mjs';
 
 const DESCRIPTION = 'Un pourboire pour Michel, sans contrepartie.';
@@ -43,8 +47,66 @@ const ENTITLEMENT = 'michelia_plus';
 // Pays ouverts, comme les pourboires Google.
 const PAYS = { FR: 'FRA', BE: 'BEL', LU: 'LUX' };
 const memePrix = (a, b) => Math.abs(Number(a) - Number(b)) < 0.001;
+// Prix au format Google (unités + nanos).
+const euros = (prix) => {
+  const [u, c = '0'] = String(prix).split('.');
+  return { currencyCode: 'EUR', units: u, nanos: Number(c.padEnd(2, '0')) * 10_000_000 };
+};
 
 const { agir, lancer, etat } = mode();
+
+// Capture pour la vérification d'Apple : sans elle, un produit reste « MISSING_METADATA » et n'est
+// proposé nulle part, pas même sur TestFlight. Les abonnements prendront la capture de leur écran.
+const CAPTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'store', 'apple');
+const CAPTURE_COMPTOIR = path.join(CAPTURES, 'revue-comptoir.png');
+const CAPTURE_ABO = fs.existsSync(path.join(CAPTURES, 'revue-michelia-plus.png'))
+  ? path.join(CAPTURES, 'revue-michelia-plus.png')
+  : CAPTURE_COMPTOIR;
+
+// Envoi d'une capture par le protocole d'Apple : réservation, morceaux envoyés là où Apple le dit,
+// puis validation avec la somme MD5 du fichier.
+async function captureRevue(api, { lire, type, relation, relationType, id, fichier }) {
+  let actuelle = null;
+  try {
+    actuelle = (await api(lire)).data;
+  } catch (e) {
+    if (e.status !== 404) throw e;
+  }
+  if (actuelle?.attributes?.assetDeliveryState?.state === 'COMPLETE') return dire('  capture de vérification déjà là');
+  await agir(`capture de vérification (${path.basename(fichier)})`, async () => {
+    const octets = fs.readFileSync(fichier);
+    const reserve = (
+      await api(`/v1/${type}`, {
+        method: 'POST',
+        body: {
+          data: {
+            type,
+            attributes: { fileName: path.basename(fichier), fileSize: octets.length },
+            relationships: { [relation]: { data: { type: relationType, id } } },
+          },
+        },
+      })
+    ).data;
+    for (const op of reserve.attributes.uploadOperations) {
+      const res = await fetch(op.url, {
+        method: op.method,
+        headers: Object.fromEntries((op.requestHeaders ?? []).map((h) => [h.name, h.value])),
+        body: octets.subarray(op.offset, op.offset + op.length),
+      });
+      if (!res.ok) throw new Error(`envoi de la capture refusé (${res.status})`);
+    }
+    await api(`/v1/${type}/${reserve.id}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type,
+          id: reserve.id,
+          attributes: { uploaded: true, sourceFileChecksum: crypto.createHash('md5').update(octets).digest('hex') },
+        },
+      },
+    });
+  });
+}
 
 // ---------- App Store Connect ----------
 async function apple() {
@@ -113,6 +175,15 @@ async function apple() {
         }),
       );
     }
+
+    await captureRevue(api, {
+      lire: `/v2/inAppPurchases/${iap.id}/appStoreReviewScreenshot`,
+      type: 'inAppPurchaseAppStoreReviewScreenshots',
+      relation: 'inAppPurchaseV2',
+      relationType: 'inAppPurchases',
+      id: iap.id,
+      fichier: CAPTURE_COMPTOIR,
+    });
 
     // Prix : posé seulement s'il n'y en a pas encore (base France, Apple calcule les autres pays).
     let schedule = null;
@@ -258,6 +329,15 @@ async function appleAbonnements(api) {
         }),
       );
 
+    await captureRevue(api, {
+      lire: `/v1/subscriptions/${sub.id}/appStoreReviewScreenshot`,
+      type: 'subscriptionAppStoreReviewScreenshots',
+      relation: 'subscription',
+      relationType: 'subscriptions',
+      id: sub.id,
+      fichier: CAPTURE_ABO,
+    });
+
     // Disponibilité : posée une fois.
     let dispo = null;
     try {
@@ -339,13 +419,8 @@ async function google() {
   // Attention à la casse : liste et mise en vente sous « oneTimeProducts », création sous « onetimeproducts ».
   const liste = base.replace('onetimeproducts', 'oneTimeProducts');
   const existants = (await http(`${liste}?pageSize=100`, { token }))?.oneTimeProducts ?? [];
-  const euros = (prix) => {
-    const [u, c = '0'] = String(prix).split('.');
-    return { currencyCode: 'EUR', units: u, nanos: Number(c.padEnd(2, '0')) * 10_000_000 };
-  };
   // Pays de la zone euro où Michel a du sens ; les autres pays ne sont pas ouverts
   // (pas de newRegionsConfig : Google refuse un produit neuf « NO_LONGER_AVAILABLE » ailleurs).
-  const PAYS = ['FR', 'BE', 'LU'];
   const OPTION = 'achat';
 
   for (const p of PALIERS) {
@@ -363,7 +438,7 @@ async function google() {
             {
               purchaseOptionId: OPTION,
               buyOption: { legacyCompatible: true, multiQuantityEnabled: false },
-              regionalPricingAndAvailabilityConfigs: PAYS.map((regionCode) => ({
+              regionalPricingAndAvailabilityConfigs: Object.keys(PAYS).map((regionCode) => ({
                 regionCode,
                 price: euros(p.prix),
                 availability: 'AVAILABLE',
@@ -384,6 +459,62 @@ async function google() {
         }),
       );
   }
+
+  await googleAbonnements(token);
+}
+
+// Abonnements : un produit par formule, avec un seul forfait de base renouvelé automatiquement.
+// Une fois créés, leurs prix ne sont plus touchés ici (un changement de prix se fait dans la console,
+// Google prévient les abonnés).
+async function googleAbonnements(token) {
+  const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/subscriptions`;
+  const existants = (await http(`${base}?pageSize=100`, { token }))?.subscriptions ?? [];
+  for (const a of ABONNEMENTS) {
+    const deja = existants.find((x) => x.productId === a.id);
+    const listings = [{ languageCode: 'fr-FR', title: a.nom, description: DESCRIPTION_ABO, benefits: ['Plus de messages par jour', 'Plus de photos par jour'] }];
+    dire(`- ${a.id}${deja ? '' : ' (nouveau)'}`);
+    if (!deja)
+      await agir(`création à ${a.prix} € (${a.google})`, () =>
+        http(`${base}?productId=${a.id}&regionsVersion.version=2022/02`, {
+          method: 'POST',
+          token,
+          body: {
+            packageName: PACKAGE,
+            productId: a.id,
+            listings,
+            basePlans: [
+              {
+                basePlanId: a.forfait,
+                autoRenewingBasePlanType: { billingPeriodDuration: a.google, legacyCompatible: true },
+                regionalConfigs: Object.keys(PAYS).map((regionCode) => ({
+                  regionCode,
+                  newSubscriberAvailability: true,
+                  price: euros(a.prix),
+                })),
+              },
+            ],
+          },
+        }),
+      );
+    else if (JSON.stringify(deja.listings?.find((l) => l.languageCode === 'fr-FR')) !== JSON.stringify(listings[0]))
+      await agir('textes', () =>
+        http(`${base}/${a.id}?updateMask=listings&regionsVersion.version=2022/02`, {
+          method: 'PATCH',
+          token,
+          body: { packageName: PACKAGE, productId: a.id, listings },
+        }),
+      );
+    const actif = deja?.basePlans?.find((b) => b.basePlanId === a.forfait)?.state === 'ACTIVE';
+    if (actif) dire('  forfait déjà en vente');
+    else
+      await agir(`mise en vente du forfait ${a.forfait}`, () =>
+        http(`${base}/${a.id}/basePlans/${a.forfait}:activate`, {
+          method: 'POST',
+          token,
+          body: { packageName: PACKAGE, productId: a.id, basePlanId: a.forfait },
+        }),
+      );
+  }
 }
 
 // ---------- RevenueCat ----------
@@ -396,6 +527,7 @@ async function revenuecat() {
   const project = process.env.REVENUECAT_PROJECT_ID ?? projects?.[0]?.id;
   if (!project) throw new Error('aucun projet RevenueCat');
   const apps = (await api(`/projects/${project}/apps?limit=20`)).items;
+  const abonnementsRc = [];
   for (const [type, boutique, store] of [
     ['app_store', 'apple', { bundle_id: PACKAGE }],
     ['play_store', 'google', { package_name: PACKAGE }],
@@ -426,7 +558,45 @@ async function revenuecat() {
         }),
       );
     }
+    for (const a of ABONNEMENTS) {
+      const id = boutique === 'google' ? `${a.id}:${a.forfait}` : a.id;
+      let prod = existants.find((x) => x.store_identifier === id);
+      if (prod) dire(`- ${type} ${id} : déjà là`);
+      else {
+        dire(`- ${type} ${id}`);
+        await agir('créer le produit abonnement', async () => {
+          prod = await api(`/projects/${project}/products`, {
+            method: 'POST',
+            body: { store_identifier: id, app_id: app.id, type: 'subscription', display_name: a.nom },
+          });
+        });
+      }
+      if (prod) abonnementsRc.push(prod.id);
+    }
   }
+
+  // L'« entitlement » michelia_plus regroupe les 4 produits d'abonnement (2 formules × 2 boutiques).
+  const droits = (await api(`/projects/${project}/entitlements?limit=50`)).items ?? [];
+  let droit = droits.find((d) => d.lookup_key === ENTITLEMENT);
+  dire(`- entitlement ${ENTITLEMENT}${droit ? '' : ' (nouveau)'}`);
+  if (!droit)
+    await agir('créer l’entitlement', async () => {
+      droit = await api(`/projects/${project}/entitlements`, {
+        method: 'POST',
+        body: { lookup_key: ENTITLEMENT, display_name: 'MichelIA+' },
+      });
+    });
+  if (!droit) return;
+  const rattaches = new Set(((await api(`/projects/${project}/entitlements/${droit.id}/products?limit=50`)).items ?? []).map((x) => x.id));
+  const aRattacher = abonnementsRc.filter((id) => !rattaches.has(id));
+  if (!aRattacher.length) dire('  produits déjà rattachés');
+  else
+    await agir(`rattacher ${aRattacher.length} produit(s)`, () =>
+      api(`/projects/${project}/entitlements/${droit.id}/actions/attach_products`, {
+        method: 'POST',
+        body: { product_ids: aRattacher },
+      }),
+    );
 }
 
 await lancer([
