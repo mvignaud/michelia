@@ -4,6 +4,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, Text
 import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
 import { isMember, loadProfile } from './auth';
 import { getCaptchaToken } from './captcha';
+import { formatExpiration, formatNumero, pageSecure } from './carte';
 import { getAccessToken, supabase } from './supabase';
 import { colors, serif } from './theme';
 
@@ -492,30 +493,8 @@ function Page() {
 
 const PAYMENT_ID = 'comptoir-paiement';
 
-// Le pavé numérique du téléphone n'a ni espace ni « / » : on les pose nous-mêmes en tapant.
-const formatNumero = (t: string) =>
-  t.replace(/\D/g, '').slice(0, 19).replace(/(\d{4})(?=\d)/g, '$1 ');
-
-const formatExpiration = (t: string) => {
-  // Saisie automatique du navigateur, parfois en MM/AAAA.
-  const auto = t.match(/^\s*(\d{1,2})\s*\/\s*(\d{4})\s*$/);
-  if (auto) return `${auto[1].padStart(2, '0')}/${auto[2].slice(2)}`;
-  let chiffres = t.replace(/\D/g, '');
-  // Un mois qui commence par 2 à 9 ne peut être que 02 à 09.
-  if (/^[2-9]/.test(chiffres)) chiffres = `0${chiffres}`;
-  chiffres = chiffres.slice(0, 4);
-  return chiffres.length > 2 ? `${chiffres.slice(0, 2)}/${chiffres.slice(2)}` : chiffres;
-};
 // Les champs de carte Stancer viennent de là, et leurs messages aussi.
 const STANCER_ORIGIN = 'https://payment.stancer.com';
-// La page 3D Secure vient de la banque (adresse donnée par Stancer, relayée par notre serveur) : https seulement.
-const pageSecure = (url: unknown): url is string => {
-  try {
-    return typeof url === 'string' && new URL(url).protocol === 'https:';
-  } catch {
-    return false;
-  }
-};
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
 // Les champs Stripe aux couleurs de la page (lin, bois, armagnac).

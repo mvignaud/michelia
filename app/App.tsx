@@ -24,6 +24,7 @@ import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
 import { Comptoir } from './src/Comptoir';
+import { Cotisation } from './src/Cotisation';
 import { cleAppli, loadComptoir } from './src/comptoir';
 import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { Doleances } from './src/Doleances';
@@ -75,9 +76,10 @@ registerServiceWorker();
 let nextId = 0;
 const newId = () => String(nextId++);
 
-// Sur le web seulement, les adresses /comptoir (pourboires) et /cahier-de-doleances (idées pour Michel)
-// ouvrent leur page à la place du chat. Partout, la bulle « Une idée ? » ouvre le cahier par-dessus le chat.
-const PAGES = { '/comptoir': Comptoir, '/cahier-de-doleances': Doleances } as const;
+// Sur le web seulement, les adresses /comptoir (pourboires), /la-cotisation (MichelIA+) et
+// /cahier-de-doleances (idées pour Michel) ouvrent leur page à la place du chat. Partout, la bulle
+// « Une idée ? » ouvre le cahier par-dessus le chat.
+const PAGES = { '/comptoir': Comptoir, '/la-cotisation': Cotisation, '/cahier-de-doleances': Doleances } as const;
 
 export default function App() {
   const path = Platform.OS === 'web' ? window.location.pathname.replace(/\/+$/, '') : '';
@@ -177,6 +179,19 @@ function Chat() {
       current = false;
     };
   }, [userId, memberId]);
+
+  // Lien « Me connecter » de la page /la-cotisation : michel.beer/?compte=connexion ouvre le compte.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('compte') !== 'connexion') return;
+    url.searchParams.delete('compte');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setAccount(isMember(data.session) ? 'profile' : 'signin'))
+      .catch(() => setAccount('signin'));
+  }, []);
 
   // Lien « Ne plus recevoir les nouvelles » des e-mails : michel.beer/?desabonnement=…
   useEffect(() => {
