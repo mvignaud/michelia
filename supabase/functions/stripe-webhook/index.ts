@@ -62,6 +62,13 @@ function cleanFirstName(raw: unknown): string | null {
   return name || null;
 }
 
+// E-mail du payeur, pour lui envoyer son reçu.
+function cleanEmail(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const email = raw.trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
 type Palier = { id: string; prix_cents: number };
 
 async function findPalier(amount: number, metadata: Record<string, string> | null): Promise<string> {
@@ -112,6 +119,10 @@ Deno.serve(async (req) => {
   const { error } = await admin.from("pourboires").upsert(
     {
       stripe_session_id: String(session.id),
+      paiement_id: String(session.id),
+      prestataire: "stripe",
+      email: cleanEmail(session.customer_details?.email ?? session.customer_email),
+      essai: session.livemode === false,
       montant_cents: amount,
       devise: String(session.currency ?? "eur").toLowerCase().slice(0, 3),
       palier: await findPalier(amount, session.metadata ?? null),
