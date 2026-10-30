@@ -28,6 +28,9 @@ Deno.serve(async (req) => {
   // Souscriptions jamais payées : on fait le ménage au bout d'une demi-heure ; une page de prélèvement
   // SEPA jamais signée, au bout d'un jour.
   await abandonnerSepa(86_400_000);
+  // Codes de signature de plus d'un jour : leur empreinte d'IBAN (salée, mais forçable) ne reste pas en base.
+  const { error: purge } = await admin.from("mandats_sepa_codes").delete().lt("created_at", new Date(Date.now() - 86_400_000).toISOString());
+  if (purge) console.error("MichelIA+ : purge des codes de mandat impossible", purge.message);
   await menageEnAttente(1_800_000);
 
   // Échéances restées en cours (Stancer lent à répondre, page SEPA pas encore revenue) : relues.

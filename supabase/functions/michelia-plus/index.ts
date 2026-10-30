@@ -316,6 +316,8 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
   const { data: pris } = await admin.from("mandats_sepa_codes").update({ utilise_le: new Date().toISOString() })
     .eq("id", attente.id).is("utilise_le", null).select("id");
   if (!pris?.length) return reply(409, { error: "Déjà signé" }, origin);
+  // Signé : la ligne ne sert plus, et son empreinte d'IBAN ne doit pas traîner en base.
+  await admin.from("mandats_sepa_codes").delete().eq("id", attente.id);
 
   const abonnementId = attente.abonnement_id as number;
   const formule = ab.formule as Formule;
