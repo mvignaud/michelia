@@ -177,6 +177,21 @@ function Page() {
     }
   };
 
+  const reprendre = async () => {
+    setSending(true);
+    setRefus(null);
+    try {
+      const { error } = await supabase.functions.invoke('michelia-plus', { body: { reprendre: true } });
+      if (error) throw error;
+      await recharger();
+    } catch (e) {
+      console.error('MichelIA+ : reprise impossible', e);
+      setRefus("La reprise n'est pas passée. Réessaie, ou écris à contact@michel.beer.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const prix = formule === 'mois' ? offre?.mois_cents : offre?.an_cents;
   const essai = new URLSearchParams(window.location.search).has('essai');
 
@@ -232,6 +247,16 @@ function Page() {
             {abonnement.statut === 'resilie' && (
               <Text style={styles.text}>Résiliée : MichelIA+ reste jusqu'au {jour(abonnement.fin_periode)}, puis plus rien n'est prélevé.</Text>
             )}
+            {abonnement.source === 'web' && abonnement.statut === 'resilie' && (
+              <>
+                <Text style={styles.small}>
+                  Tu regrettes déjà ? Reprends ta cotisation : rien n'est prélevé aujourd'hui, elle repart le {jour(abonnement.fin_periode)}, sur la même carte.
+                </Text>
+                <Pressable onPress={reprendre} disabled={sending} style={({ pressed }) => [styles.payer, pressed && styles.pressed]} accessibilityRole="button">
+                  {sending ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.payerText}>Reprendre ma cotisation</Text>}
+                </Pressable>
+              </>
+            )}
             {abonnement.source !== 'web' && (
               <Text style={styles.small}>
                 Prise dans l'appli : elle se gère dans {abonnement.source === 'apple' ? "l'App Store" : 'Google Play'}.
@@ -242,6 +267,7 @@ function Page() {
                 <Text style={styles.changed}>Résilier</Text>
               </Pressable>
             )}
+            {refus && <Text style={styles.refus}>{refus}</Text>}
             {resiliation && (
               <>
                 <Text style={styles.text}>

@@ -5,6 +5,7 @@
 // chez Stancer pour les échéances suivantes ; renvoie payé, refusé, ou l'adresse du 3D Secure de la banque.
 // {confirmer: paym_…} : relit le paiement chez Stancer après le 3D Secure.
 // {resilier: true} : arrête le renouvellement ; MichelIA+ reste jusqu'à la fin de la période payée.
+// {reprendre: true} : annule la résiliation avant la fin de la période, sur la même carte.
 // La carte traverse la fonction le temps d'un appel à Stancer : jamais gardée, jamais dans les journaux.
 // Mêmes garde-fous que le comptoir : Turnstile à chaque carte et plafonds d'essais (comptoir_reserver).
 import { admin, cleanCard, isCardPaymentId, stancer, stancerConfigured, stancerCustomer, stancerTest } from "../_shared/stancer.ts";
@@ -74,6 +75,7 @@ Deno.serve(async (req) => {
 
   // Résilier marche toujours, même si l'abonnement a été refermé entre-temps.
   if (body?.resilier === true) return resilier(qui, origin);
+  if (body?.reprendre === true) return reprendre(qui, origin);
 
   // Fermé : seuls passent les essais avec une clé de test Stancer (aucun argent réel), et les
   // administrateurs de Michel, pour un vrai essai avant l'ouverture (page /la-cotisation?essai=1).
@@ -205,6 +207,24 @@ async function resilier(qui: Membre, origin: string | null): Promise<Response> {
     return reply(404, { error: "Pas d'abonnement" }, origin);
   }
   return reply(200, { etat: "resilie", fin_periode: data[0].fin_periode }, origin);
+}
+
+// Reprise d'une cotisation résiliée, tant que la période payée court encore : le renouvellement
+// repart à la même date, sur la carte déjà enregistrée chez Stancer. Rien n'est prélevé tout de suite.
+// Une fois la période finie, l'abonnement est terminé et il faut souscrire à nouveau.
+async function reprendre(qui: Membre, origin: string | null): Promise<Response> {
+  const { data } = await admin
+    .from("abonnements")
+    .update({ statut: "actif", resilie_le: null, updated_at: new Date().toISOString() })
+    .eq("user_id", qui.id)
+    .eq("source", "web")
+    .eq("moyen", "carte")
+    .eq("statut", "resilie")
+    .gt("fin_periode", new Date().toISOString())
+    .not("stancer_carte", "is", null)
+    .select("fin_periode");
+  if (!data?.length) return reply(409, { error: "Rien à reprendre : souscris à nouveau" }, origin);
+  return reply(200, { etat: "actif", fin_periode: data[0].fin_periode }, origin);
 }
 
 async function estAdmin(userId: string): Promise<boolean> {

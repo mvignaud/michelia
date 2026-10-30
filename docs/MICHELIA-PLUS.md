@@ -51,6 +51,8 @@ Fonction `michelia-plus` :
 - `{confirmer: paym_…}` : relit le paiement (`_shared/abonnement.ts`, `confirmerEcheance`), capture,
   passe l'abonnement `actif` et range le jeton `card_…` et les 4 derniers chiffres.
 - `{resilier: true}` : `resilie`, le droit court jusqu'à `fin_periode`.
+- `{reprendre: true}` : annule la résiliation tant que `fin_periode` n'est pas passée (abonnement carte
+  avec `stancer_carte`), rien n'est prélevé tout de suite. Après la fin, il faut souscrire à nouveau.
 
 Un seul essai de souscription à la fois par compte (`abonnements_vivant_idx` couvre aussi `en_attente`
 sur le site) : un double clic ou un second onglet reçoit 409. Un premier paiement refusé passe la ligne
