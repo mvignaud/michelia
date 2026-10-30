@@ -1,6 +1,6 @@
 // Fonction « facturer » : chaque pourboire payé sur le web devient une facture GOLDEN PRINT dans l'ERP
 // E-KO (jamais envoyée au client), puis le payeur reçoit son reçu PDF aux couleurs de Michel.
-// Appelée toutes les 5 minutes par pg_cron (migration 20261030010000_facturation_eko.sql).
+// Appelée toutes les 5 minutes par pg_cron (migration 20261030020000_facturation_eko.sql).
 // Sans danger si quelqu'un d'autre l'appelle : elle ne traite que les pourboires en attente.
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
