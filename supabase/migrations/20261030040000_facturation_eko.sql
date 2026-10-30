@@ -10,6 +10,9 @@ alter table public.pourboires add column if not exists facture_reglee_at timesta
 alter table public.pourboires add column if not exists recu_envoye_at timestamptz;
 alter table public.pourboires add column if not exists facture_erreur text;
 alter table public.pourboires add column if not exists facture_tentatives integer not null default 0;
+alter table public.pourboires add column if not exists recu_reserve_at timestamptz;
+alter table public.pourboires add column if not exists recu_erreur text;
+alter table public.pourboires add column if not exists recu_tentatives integer not null default 0;
 
 insert into public.app_config (key, value) values
   -- Facturation lancée : elle attend sans bruit que le secret EKO_API_TOKEN soit posé.

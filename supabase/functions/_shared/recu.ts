@@ -1,12 +1,10 @@
-// Reçu de paiement aux couleurs de Michel, envoyé au client par e-mail (Postal) en pièce jointe PDF.
+// Reçu de paiement aux couleurs de Michel, envoyé au client par e-mail (courriers.ts) en pièce jointe PDF.
 // La facture officielle vit dans l'ERP E-KO de GOLDEN PRINT (jamais envoyée au client) : le reçu en
 // reprend le numéro. TVA à 20 % sur des prix TTC.
 import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
 import { LOGO_PNG_BASE64 } from "./logo-recu.ts";
+import { envoyerCourrier, paiementRecu } from "./courriers.ts";
 
-const POSTAL_API_URL = (Deno.env.get("POSTAL_API_URL") ?? "").replace(/\/+$/, "");
-const POSTAL_API_KEY = Deno.env.get("POSTAL_API_KEY") ?? "";
-const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@michel.beer>";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 
 export const TAUX_TVA = 0.2;
@@ -106,37 +104,10 @@ function base64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-// Envoie le reçu ; renvoie false si Postal n'est pas configuré ou refuse (l'appelant journalise).
+// Envoie le reçu en pièce jointe ; false si Postal n'est pas configuré ou refuse (l'appelant journalise).
 export async function envoyerRecu(r: Recu): Promise<boolean> {
-  if (!POSTAL_API_URL || !POSTAL_API_KEY) return false;
-  const nom = r.prenom ? ` ${r.prenom}` : "";
-  const texte = [
-    `Adishatz${nom} !`,
-    `Merci pour ton paiement de ${euros(r.montantTtcCents)}. Ton reçu est en pièce jointe (${r.facture ? "facture" : "reçu"} n° ${r.numero}).`,
-    "Allez, porte-toi bien.\nMichel",
-    SITE_URL,
-  ].join("\n\n");
-  try {
-    const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {
-      method: "POST",
-      headers: { "X-Server-API-Key": POSTAL_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: [r.email],
-        from: MAIL_FROM,
-        subject: `Ton reçu Michel (n° ${r.numero})`,
-        plain_body: texte,
-        tag: "recu",
-        attachments: [{ name: `recu-michel-${r.numero}.pdf`, content_type: "application/pdf", data: base64(await pdfRecu(r)) }],
-      }),
-    });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || result?.status !== "success") {
-      console.error("Postal refuse le reçu :", response.status, JSON.stringify(result?.data ?? result));
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("Postal injoignable :", e);
-    return false;
-  }
+  const courrier = paiementRecu({ prenom: r.prenom, montantCents: r.montantTtcCents, libelle: r.libelle, numero: r.numero, facture: r.facture });
+  return envoyerCourrier(r.email, courrier, "recu", [
+    { nom: `recu-michel-${r.numero}.pdf`, type: "application/pdf", base64: base64(await pdfRecu(r)) },
+  ]);
 }

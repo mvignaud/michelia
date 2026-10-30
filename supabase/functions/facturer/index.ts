@@ -46,6 +46,17 @@ function libelles(raw: string | undefined): Record<string, string> {
 // Numéro du reçu tant que la facture E-KO n'existe pas : propre à Michel, tiré de la ligne du pourboire.
 const numeroRecu = (id: number, date: Date) => `R${jourParis(date).slice(0, 4)}-${String(id).padStart(6, "0")}`;
 
+type Ligne = {
+  id: number; paiement_id: string; prestataire: string; montant_cents: number; devise: string; palier: string;
+  prenom: string | null; email: string | null; created_at: string; facture_code: string | null;
+  facture_reglee_at: string | null; facture_tentatives: number; recu_tentatives: number;
+};
+const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, facture_tentatives, recu_tentatives";
+
+// Pourboires concernés : web, réels, payés chez un prestataire du locataire.
+const pourboires = () =>
+  admin.from("pourboires").select(COLONNES).eq("canal", "web").eq("essai", false).in("prestataire", PRESTATAIRES);
+
 Deno.serve(async () => {
   const c = await config();
   // Sans jeton E-KO, la facturation attend sans bloquer les reçus.
@@ -53,64 +64,44 @@ Deno.serve(async () => {
   const recus = c.recus_actifs === "true";
   if (!facturer && !recus) return json(200, { ok: true, actif: false });
 
-  // Factures et reçus ont chacun leur interrupteur et leur date de départ.
-  const conditions: string[] = [];
-  if (facturer) conditions.push(`and(facture_reglee_at.is.null,created_at.gte.${c.facturation_eko_depuis || "2999-01-01"})`);
-  if (recus) conditions.push(`and(email.not.is.null,recu_envoye_at.is.null,created_at.gte.${c.recus_depuis || "2999-01-01"})`);
-
-  const { data: lignes, error } = await admin
-    .from("pourboires")
-    .select("id, paiement_id, prestataire, montant_cents, devise, palier, prenom, email, created_at, facture_code, facture_reglee_at, recu_envoye_at, facture_tentatives")
-    .eq("canal", "web")
-    .eq("essai", false)
-    .in("prestataire", PRESTATAIRES)
-    .lt("facture_tentatives", MAX_TENTATIVES)
-    .or(conditions.join(","))
-    .order("created_at")
-    .limit(PAR_PASSAGE);
-  if (error) return json(500, { error: error.message });
-  if (!lignes?.length) return json(200, { ok: true, traites: 0 });
-
   const noms = libelles(c.comptoir_paliers);
-  // E-KO injoignable : on facturera au prochain passage, les reçus partent quand même.
-  let tierId = 0;
-  if (facturer) {
-    try {
-      tierId = await tiersGenerique(c.facturation_eko_client || "ClientMichel Web");
-    } catch (e) {
-      console.error("E-KO : client générique introuvable", e instanceof Error ? e.message : e);
-    }
-  }
-  const depuisFactures = new Date(c.facturation_eko_depuis || "2999-01-01");
-  const depuisRecus = new Date(c.recus_depuis || "2999-01-01");
+  const libelle = (l: Ligne) => `Pourboire MichelIA : ${noms[l.palier] ?? l.palier}`;
   let factures = 0, envoyes = 0, echecs = 0;
-
-  const noterErreur = async (id: number, tentatives: number, e: unknown) => {
+  const erreur = (l: Ligne, quoi: string, e: unknown) => {
     echecs++;
     const message = e instanceof Error ? e.message : String(e);
-    console.error("Pourboire", id, message);
-    await admin.from("pourboires").update({ facture_erreur: message.slice(0, 500), facture_tentatives: tentatives + 1 }).eq("id", id);
+    console.error(`Pourboire ${l.id} (${quoi})`, message);
+    return message.slice(0, 500);
   };
 
-  for (const l of lignes) {
-    const libelle = `Pourboire MichelIA : ${noms[l.palier] ?? l.palier}`;
-    const date = new Date(l.created_at);
-    if (String(l.devise) !== "eur") {
-      await noterErreur(l.id, l.facture_tentatives ?? 0, `devise ${l.devise} non gérée`);
-      continue;
-    }
-
-    // La facture d'abord, pour que le reçu porte son numéro ; si E-KO bloque, le reçu part quand même
-    // avec un numéro de reçu, et la facture sera reprise au passage suivant.
-    let facture = l.facture_reglee_at ? l.facture_code as string : null;
-    if (!facture && tierId && date >= depuisFactures) {
+  // 1. Les factures d'abord, pour que les reçus qui suivent portent leur numéro. Chacune a son compteur
+  // d'essais : une panne d'E-KO n'arrête pas les reçus, une panne de Postal n'arrête pas la facturation.
+  if (facturer) {
+    const { data, error } = await pourboires()
+      .is("facture_reglee_at", null)
+      .gte("created_at", c.facturation_eko_depuis || "2999-01-01")
+      .lt("facture_tentatives", MAX_TENTATIVES)
+      .order("created_at")
+      .limit(PAR_PASSAGE);
+    if (error) return json(500, { error: error.message });
+    let tierId = 0;
+    if (data?.length) {
       try {
-        facture = await facturerVente({
+        tierId = await tiersGenerique(c.facturation_eko_client || "ClientMichel Web");
+      } catch (e) {
+        echecs++;
+        console.error("E-KO : client générique introuvable", e instanceof Error ? e.message : e);
+      }
+    }
+    for (const l of (tierId ? data ?? [] : []) as Ligne[]) {
+      try {
+        if (l.devise !== "eur") throw new Error(`devise ${l.devise} non gérée`);
+        await facturerVente({
           tierId,
-          paiementId: String(l.paiement_id),
-          libelle,
+          paiementId: l.paiement_id,
+          libelle: libelle(l),
           montantTtcCents: l.montant_cents,
-          date: jourParis(date),
+          date: jourParis(new Date(l.created_at)),
           prestataire: l.prestataire,
         }, l.facture_code, async (numero) => {
           await admin.from("pourboires").update({ facture_code: numero }).eq("id", l.id);
@@ -118,18 +109,42 @@ Deno.serve(async () => {
         await admin.from("pourboires").update({ facture_reglee_at: new Date().toISOString(), facture_erreur: null }).eq("id", l.id);
         factures++;
       } catch (e) {
-        await noterErreur(l.id, l.facture_tentatives ?? 0, e);
+        await admin.from("pourboires").update({ facture_erreur: erreur(l, "facture", e), facture_tentatives: l.facture_tentatives + 1 }).eq("id", l.id);
       }
     }
+  }
 
-    if (recus && l.email && !l.recu_envoye_at && date >= depuisRecus) {
-      const envoye = await envoyerRecu({
+  // 2. Les reçus, avec le numéro de facture quand elle existe, sinon un numéro de reçu Michel.
+  if (recus) {
+    const { data, error } = await pourboires()
+      .not("email", "is", null)
+      .is("recu_envoye_at", null)
+      .gte("created_at", c.recus_depuis || "2999-01-01")
+      .lt("recu_tentatives", MAX_TENTATIVES)
+      .order("created_at")
+      .limit(PAR_PASSAGE);
+    if (error) return json(500, { error: error.message });
+    for (const l of (data ?? []) as Ligne[]) {
+      // Réservation atomique : deux appels simultanés n'envoient jamais deux reçus. Une réservation
+      // vieille de plus de 10 minutes (appel coupé en route) est reprise.
+      const perimee = new Date(Date.now() - 10 * 60_000).toISOString();
+      const { data: pris } = await admin.from("pourboires")
+        .update({ recu_reserve_at: new Date().toISOString() })
+        .eq("id", l.id)
+        .is("recu_envoye_at", null)
+        .or(`recu_reserve_at.is.null,recu_reserve_at.lt.${perimee}`)
+        .select("id");
+      if (!pris?.length) continue;
+
+      const facture = l.facture_reglee_at ? l.facture_code : null;
+      const date = new Date(l.created_at);
+      const envoye = l.devise === "eur" && await envoyerRecu({
         numero: facture ?? numeroRecu(l.id, date),
         facture: !!facture,
         date,
-        email: l.email,
+        email: l.email!,
         prenom: l.prenom,
-        libelle,
+        libelle: libelle(l),
         montantTtcCents: l.montant_cents,
         moyen: "Carte bancaire",
       });
@@ -137,9 +152,11 @@ Deno.serve(async () => {
         await admin.from("pourboires").update({ recu_envoye_at: new Date().toISOString() }).eq("id", l.id);
         envoyes++;
       } else {
-        await noterErreur(l.id, l.facture_tentatives ?? 0, "reçu refusé par Postal");
+        const message = erreur(l, "reçu", l.devise === "eur" ? "reçu refusé par Postal" : `devise ${l.devise} non gérée`);
+        await admin.from("pourboires").update({ recu_reserve_at: null, recu_erreur: message, recu_tentatives: l.recu_tentatives + 1 }).eq("id", l.id);
       }
     }
   }
+
   return json(200, { ok: true, factures, recus: envoyes, echecs });
 });
