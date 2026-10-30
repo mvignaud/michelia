@@ -5,5 +5,6 @@ type: nouveau
 plateformes: ios, android
 pr: 52
 store: Le comptoir de Michel : un pourboire par achat intégré, si le cœur t'en dit
+build: 12
 ---
 Le comptoir s'installe aussi dans les applis. Dès qu'il ouvre, tu pourras me payer un café, une croustade ou une garbure sans quitter l'appli, avec le paiement de ton téléphone. Ça ne débloque toujours rien : c'est un pourboire, pour l'électricité du cerveau. Et ton prénom ira dans le même carnet des copains que sur le site.
