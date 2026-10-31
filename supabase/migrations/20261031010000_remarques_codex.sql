@@ -146,6 +146,6 @@ grant execute on function public.mes_causettes(timestamptz) to authenticated;
 -- plus d'essais ; ceux qui les ont déjà tous perdus pour cette raison repartent.
 update public.pourboires
 set facture_tentatives = 0, facture_erreur = null
+-- (paiement_carte peut avoir été complété depuis : ils repartent aussi.)
 where facture_reglee_at is null
-  and paiement_carte is null
   and facture_erreur like 'paiement Stancer (paym_) pas encore connu%';
