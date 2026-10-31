@@ -27,3 +27,11 @@ Les modèles d'e-mail sont dans `supabase/functions/_shared/alertes.ts`.
 | `alertes_actives` | `true` | `false` coupe tout (rien n'est même déposé). |
 | `alertes_destinataire` | `contact@michel.beer` | L'adresse qui reçoit les alertes. |
 | `alertes_muettes` | `[]` | Liste JSON des genres à taire, par exemple `["renouvellement", "inscription"]`. |
+
+## Les boutons
+
+Chaque alerte a un bouton qui ouvre directement la bonne table dans le Table Editor de Supabase
+(cahier, notes, pourboires, abonnements) ou la liste des comptes (inscriptions, départs). L'adresse
+d'une table contient son numéro interne (oid), noté en haut de `supabase/functions/_shared/alertes.ts`.
+Si une table est un jour supprimée puis recréée, relire son oid
+(`select oid from pg_class where relname = 'doleances'`) et le remplacer là.
