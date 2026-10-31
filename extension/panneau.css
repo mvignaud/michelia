@@ -30,6 +30,8 @@
 }
 
 * { box-sizing: border-box; }
+/* « hidden » l'emporte toujours, même sur un display posé plus bas (#connexion est en flex). */
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
   display: flex;

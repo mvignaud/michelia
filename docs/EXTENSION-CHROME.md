@@ -34,4 +34,6 @@ Permissions : `sidePanel`, `storage`, `contextMenus`, et accès à `michel.beer`
 4. Onglet « Confidentialité » : objectif unique « discuter avec l'assistant Michel » ; justifier chaque permission (`sidePanel` : afficher le chat ; `storage` : garder la causette et la session ; `contextMenus` : « Demander à Michel » ; hôtes : parler au serveur de Michel) ; données collectées : contenu saisi par l'utilisateur, envoyé au serveur de Michel pour répondre ; pas de code distant.
 5. Envoyer à l'examen (quelques jours en général).
 
+Une fois l'identifiant de l'extension connu (donné par le Web Store) : restreindre `app/public/captcha.html` à `chrome-extension://<cet identifiant>` au lieu de toute page d'extension.
+
 À chaque nouvelle version : augmenter `version` dans `extension/manifest.json`, fusionner, puis déposer le nouveau `.zip`.

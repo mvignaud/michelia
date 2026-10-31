@@ -91,7 +91,14 @@ const Michel = (() => {
   }
 
   // Comme l'appli : chaque visiteur reçoit un compte anonyme, qui porte le quota du jour.
-  async function getAccessToken() {
+  // Un seul renouvellement (ou une seule inscription) à la fois : les appels simultanés attendent le même.
+  let enRoute = null;
+  function getAccessToken() {
+    enRoute ??= obtenirJeton().finally(() => (enRoute = null));
+    return enRoute;
+  }
+
+  async function obtenirJeton() {
     const session = await getSession();
     if (session && session.expires_at - 60 > Date.now() / 1000) return session.access_token;
     if (session?.refresh_token) {
