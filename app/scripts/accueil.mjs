@@ -19,6 +19,15 @@ const PALIERS = [
   ['Le repas de fête', '9,99'],
 ];
 const MARQUE = 'data-page="accueil"';
+// Applis de bureau (dossier bureau/, tâche GitHub « Applis de bureau ») : passer à true une fois la première
+// sortie bureau-vX.Y.Z publiée, sinon les liens michel.beer/telecharger/… mèneraient à une page vide.
+const BUREAU_PUBLIE = false;
+// Les installeurs gardent le même nom d'une version à l'autre : public/_redirects mène à la dernière.
+const TELECHARGER = [
+  ['Windows', '/telecharger/windows'],
+  ['Mac', '/telecharger/mac'],
+  ['Linux', '/telecharger/linux'],
+];
 
 // Référencement : la description des moteurs de recherche et l'aperçu des liens partagés.
 const DESCRIPTION =
@@ -56,7 +65,7 @@ const DONNEES = {
       url: `${SITE}/chat`,
       description: DESCRIPTION,
       applicationCategory: 'UtilitiesApplication',
-      operatingSystem: 'Web, iOS, Android',
+      operatingSystem: BUREAU_PUBLIE ? 'Web, iOS, Android, Windows, macOS, Linux' : 'Web, iOS, Android',
       inLanguage: 'fr-FR',
       isAccessibleForFree: true,
       image: `${SITE}/partage.png`,
@@ -133,7 +142,7 @@ h2{font-size:clamp(28px,4vw,40px);line-height:1.15;margin:0 0 16px}
 .offre ul{margin:0 0 20px;padding-left:20px}
 .offre li{margin-bottom:6px}
 .offre .bas{margin-top:auto}
-.offre .petit-texte{font-size:14px;color:var(--gris);margin:12px 0 0}
+.offre .petit-texte,#ordinateur .petit-texte{font-size:14px;color:var(--gris);margin:12px 0 0}
 .paliers{list-style:none;padding:0!important;display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .paliers li{background:var(--fond);border-radius:12px;padding:10px 12px;margin:0!important;font-size:15px}
 .paliers b{display:block;font-size:17px}
@@ -156,6 +165,17 @@ h2{font-size:clamp(28px,4vw,40px);line-height:1.15;margin:0 0 16px}
 .bloc.brique .fin-bouton,.fin .bouton{background:#fff8ee;color:var(--brique);box-shadow:none}
 footer{color:var(--gris);font-size:13px;padding:32px 20px;text-align:center;max-width:1080px;margin:0 auto}
 footer a{color:var(--gris)}
+`;
+
+// Michel sur l'ordinateur : un vrai logiciel, pas le site dans une fenêtre.
+const ORDINATEUR = `<section class="bloc creme" id="ordinateur"><div class="bord">
+<p class="surtitre">Sur le bureau</p>
+<h2>Michel, aussi sur ton ordinateur.</h2>
+<p>Un vrai logiciel pour Windows, Mac et Linux. Michel s'installe, se range dans la barre en haut ou en bas de l'écran, et rapplique quand tu tapes Ctrl+Maj+M (Cmd+Maj+M sur Mac), même au milieu d'autre chose. Il te prévient quand il a répondu, et il te dit quand une nouvelle version sort.</p>
+<div class="liens">${TELECHARGER.map(([os, lien]) => `<a class="bouton" href="${lien}">Pour ${os}</a>`).join('')}</div>
+<p class="petit-texte">Linux : fichier AppImage, aussi en <a href="/telecharger/linux-deb">.deb</a> et <a href="/telecharger/linux-rpm">.rpm</a>. Sous Windows, la première fois, l'écran bleu « Windows a protégé votre ordinateur » peut faire la grimace : « Informations complémentaires », puis « Exécuter quand même ». Gratuit et libre, le code est sur <a href="https://github.com/mvignaud/michelia">GitHub</a>.</p>
+</div></section>
+
 `;
 
 function page({ sections }, servis) {
@@ -293,7 +313,7 @@ ${servis
 </div>
 </div></section>
 
-<section class="bloc brique fin"><div class="bord">
+${BUREAU_PUBLIE ? ORDINATEUR : ''}<section class="bloc brique fin"><div class="bord">
 <h2>Alors, on cause ?</h2>
 <p>Michel t'attend. Il râle un peu, mais il est content quand tu passes.</p>
 <a class="bouton fin-bouton" href="/chat">Parler à Michel</a>

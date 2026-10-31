@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { bureau } from './bureau';
 import type { InstallState } from './pwa';
 
 export type { InstallState };
@@ -26,7 +27,8 @@ if (typeof window !== 'undefined') {
 }
 
 export function registerServiceWorker() {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  // L'appli de bureau embarque déjà ses fichiers : pas de cache hors ligne à installer.
+  if (bureau || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   // En développement le cache servirait de vieux fichiers : seulement sur le site publié.
   if (__DEV__) return;
   window.addEventListener('load', () => {
@@ -60,7 +62,8 @@ export function useInstall(): InstallState {
     return () => void listeners.delete(listener);
   }, []);
 
-  const mode = standalone() ? 'none' : deferred ? 'prompt' : ios() ? 'ios' : 'none';
+  // Dans l'appli de bureau, Michel est déjà installé.
+  const mode = bureau || standalone() ? 'none' : deferred ? 'prompt' : ios() ? 'ios' : 'none';
   return {
     mode,
     install: async () => {

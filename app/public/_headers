@@ -44,7 +44,7 @@
   X-Robots-Tag: noindex
 
 # Le captcha des applis (/captcha) s'affiche aussi dans un cadre du panneau de l'extension Chrome
-# (chrome-extension://…), que frame-ancestors ne sait pas nommer de façon fiable : on retire la règle
+# (chrome-extension://…) et des écrans de l'appli de bureau (tauri://localhost, http://tauri.localhost), que frame-ancestors ne sait pas nommer de façon fiable : on retire la règle
 # pour cette page seulement. Elle ne fait rien d'autre que donner un jeton Turnstile.
 /captcha
   ! Content-Security-Policy

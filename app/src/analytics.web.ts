@@ -1,7 +1,10 @@
 // Mesure d'audience Google Analytics, chargée seulement après un « J'accepte ».
+// Jamais dans l'appli de bureau : pas de bandeau cookies, rien ne part chez Google.
+import { bureau } from './bureau';
+
 const GA_ID = process.env.EXPO_PUBLIC_GA_ID || 'G-M7P69D4TCG';
 
-export const ANALYTICS_ENABLED = !!GA_ID;
+export const ANALYTICS_ENABLED = !!GA_ID && !bureau;
 
 type Gtag = (...args: unknown[]) => void;
 let started = false;

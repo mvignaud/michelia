@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MichelIA",
+  "mainBinaryName": "MichelIA",
+  "version": "1.0.0",
+  "identifier": "beer.michel.bureau",
+  "build": {
+    "frontendDist": "../ecrans",
+    "devUrl": "http://localhost:8081",
+    "beforeBuildCommand": "",
+    "beforeDevCommand": ""
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi", "dmg", "app", "deb", "rpm", "appimage"],
+    "publisher": "GOLDEN PRINT SAS",
+    "copyright": "© 2026 GOLDEN PRINT SAS. Logiciel libre sous GPL 3.",
+    "category": "Productivity",
+    "shortDescription": "Michel, le papi du Gers coincé dans l'ordinateur",
+    "longDescription": "Michel, c'est une intelligence artificielle gratuite avec l'accent du Gers. Recettes, mails, devoirs, météo : pose ta question, il a un avis sur tout.",
+    "homepage": "https://michel.beer",
+    "license": "GPL-3.0-or-later",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": { "languages": ["French"], "installMode": "currentUser" },
+      "wix": { "language": "fr-FR" }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": true
+    },
+    "linux": {
+      "deb": { "section": "utils" }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["michelia"] }
+    }
+  }
+}
