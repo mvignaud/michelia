@@ -13,6 +13,8 @@ const MEMOIRE = 'michel:memoire';
 const MAX_GARDES = 40;
 let memoire = { name: undefined, messages: [] };
 let enCours = null;
+// Change à chaque « Nouvelle » : une réponse coupée de l'ancienne causette ne revient pas dans la nouvelle.
+let causette = 0;
 
 const ACCUEIL = [
   "Adieu ! Moi c'est Michel, du Gers. Pose-moi ta question, je te réponds franco, con.",
@@ -112,6 +114,7 @@ async function demander(texte) {
   el.classList.add('ecrit');
   descendre();
   occupe(true);
+  const ici = causette;
 
   enCours = new AbortController();
   try {
@@ -127,8 +130,9 @@ async function demander(texte) {
     );
     if (name) memoire.name = name;
     if (!reponse.content) throw new Error('Michel est resté sans voix. Réessaie, con.');
-    memoire.messages.push(reponse);
+    if (ici === causette) memoire.messages.push(reponse);
   } catch (e) {
+    if (ici !== causette) return;
     if (reponse.content) memoire.messages.push(reponse);
     else {
       el.remove();
@@ -140,7 +144,7 @@ async function demander(texte) {
     el.classList.remove('ecrit');
     enCours = null;
     occupe(false);
-    await sauver();
+    if (ici === causette) await sauver();
   }
 }
 
@@ -174,6 +178,7 @@ function ajuster() {
 question.addEventListener('input', ajuster);
 
 $('nouvelle').addEventListener('click', async () => {
+  causette++;
   if (enCours) enCours.abort();
   memoire.messages = [];
   await sauver();
