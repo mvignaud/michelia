@@ -34,7 +34,8 @@ GitHub > Actions > **Applis de bureau** > Run workflow, avec le numéro de versi
   (universel Intel + Apple Silicon), `MichelIA-Linux.AppImage`/`.deb`/`.rpm`. Notes facultatives : `bureau/notes/X.Y.Z.md`.
 
 Les liens `michel.beer/telecharger/windows|mac|linux` (`app/public/_redirects`) mènent toujours à la dernière
-sortie. La section « Sur le bureau » de l'accueil s'affiche quand `BUREAU_PUBLIE` vaut `true` dans
+sortie. Elles visent la sortie marquée « Latest » du dépôt : toute autre sortie GitHub doit être publiée
+avec `--latest=false`, sinon les liens de téléchargement cassent. La section « Sur le bureau » de l'accueil s'affiche quand `BUREAU_PUBLIE` vaut `true` dans
 `app/scripts/accueil.mjs` : à passer après la première publication.
 
 Les réglages publics (`EXPO_PUBLIC_*`) sont lus chez EAS (environnement production) avec `EXPO_TOKEN`.

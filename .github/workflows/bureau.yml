@@ -33,9 +33,10 @@ on:
 permissions:
   contents: read
 
+# Une vérification de PR remplace la précédente ; une construction ou une publication n'est jamais coupée.
 concurrency:
-  group: bureau-${{ github.ref }}
-  cancel-in-progress: true
+  group: bureau-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verifier:
@@ -107,14 +108,20 @@ jobs:
 
       # Les réglages publics (adresse Supabase, clé publique, clé de site Turnstile…) sont rangés chez EAS,
       # comme pour les applis iOS et Android.
-      - name: Écrans de Michel (export web d'app/)
+      - name: Dépendances des écrans
+        working-directory: app
+        run: npm ci
+      # Le jeton Expo ne sert qu'à cette étape (version d'eas-cli figée), pas à l'installation ni à l'export.
+      - name: Réglages publics (EAS)
         working-directory: app
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          npm ci
-          npx --yes eas-cli@latest env:pull --environment production --path .env.local --non-interactive
+          npx --yes eas-cli@27.2.0 env:pull --environment production --path .env.local --non-interactive
           grep -q '^EXPO_PUBLIC_SUPABASE_URL=.' .env.local || { echo "::error::EXPO_PUBLIC_SUPABASE_URL absent des réglages EAS (production)."; exit 1; }
+      - name: Écrans de Michel (export web d'app/)
+        working-directory: app
+        run: |
           npx expo export --platform web --output-dir ../bureau/ecrans
           rm -f .env.local
 
