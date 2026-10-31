@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useInstall } from './pwa';
-import { colors, serif } from './theme';
+import { carteInvite } from './ecran';
+import { colors } from './theme';
 
 const KEY = 'michelia:installer';
 
@@ -61,33 +62,14 @@ export function InstallCard() {
 }
 
 const styles = StyleSheet.create({
+  ...carteInvite,
   card: {
     flexDirection: 'row',
     gap: 14,
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.separator,
-    boxShadow: '0 2px 10px rgba(60, 40, 20, 0.08)',
+    ...carteInvite.card,
   },
   icon: { width: 52, height: 52, borderRadius: 12 },
   body: { flex: 1, gap: 6 },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700', fontFamily: serif },
-  text: { color: colors.secondary, fontSize: 14, lineHeight: 20 },
   strong: { color: colors.text, fontWeight: '600' },
-  buttons: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  button: {
-    height: 36,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.accent,
-  },
-  buttonText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
-  later: { height: 36, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
   alone: { paddingHorizontal: 0 },
-  laterText: { color: colors.secondary, fontSize: 14, fontWeight: '600' },
-  pressed: { opacity: 0.6 },
 });

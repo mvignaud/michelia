@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -46,7 +45,8 @@ import { MonAbonnement } from './MonAbonnement';
 import { DAILY_KEY } from './NotifyCard';
 import { COUNTRIES, PhoneField, fullPhone } from './PhoneField';
 import { pushState, setDailyPush } from './push';
-import { SWITCH_COLORS, colors, serif } from './theme';
+import { COLUMN_COMPTE, barreCompte } from './ecran';
+import { SWITCH_COLORS, colors } from './theme';
 
 export type AccountMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'profile' | 'phone';
 
@@ -506,27 +506,10 @@ function Link({ label, onPress, danger }: { label: string; onPress: () => void; 
   );
 }
 
-const COLUMN = { width: '100%', maxWidth: 480, alignSelf: 'center' } as const;
-
 const styles = StyleSheet.create({
   screen: { ...StyleSheet.absoluteFill, backgroundColor: colors.background, zIndex: 10 },
-  bar: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
-    backgroundColor: colors.bar,
-    paddingTop: Platform.OS === 'ios' ? 48 : 0,
-  },
-  barInner: {
-    ...COLUMN,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  title: { color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
-  close: { color: colors.accent, fontSize: 16, fontWeight: '600' },
-  content: { ...COLUMN, padding: 16, paddingBottom: 48, gap: 12 },
+  ...barreCompte,
+  content: { ...COLUMN_COMPTE, padding: 16, paddingBottom: 48, gap: 12 },
   intro: { color: colors.secondary, fontSize: 15, textAlign: 'center', marginVertical: 8 },
   provider: {
     height: 48,

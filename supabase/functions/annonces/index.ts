@@ -5,6 +5,8 @@
 //   ou { unsubscribe: "u.t" } (lien des e-mails, ouvert dans l'appli) : coupe les nouvelles.
 // Déployée sans vérification du JWT : le droit d'administrateur est vérifié ici.
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
+import { corsHeaders } from "../_shared/cors.ts";
+import { escapeHtml, sign } from "../_shared/envois.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -29,40 +31,11 @@ const PROGRESS_EVERY = 50;
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*").split(",").map((o) => o.trim());
-
-function corsHeaders(origin: string | null): HeadersInit {
-  const allow = allowedOrigins.includes("*")
-    ? "*"
-    : origin && allowedOrigins.includes(origin)
-      ? origin
-      : allowedOrigins[0];
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
-}
-
 function json(status: number, data: unknown, origin: string | null): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders(origin), "Content-Type": "application/json; charset=utf-8" },
   });
-}
-
-// Jeton de désabonnement : HMAC de l'identifiant, pour qu'on ne puisse pas désabonner quelqu'un d'autre.
-async function sign(userId: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(UNSUBSCRIBE_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(userId)));
-  return btoa(String.fromCharCode(...mac)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 async function unsubscribe(userId: string, token: string): Promise<boolean> {
@@ -75,9 +48,6 @@ async function unsubscribe(userId: string, token: string): Promise<boolean> {
   const { error } = await db.from("profiles").update({ news_opt_in: false }).eq("id", userId);
   return !error;
 }
-
-const escapeHtml = (text: string) =>
-  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // {prenom} dans le texte devient le prénom du membre (ou disparaît s'il n'en a pas).
 // Le prénom est réduit aux lettres, pour qu'un membre ne glisse pas un lien dans l'objet ou le texte.

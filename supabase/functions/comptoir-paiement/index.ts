@@ -28,6 +28,7 @@ import {
   stancerCustomer,
   stancerTest,
 } from "../_shared/stancer.ts";
+import { corsHeaders, origineRefusee } from "../_shared/cors.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -39,24 +40,6 @@ const STRIPE_VERSION = "2026-09-30.endive";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/$/, "");
 // Adresse de retour du 3D Secure : cette fonction, qui accepte le POST de la banque (voir plus bas).
 const RETOUR_3DS = `${Deno.env.get("SUPABASE_URL")}/functions/v1/comptoir-paiement?retour=3ds`;
-
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*")
-  .split(",")
-  .map((o) => o.trim());
-
-function corsHeaders(origin: string | null): HeadersInit {
-  const allow = allowedOrigins.includes("*")
-    ? "*"
-    : origin && allowedOrigins.includes(origin)
-      ? origin
-      : allowedOrigins[0];
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
-}
 
 function reply(status: number, body: unknown, origin: string | null): Response {
   return new Response(JSON.stringify(body), {
@@ -81,8 +64,7 @@ Deno.serve(async (req) => {
   }
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
   if (req.method !== "POST") return reply(405, { error: "Méthode non permise" }, origin);
-  // Un navigateur d'un autre site n'a rien à faire ici (appels sans Origin, hors navigateur, tolérés).
-  if (origin && !allowedOrigins.includes("*") && !allowedOrigins.includes(origin)) {
+  if (origineRefusee(origin)) {
     return reply(403, { error: "Origine non autorisée" }, origin);
   }
   // deno-lint-ignore no-explicit-any

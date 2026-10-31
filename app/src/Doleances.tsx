@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BarreMichel } from './Blocs';
+import { ecran } from './ecran';
 import { getAccessToken, supabase } from './supabase';
 import { colors, serif } from './theme';
 
@@ -72,17 +74,7 @@ export function Doleances({ onClose, initialCategorie = 'idee' }: { onClose: () 
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.bar}>
-        <View style={styles.barInner}>
-          <View style={styles.avatar}>
-            <Image source={require('../assets/brand/michel-portrait.png')} style={styles.avatarImage} accessibilityLabel="Michel" />
-          </View>
-          <Text style={styles.title}>Le cahier de doléances</Text>
-          <Pressable onPress={onClose} accessibilityRole="button" hitSlop={8}>
-            <Text style={styles.back}>Fermer</Text>
-          </Pressable>
-        </View>
-      </View>
+      <BarreMichel titre="Le cahier de doléances" retour="Fermer" onPress={onClose} accessibilityRole="button" hitSlop={8} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
           <Text style={styles.quote}>
@@ -169,40 +161,11 @@ export function Doleances({ onClose, initialCategorie = 'idee' }: { onClose: () 
   );
 }
 
-const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
-
 const styles = StyleSheet.create({
+  ...ecran,
   screen: { ...StyleSheet.absoluteFill, backgroundColor: colors.background, zIndex: 20 },
-  bar: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator, backgroundColor: colors.bar },
-  barInner: { ...COLUMN, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: colors.ochre,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 50, height: 50, marginTop: 4 },
-  title: { flex: 1, color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
-  back: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  content: { ...COLUMN, padding: 16, paddingBottom: 48, gap: 14 },
-  pressed: { opacity: 0.6 },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 18,
-    gap: 10,
-    boxShadow: '0 1px 2px rgba(60, 40, 20, 0.08)',
-  },
-  quote: { color: colors.accent, fontSize: 20, lineHeight: 28, fontFamily: serif, fontStyle: 'italic' },
-  text: { color: colors.text, fontSize: 16, lineHeight: 23 },
   center: { textAlign: 'center' },
   link: { color: colors.accent, fontWeight: '600', textDecorationLine: 'underline' },
-  cardTitle: { color: colors.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 14,
@@ -215,19 +178,8 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   chipText: { color: colors.text, fontSize: 14 },
   chipTextActive: { color: colors.onAccent, fontWeight: '600' },
-  input: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.separator,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 16,
-    color: colors.text,
-  },
   area: { minHeight: 140, textAlignVertical: 'top' },
   count: { color: colors.tertiary, fontSize: 12, textAlign: 'right', marginTop: -4 },
-  refus: { color: colors.failed, fontSize: 15, lineHeight: 21 },
   send: {
     backgroundColor: colors.accent,
     borderRadius: 14,
@@ -238,8 +190,7 @@ const styles = StyleSheet.create({
   },
   sendDisabled: { backgroundColor: colors.disabled },
   sendText: { color: colors.onAccent, fontSize: 17, fontFamily: serif, fontWeight: '700' },
-  thanks: { backgroundColor: colors.accentSoft, borderWidth: 2, borderColor: colors.ochre },
-  thanksText: { color: colors.accent, fontSize: 22, lineHeight: 30, fontFamily: serif, fontWeight: '700', textAlign: 'center' },
+  thanksText: { ...ecran.thanksText, fontSize: 22, lineHeight: 30 },
   small: { color: colors.tertiary, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 8 },
   smallLink: { color: colors.tertiary, textDecorationLine: 'underline' },
 });

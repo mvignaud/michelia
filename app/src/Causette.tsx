@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AvatarMichel } from './Blocs';
 import { lireCausette, type Echange } from './causette';
+import { COLUMN, ecran } from './ecran';
 import { RichText } from './RichText';
 import { colors, serif } from './theme';
 
@@ -30,9 +32,7 @@ export function Causette({ id }: { id: string }) {
     <View style={styles.screen}>
       <View style={styles.header}>
         <View style={styles.headerInner}>
-          <View style={styles.avatar}>
-            <Image source={require('../assets/brand/michel-portrait.png')} style={styles.avatarImage} accessibilityLabel="Michel" />
-          </View>
+          <AvatarMichel />
           <View style={styles.headerText}>
             <Text style={styles.title}>Une causette avec Michel</Text>
             <Text style={styles.status}>
@@ -87,24 +87,10 @@ export function Causette({ id }: { id: string }) {
   );
 }
 
-const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator, backgroundColor: colors.bar },
-  headerInner: { ...COLUMN, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: colors.ochre,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 50, height: 50, marginTop: 4 },
+  header: ecran.bar,
+  headerInner: ecran.barInner,
   headerText: { flex: 1 },
   title: { color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
   status: { color: colors.secondary, fontSize: 13, marginTop: 1 },
