@@ -1,0 +1,220 @@
+# Applis de bureau de Michel (dossier bureau/, Tauri) : Windows, Mac et Linux, construites ici.
+# Sur une PR qui touche l'appli de bureau : simple vérification que le cœur Rust compile (Linux).
+# À la main : GitHub > Actions > « Applis de bureau » > Run workflow, avec le numéro de version.
+#   - « publier » décoché : les installeurs restent dans les fichiers de la tâche (pour essayer).
+#   - « publier » coché : sortie GitHub bureau-vX.Y.Z, que michel.beer/telecharger/… propose
+#     (et que les applis déjà installées signalent comme nouvelle version).
+# Les écrans embarqués sont l'export web d'app/ (le même code que michel.beer/chat).
+#
+# Secrets du dépôt (Settings > Secrets and variables > Actions), jamais dans le code :
+#   EXPO_TOKEN                     déjà là : sert à lire les réglages publics EXPO_PUBLIC_* chez EAS
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   déjà là : la même clé App Store Connect sert à notariser le Mac
+#   MAC_CERTIFICAT_P12             certificat « Developer ID Application » exporté en .p12, encodé en base64
+#   MAC_CERTIFICAT_MOT_DE_PASSE    mot de passe choisi à l'export du .p12
+# Sans certificat, le Mac est construit sans signature (essai seulement : la publication le refuse).
+name: Applis de bureau
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numéro de version (ex. 1.0.0)
+        required: true
+        default: 1.0.0
+      publier:
+        description: Publier la sortie (téléchargements de michel.beer)
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - bureau/**
+      - .github/workflows/bureau.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bureau-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verifier:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bibliothèques Linux
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bureau/src-tauri
+      # Le cœur embarque les écrans à la compilation : une page vide suffit pour vérifier le Rust.
+      - name: Le cœur Rust compile
+        working-directory: bureau/src-tauri
+        run: |
+          mkdir -p ../ecrans && echo '<!doctype html><title>Michel</title>' > ../ecrans/index.html
+          cargo clippy --locked -- -D warnings
+
+  construire:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - systeme: Windows
+            runner: windows-latest
+            cible: ''
+            paquets: nsis,msi
+          - systeme: Mac
+            runner: macos-latest
+            cible: universal-apple-darwin
+            paquets: app,dmg
+          - systeme: Linux
+            runner: ubuntu-22.04
+            cible: ''
+            paquets: deb,rpm,appimage
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.systeme }}
+    env:
+      VERSION: ${{ inputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Numéro de version
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version attendue au format 1.2.3 (reçu « $VERSION »)."; exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            bureau/package-lock.json
+      - name: Bibliothèques Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev rpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bureau/src-tauri
+
+      # Les réglages publics (adresse Supabase, clé publique, clé de site Turnstile…) sont rangés chez EAS,
+      # comme pour les applis iOS et Android.
+      - name: Écrans de Michel (export web d'app/)
+        working-directory: app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npm ci
+          npx --yes eas-cli@latest env:pull --environment production --path .env.local --non-interactive
+          grep -q '^EXPO_PUBLIC_SUPABASE_URL=.' .env.local || { echo "::error::EXPO_PUBLIC_SUPABASE_URL absent des réglages EAS (production)."; exit 1; }
+          npx expo export --platform web --output-dir ../bureau/ecrans
+          rm -f .env.local
+
+      # Mac : le certificat Developer ID va dans un trousseau jetable, le temps de la tâche.
+      - name: Certificat de signature (Mac)
+        if: runner.os == 'macOS'
+        env:
+          P12: ${{ secrets.MAC_CERTIFICAT_P12 }}
+          MOT_DE_PASSE: ${{ secrets.MAC_CERTIFICAT_MOT_DE_PASSE }}
+          PUBLIER: ${{ inputs.publier }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          if [ -z "$P12" ]; then
+            if [ "$PUBLIER" = "true" ]; then echo "::error::Pas de certificat Mac (MAC_CERTIFICAT_P12) : on ne publie pas un Mac non signé."; exit 1; fi
+            echo "::warning::Pas de certificat Mac : appli construite sans signature (essai seulement)."; exit 0
+          fi
+          umask 077
+          trousseau="$RUNNER_TEMP/michel.keychain-db"; secret=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$secret" "$trousseau"
+          security set-keychain-settings -lut 21600 "$trousseau"
+          security unlock-keychain -p "$secret" "$trousseau"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MOT_DE_PASSE" -A -t cert -f pkcs12 -k "$trousseau"
+          security set-key-partition-list -S apple-tool:,apple: -k "$secret" "$trousseau" > /dev/null
+          security list-keychains -d user -s "$trousseau" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          identite=$(security find-identity -v -p codesigning "$trousseau" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+          if [ -z "$identite" ]; then echo "::error::Le .p12 ne contient pas de certificat « Developer ID Application »."; exit 1; fi
+          echo "APPLE_SIGNING_IDENTITY=$identite" >> "$GITHUB_ENV"
+          # Notarisation avec la clé App Store Connect (ID et émetteur parfois inversés dans GitHub : on remet dans l'ordre).
+          id=$(echo "$ASC_KEY_ID" | tr -d '[:space:]'); emetteur=$(echo "$ASC_ISSUER_ID" | tr -d '[:space:]')
+          uuid='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          if [[ "$id" =~ $uuid ]] && ! [[ "$emetteur" =~ $uuid ]]; then t=$id; id=$emetteur; emetteur=$t; fi
+          if [ -n "$ASC_KEY_P8" ]; then
+            printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey_$id.p8"
+            { echo "APPLE_API_KEY=$id"; echo "APPLE_API_ISSUER=$emetteur"; echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey_$id.p8"; } >> "$GITHUB_ENV"
+          elif [ "$PUBLIER" = "true" ]; then
+            echo "::error::Pas de clé App Store Connect (ASC_KEY_P8) : impossible de notariser."; exit 1
+          fi
+
+      - name: Construire l'appli
+        working-directory: bureau
+        run: |
+          npm ci
+          cible=""; [ -n "${{ matrix.cible }}" ] && cible="--target ${{ matrix.cible }}"
+          npx tauri build $cible --bundles ${{ matrix.paquets }} --config "{\"version\":\"$VERSION\"}"
+
+      # Des noms stables, pour que michel.beer/telecharger/… mène toujours à la dernière version.
+      - name: Ranger les installeurs
+        run: |
+          mkdir -p sortie
+          b=bureau/src-tauri/target/${{ matrix.cible }}/release/bundle
+          b=${b//\/\//\/}
+          case "${{ matrix.systeme }}" in
+            Windows)
+              cp "$b"/nsis/*-setup.exe sortie/MichelIA-Windows.exe
+              cp "$b"/msi/*.msi sortie/MichelIA-Windows.msi ;;
+            Mac)
+              cp "$b"/dmg/*.dmg sortie/MichelIA-Mac.dmg ;;
+            Linux)
+              cp "$b"/deb/*.deb sortie/MichelIA-Linux.deb
+              cp "$b"/rpm/*.rpm sortie/MichelIA-Linux.rpm
+              cp "$b"/appimage/*.AppImage sortie/MichelIA-Linux.AppImage ;;
+          esac
+          ls -la sortie
+      - name: Vérifier la signature (Mac)
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY != ''
+        run: |
+          hdiutil attach -nobrowse -mountpoint /tmp/michel sortie/MichelIA-Mac.dmg
+          codesign --verify --deep --strict --verbose=2 /tmp/michel/MichelIA.app
+          # Gatekeeper n'accepte l'appli qu'une fois notarisée par Apple.
+          if [ -n "$APPLE_API_KEY" ]; then spctl --assess --type execute --verbose /tmp/michel/MichelIA.app; fi
+          hdiutil detach /tmp/michel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MichelIA-${{ matrix.systeme }}
+          path: sortie/*
+          if-no-files-found: error
+
+  publier:
+    if: github.event_name == 'workflow_dispatch' && inputs.publier
+    needs: construire
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: sortie
+          merge-multiple: true
+      # Notes de la sortie : bureau/notes/X.Y.Z.md si elle existe.
+      - name: Sortie GitHub bureau-v${{ inputs.version }}
+        run: |
+          notes="bureau/notes/$VERSION.md"
+          [ -f "$notes" ] || { notes="$RUNNER_TEMP/notes.md"; echo "Michel pour Windows, Mac et Linux, version $VERSION. Téléchargement : https://michel.beer/telecharger" > "$notes"; }
+          gh release create "bureau-v$VERSION" sortie/* --target "$GITHUB_SHA" \
+            --title "Michel pour ordinateur $VERSION" --notes-file "$notes" --latest

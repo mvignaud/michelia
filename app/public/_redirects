@@ -18,3 +18,11 @@
 # l'adresse sérieuse /partage/<id> y mène aussi.
 /la-causette/* /chat 200
 /partage/* /la-causette/:splat 301
+# Applis de bureau (bureau/) : les installeurs de la dernière sortie GitHub bureau-vX.Y.Z, noms stables.
+/telecharger /#ordinateur 302
+/telecharger/windows https://github.com/mvignaud/michelia/releases/latest/download/MichelIA-Windows.exe 302
+/telecharger/windows-msi https://github.com/mvignaud/michelia/releases/latest/download/MichelIA-Windows.msi 302
+/telecharger/mac https://github.com/mvignaud/michelia/releases/latest/download/MichelIA-Mac.dmg 302
+/telecharger/linux https://github.com/mvignaud/michelia/releases/latest/download/MichelIA-Linux.AppImage 302
+/telecharger/linux-deb https://github.com/mvignaud/michelia/releases/latest/download/MichelIA-Linux.deb 302
+/telecharger/linux-rpm https://github.com/mvignaud/michelia/releases/latest/download/MichelIA-Linux.rpm 302

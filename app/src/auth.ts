@@ -2,16 +2,21 @@ import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session, UserIdentity } from '@supabase/supabase-js';
+import { attendreLien, bureau, ouvrirDehors, SITE_PUBLIC } from './bureau';
 import { getCaptchaToken } from './captcha';
 import { supabase } from './supabase';
 
 export type Profile = { firstName?: string; lastName?: string; birthYear?: number; newsOptIn?: boolean };
 
 // Adresse où reviennent les liens des e-mails et les connexions Google / Facebook.
-const SITE = Platform.OS === 'web' ? window.location.origin : 'https://michel.beer';
+// L'appli de bureau n'a pas d'adresse web : ses liens d'e-mail mènent à michel.beer.
+const SITE = Platform.OS === 'web' && !bureau ? window.location.origin : SITE_PUBLIC;
 
 // Dans les applis, Google et Facebook renvoient vers l'appli elle-même.
 const APP_RETURN = 'michelia://auth';
+
+// Les applis et l'appli de bureau ouvrent la page du fournisseur à part, et la session revient par michelia://auth.
+const NATIVE = Platform.OS !== 'web' || bureau;
 
 export const isMember = (session: Session | null) => !!session && !session.user.is_anonymous;
 
@@ -87,7 +92,7 @@ export async function signInWithEmail(email: string, password: string) {
 }
 
 export async function signInWithProvider(provider: 'google' | 'facebook') {
-  const native = Platform.OS !== 'web';
+  const native = NATIVE;
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: { redirectTo: native ? APP_RETURN : SITE, skipBrowserRedirect: native },
@@ -101,10 +106,10 @@ export async function signInWithProvider(provider: 'google' | 'facebook') {
 
 // Ouvre la page du fournisseur dans l'appli, puis récupère la session au retour.
 async function finishNativeOAuth(authUrl: string) {
-  const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_RETURN);
-  if (result.type !== 'success') return;
+  const retour = bureau ? await retourBureau(authUrl) : await retourAppli(authUrl);
+  if (!retour) return;
   // Le retour porte soit un code à échanger, soit les jetons dans l'ancre de l'adresse.
-  const url = new URL(result.url);
+  const url = new URL(retour);
   const params = new URLSearchParams(url.hash.slice(1));
   const code = url.searchParams.get('code');
   const access_token = params.get('access_token');
@@ -116,6 +121,19 @@ async function finishNativeOAuth(authUrl: string) {
       : { error: { message: url.searchParams.get('error_description') ?? params.get('error_description') ?? 'Connexion annulée.' } };
   const returned = explain(outcome.error);
   if (returned) throw returned;
+}
+
+async function retourAppli(authUrl: string) {
+  const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_RETURN);
+  return result.type === 'success' ? result.url : null;
+}
+
+// Appli de bureau : le navigateur de l'ordinateur ouvre la page du fournisseur, puis le système rend
+// le lien michelia://auth à l'appli (bureau/src-tauri/src/lib.rs).
+async function retourBureau(authUrl: string) {
+  const lien = attendreLien(APP_RETURN);
+  await ouvrirDehors(authUrl);
+  return lien;
 }
 
 // Connexion avec Apple, proposée seulement sur iPhone et iPad (obligatoire sur l'App Store
@@ -203,7 +221,7 @@ export async function linkProvider(provider: 'google' | 'facebook' | 'apple') {
     if (failure) throw failure;
     return;
   }
-  const native = Platform.OS !== 'web';
+  const native = NATIVE;
   const { data, error } = await supabase.auth.linkIdentity({
     provider,
     options: { redirectTo: native ? APP_RETURN : SITE, skipBrowserRedirect: native },

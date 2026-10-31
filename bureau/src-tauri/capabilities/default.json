@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Les écrans embarqués de Michel : seulement l'essentiel de Tauri. Les pages de michel.beer n'ont aucun accès.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

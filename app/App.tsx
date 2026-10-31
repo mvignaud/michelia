@@ -41,6 +41,7 @@ import { noterReponse, nouvelleCle } from './src/notes';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
 import { pickPhoto, photoUri, type Photo } from './src/photo';
 import { AvatarMichel } from './src/Blocs';
+import { bureau, demarrerBureau, notifier, ouvrirDehors } from './src/bureau';
 import { COLUMN, ecran } from './src/ecran';
 import { useDictee } from './src/dictee';
 import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
@@ -78,6 +79,7 @@ const LEGAL_LINKS = [
 type Bubble = ChatMessage & { id: string; failed?: boolean; local?: boolean; note?: number; cle?: string };
 
 registerServiceWorker();
+demarrerBureau();
 
 let nextId = 0;
 const newId = () => String(nextId++);
@@ -307,6 +309,7 @@ function Chat() {
     const updateAnswer = (change: (b: Bubble) => Bubble) =>
       setBubbles((all) => all.map((b) => (b.id === answerId ? change(b) : b)));
 
+    let reponse = '';
     try {
       const learned = await askMichel(
         // Seule la dernière photo repart vers Michel ; les précédentes restent une simple mention.
@@ -318,9 +321,14 @@ function Chat() {
         })),
         name,
         mode,
-        (chunk) => updateAnswer((b) => ({ ...b, content: b.content + chunk })),
+        (chunk) => {
+          reponse += chunk;
+          updateAnswer((b) => ({ ...b, content: b.content + chunk }));
+        },
       );
       if (learned.name) setName(learned.name);
+      // Dans l'appli de bureau, une notification si Michel répond pendant qu'on regarde ailleurs.
+      notifier(reponse);
     } catch (e) {
       const message = isOffline()
         ? "Miladiou, ça capte plus ! Sans internet je peux rien te dire, con. Réessaie quand le réseau revient."
@@ -349,9 +357,11 @@ function Chat() {
     else ouvrirComptoir();
   }
 
-  // Le comptoir : la page /comptoir sur le web, l'achat intégré dans les applis.
+  // Le comptoir : la page /comptoir sur le web, l'achat intégré dans les applis. Dans l'appli de bureau,
+  // la carte se tape sur michel.beer/comptoir dans le navigateur (le 3D Secure revient sur le site).
   function ouvrirComptoir() {
-    if (Platform.OS === 'web') window.location.assign('/comptoir');
+    if (bureau) ouvrirDehors('/comptoir');
+    else if (Platform.OS === 'web') window.location.assign('/comptoir');
     else setComptoir(true);
   }
 

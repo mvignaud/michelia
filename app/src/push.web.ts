@@ -1,3 +1,4 @@
+import { bureau } from './bureau';
 import type { PushState } from './push';
 import { registerPush } from './pushRegister';
 import { getAccessToken, supabase } from './supabase';
@@ -11,6 +12,8 @@ const VAPID_PUBLIC_KEY = process.env.EXPO_PUBLIC_VAPID_PUBLIC_KEY ?? '';
 function supported() {
   return (
     !__DEV__ &&
+    // L'appli de bureau prévient par les notifications du système (src/bureau.ts), pas par le push web.
+    !bureau &&
     !!VAPID_PUBLIC_KEY &&
     typeof window !== 'undefined' &&
     'serviceWorker' in navigator &&

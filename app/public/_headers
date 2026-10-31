@@ -42,3 +42,11 @@
 # à lire pour un moteur : hors de l'index. L'accueil les présente, c'est lui qu'on trouve sur Google.
 /cahier-de-doleances
   X-Robots-Tag: noindex
+
+# Le captcha des applis (/captcha) s'affiche aussi dans un cadre des écrans de l'appli de bureau
+# (tauri://localhost sur Mac et Linux, http://tauri.localhost sous Windows) : la règle frame-ancestors
+# générale est remplacée pour cette page seulement. Elle ne fait rien d'autre que donner un jeton Turnstile.
+/captcha
+  ! Content-Security-Policy
+  Content-Security-Policy: frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost
+  X-Robots-Tag: noindex

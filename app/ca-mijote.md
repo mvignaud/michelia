@@ -22,6 +22,7 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
 - **MichelIA+, la suite** : l'abonnement est ouvert sur le site, par carte ou par prélèvement. Vient ensuite l'abonnement dans l'appli, par l'App Store ou Google Play, déjà en test sur iPhone. Un seul abonnement, qui marche partout où tu me parles. Tes reçus d'abonnement viendront se ranger dans « Mes reçus », avec ceux des pourboires.
 - **Le comptoir dans les applis** : me payer un café depuis l'iPhone ou l'Android, par la boutique d'Apple ou de Google. Sur le site, le comptoir est déjà ouvert ; dans les applis, j'attends que la paperasse soit signée.
+- **Michel sur l'ordinateur** : un vrai logiciel pour Windows, Mac et Linux, pas le site dans une fenêtre. Je me range dans la barre de l'écran, je rapplique avec Ctrl+Maj+M (Cmd+Maj+M sur Mac) et je te préviens quand j'ai répondu. Le Mac attend sa signature officielle d'Apple, ensuite c'est à télécharger sur michel.beer.
 - **Michel sur l'App Store et Google Play** : les applis sont chez Apple et Google, qui les regardent sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
 
 ## Sur la planche
