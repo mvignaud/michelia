@@ -18,6 +18,13 @@ Côté écrans, `app/src/bureau.ts` détecte l'appli de bureau ; le captcha Turn
 de michel.beer/captcha (autorisé pour les origines Tauri dans `app/public/_headers`). Pas de Google Analytics
 ni de push web dans l'appli de bureau.
 
+## Fonctions Edge
+
+Les écrans embarqués appellent les fonctions depuis `tauri://localhost` (Mac, Linux) ou `http://tauri.localhost`
+(Windows). `supabase/functions/_shared/cors.ts` les permet toujours, en plus de `ALLOWED_ORIGINS`. Avant la
+première publication, redéployer les fonctions qui l'utilisent : `annonces chat comptoir-paiement lettre
+michelia-plus push recu`.
+
 ## Construire et publier
 
 GitHub > Actions > **Applis de bureau** > Run workflow, avec le numéro de version (`1.0.0`).

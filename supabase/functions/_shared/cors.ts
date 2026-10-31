@@ -1,6 +1,12 @@
 // En-têtes CORS des fonctions appelées par le site et les applis : les origines permises viennent de
 // ALLOWED_ORIGINS (« * » par défaut), sinon on répond avec la première de la liste.
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*").split(",").map((o) => o.trim());
+// Les écrans embarqués de l'appli de bureau (bureau/, Tauri) appellent depuis tauri://localhost (Mac, Linux)
+// ou http://tauri.localhost (Windows) : toujours permis, sans toucher au secret ALLOWED_ORIGINS.
+const BUREAU = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
+const allowedOrigins = [
+  ...(Deno.env.get("ALLOWED_ORIGINS") ?? "*").split(",").map((o) => o.trim()),
+  ...BUREAU,
+];
 
 export function corsHeaders(origin: string | null): HeadersInit {
   const allow = allowedOrigins.includes("*") ? "*" : origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
