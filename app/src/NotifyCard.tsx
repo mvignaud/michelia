@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { enablePush, pushState, setDailyPush } from './push';
-import { colors, serif } from './theme';
+import { carteInvite } from './ecran';
 
 const KEY = 'michelia:notifications';
 export const DAILY_KEY = 'michelia:dicton';
@@ -85,28 +85,9 @@ export function NotifyCard() {
 }
 
 const styles = StyleSheet.create({
+  ...carteInvite,
   card: {
     gap: 6,
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.separator,
-    boxShadow: '0 2px 10px rgba(60, 40, 20, 0.08)',
+    ...carteInvite.card,
   },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700', fontFamily: serif },
-  text: { color: colors.secondary, fontSize: 14, lineHeight: 20 },
-  buttons: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  button: {
-    height: 36,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.accent,
-  },
-  buttonText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
-  later: { height: 36, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
-  laterText: { color: colors.secondary, fontSize: 14, fontWeight: '600' },
-  pressed: { opacity: 0.6 },
 });

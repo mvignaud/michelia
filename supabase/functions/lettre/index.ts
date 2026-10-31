@@ -9,6 +9,8 @@
 // une entrée compte dès qu'elle est en ligne. Désabonnement : fonction « annonces ».
 // Déployée sans vérification du JWT : l'appeler en trop ne fait rien de plus.
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
+import { corsHeaders } from "../_shared/cors.ts";
+import { escapeHtml, sign } from "../_shared/envois.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -46,22 +48,6 @@ const RETRY_DAYS = 3;
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*").split(",").map((o) => o.trim());
-
-function corsHeaders(origin: string | null): HeadersInit {
-  const allow = allowedOrigins.includes("*")
-    ? "*"
-    : origin && allowedOrigins.includes(origin)
-      ? origin
-      : allowedOrigins[0];
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
-}
-
 function json(status: number, data: unknown, origin: string | null): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -79,22 +65,6 @@ async function loadConfig(): Promise<Record<string, string>> {
   if (error) throw error;
   return Object.fromEntries(data.map((row) => [row.key, row.value]));
 }
-
-// Même jeton que la fonction « annonces », qui vérifie le désabonnement (même secret).
-async function sign(userId: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(UNSUBSCRIBE_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(userId)));
-  return btoa(String.fromCharCode(...mac)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-const escapeHtml = (text: string) =>
-  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // Le prénom est réduit aux lettres, pour qu'un membre ne glisse pas un lien dans l'e-mail.
 const cleanName = (firstName: string | null) =>

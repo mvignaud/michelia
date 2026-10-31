@@ -8,6 +8,7 @@
 //   réutilisable par d'autres fonctions ou scripts (la fonction « dicton » s'en sert, audience « daily »).
 import webpush from "npm:web-push@3.6.7";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
+import { corsHeaders } from "../_shared/cors.ts";
 
 type Platform = "ios" | "android" | "web";
 type Target = { platform: Platform; token: string; keys: { p256dh: string; auth: string } | null };
@@ -29,24 +30,6 @@ const EXPO_ACCESS_TOKEN = Deno.env.get("EXPO_ACCESS_TOKEN");
 
 // Même garde-fou que dans la base : on n'écrit qu'aux services push des navigateurs.
 const WEB_PUSH_HOST = /^https:\/\/([a-z0-9-]+\.)*(googleapis\.com|mozilla\.com|push\.apple\.com|notify\.windows\.com)\//;
-
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*")
-  .split(",")
-  .map((o) => o.trim());
-
-function corsHeaders(origin: string | null): HeadersInit {
-  const allow = allowedOrigins.includes("*")
-    ? "*"
-    : origin && allowedOrigins.includes(origin)
-      ? origin
-      : allowedOrigins[0];
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
-}
 
 function json(status: number, data: unknown, origin: string | null): Response {
   return new Response(JSON.stringify(data), {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AvatarView } from './AvatarView';
 import {
   AVATAR_PARTS,
@@ -10,7 +10,8 @@ import {
   type Avatar,
   type AvatarPart,
 } from './avatar';
-import { colors, serif } from './theme';
+import { COLUMN_COMPTE, barreCompte } from './ecran';
+import { colors } from './theme';
 
 type Props = {
   userId: string;
@@ -111,30 +112,13 @@ export function AvatarEditor({ userId, avatar: initial, onSaved, onClose }: Prop
   );
 }
 
-const COLUMN = { width: '100%', maxWidth: 480, alignSelf: 'center' } as const;
-
 const styles = StyleSheet.create({
   screen: { ...StyleSheet.absoluteFill, backgroundColor: colors.background, zIndex: 20 },
-  bar: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
-    backgroundColor: colors.bar,
-    paddingTop: Platform.OS === 'ios' ? 48 : 0,
-  },
-  barInner: {
-    ...COLUMN,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  title: { color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
-  close: { color: colors.accent, fontSize: 16, fontWeight: '600' },
-  content: { ...COLUMN, padding: 16, paddingBottom: 48, gap: 14 },
+  ...barreCompte,
+  content: { ...COLUMN_COMPTE, padding: 16, paddingBottom: 48, gap: 14 },
   // L'aperçu reste en haut pendant qu'on fait défiler les traits.
   preview: {
-    ...COLUMN,
+    ...COLUMN_COMPTE,
     alignItems: 'center',
     gap: 8,
     paddingTop: 14,

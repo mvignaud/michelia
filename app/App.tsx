@@ -40,6 +40,8 @@ import { askMichel, type ChatMessage } from './src/chat';
 import { noterReponse, nouvelleCle } from './src/notes';
 import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
 import { pickPhoto, photoUri, type Photo } from './src/photo';
+import { AvatarMichel } from './src/Blocs';
+import { COLUMN, ecran } from './src/ecran';
 import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
@@ -407,13 +409,7 @@ function Chat() {
         <StatusBar style="dark" />
         <View style={styles.header}>
           <View style={styles.headerInner}>
-            <View style={styles.avatar}>
-              <Image
-                source={require('./assets/brand/michel-portrait.png')}
-                style={styles.avatarImage}
-                accessibilityLabel="Michel"
-              />
-            </View>
+            <AvatarMichel />
             <View style={styles.headerText}>
               <Text style={styles.title}>Michel</Text>
               <View style={styles.statusRow}>
@@ -794,35 +790,10 @@ function Chat() {
   );
 }
 
-const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
-    backgroundColor: colors.bar,
-  },
-  headerInner: {
-    ...COLUMN,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: colors.ochre,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 50, height: 50, marginTop: 4 },
+  header: ecran.bar,
+  headerInner: ecran.barInner,
   headerText: { flex: 1 },
   title: { color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Purchases, { type PurchasesStoreProduct } from 'react-native-purchases';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { loadProfile } from './auth';
-import { cleAppli, euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
+import { BarreMichel, CarnetDesCopains, CarteMerci, ComptoirBientot, NoteDuMois } from './Blocs';
+import { cleAppli, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
+import { ecran, ecranComptoir } from './ecran';
 import { supabase } from './supabase';
-import { colors, serif } from './theme';
+import { colors } from './theme';
 
 // Applis iOS et Android : le comptoir par achat intégré (Apple, Google), géré par RevenueCat.
 // Jamais Stripe ici (règle Apple 3.1.1). Chaque palier est un produit « consommable » des boutiques,
@@ -98,32 +100,15 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.bar}>
-        <View style={styles.barInner}>
-          <View style={styles.avatar}>
-            <Image source={require('../assets/brand/michel-portrait.png')} style={styles.avatarImage} accessibilityLabel="Michel" />
-          </View>
-          <Text style={styles.title}>Le comptoir de Michel</Text>
-          <Pressable onPress={onClose} accessibilityRole="button" hitSlop={8}>
-            <Text style={styles.back}>Fermer</Text>
-          </Pressable>
-        </View>
-      </View>
+      <BarreMichel titre="Le comptoir de Michel" retour="Fermer" onPress={onClose} accessibilityRole="button" hitSlop={8} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {!data && !failed && <ActivityIndicator color={colors.accent} style={styles.padded} />}
         {(failed || (data && !ouvert)) && (
-          <View style={styles.card}>
-            <Text style={styles.quote}>Le comptoir ouvre bientôt, con.</Text>
-            <Text style={styles.text}>Je finis de ranger les verres. Repasse dans pas longtemps.</Text>
-          </View>
+          <ComptoirBientot />
         )}
         {data && ouvert && (
           <>
-            {merci && (
-              <View style={[styles.card, styles.thanks]}>
-                <Text style={styles.thanksText}>{merci}</Text>
-              </View>
-            )}
+            {merci && <CarteMerci textStyle={MERCI}>{merci}</CarteMerci>}
             <View style={styles.card}>
               <Text style={styles.quote}>
                 « Moi je suis gratuit, pardi. Par contre l'électricité du cerveau, elle se paie. »
@@ -183,27 +168,9 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
               </View>
             )}
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>La note du mois</Text>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: `${Math.min(100, data.note_du_mois.pourcent)}%` }]} />
-              </View>
-              <Text style={styles.text}>
-                {data.note_du_mois.pourcent} % de l'électricité du mois est couverte
-                {data.note_du_mois.cout_eur > 0
-                  ? ` (${euros(Math.round(data.note_du_mois.recu_eur * 100))} sur ${euros(Math.round(data.note_du_mois.cout_eur * 100))}).`
-                  : '.'}
-              </Text>
-            </View>
+            <NoteDuMois note={data.note_du_mois} />
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Le carnet des copains</Text>
-              {data.carnet.length ? (
-                <Text style={styles.text}>{data.carnet.join(' · ')}</Text>
-              ) : (
-                <Text style={styles.text}>Le carnet est vide. Tu veux être le premier, hè ?</Text>
-              )}
-            </View>
+            <CarnetDesCopains carnet={data.carnet} />
           </>
         )}
 
@@ -216,53 +183,13 @@ export function Comptoir({ onClose }: { onClose: () => void }) {
   );
 }
 
-const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
+// Le merci des applis est un peu moins grand que celui du site.
+const MERCI = { fontSize: 24, lineHeight: 32 } as const;
 
 const styles = StyleSheet.create({
+  ...ecran,
+  ...ecranComptoir,
   screen: { ...StyleSheet.absoluteFill, backgroundColor: colors.background, zIndex: 20 },
-  bar: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator, backgroundColor: colors.bar },
-  barInner: { ...COLUMN, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: colors.ochre,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 50, height: 50, marginTop: 4 },
-  title: { flex: 1, color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
-  back: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  content: { ...COLUMN, padding: 16, paddingBottom: 48, gap: 14 },
-  padded: { margin: 24 },
-  pressed: { opacity: 0.6 },
-  dimmed: { opacity: 0.4 },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 18,
-    gap: 10,
-    boxShadow: '0 1px 2px rgba(60, 40, 20, 0.08)',
-  },
-  quote: { color: colors.accent, fontSize: 20, lineHeight: 28, fontFamily: serif, fontStyle: 'italic' },
-  text: { color: colors.text, fontSize: 16, lineHeight: 23 },
-  input: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.separator,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 16,
-    color: colors.text,
-  },
-  cardTitle: { color: colors.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  thanks: { backgroundColor: colors.accentSoft, borderWidth: 2, borderColor: colors.ochre },
-  thanksText: { color: colors.accent, fontSize: 24, lineHeight: 32, fontFamily: serif, fontWeight: '700', textAlign: 'center' },
-  paliers: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   palier: {
     flexGrow: 1,
     flexBasis: 150,
@@ -276,9 +203,4 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   palierIcone: { fontSize: 28, marginBottom: 4 },
-  palierName: { color: colors.onAccent, fontSize: 17, fontFamily: serif, fontWeight: '700' },
-  palierPrice: { color: colors.ochre, fontSize: 16, fontWeight: '700' },
-  track: { height: 12, borderRadius: 6, backgroundColor: colors.accentSoft, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: colors.ochre },
-  small: { color: colors.tertiary, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 8 },
 });

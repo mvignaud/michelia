@@ -1,12 +1,15 @@
 import { loadStripe, type Appearance, type StripeCheckoutElementsSdk } from '@stripe/stripe-js';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { euros, loadComptoir, reloadComptoir, type Comptoir as Data } from './comptoir';
 import { isMember, loadProfile } from './auth';
 import { getCaptchaToken } from './captcha';
-import { formatExpiration, formatNumero, pageSecure } from './carte';
+import { BarreMichel, CarnetDesCopains, CarteMerci, ComptoirBientot, NoteDuMois } from './Blocs';
+import { pageSecure } from './carte';
+import { CadreBanque, ChampsCarte, champ, PageCarte } from './CarteFields.web';
+import { ecran, ecranComptoir, ecranPaiement } from './ecran';
 import { getAccessToken, supabase } from './supabase';
-import { colors, serif } from './theme';
+import { colors } from './theme';
 
 // Page /comptoir (web seulement) : les pourboires, payés dans notre propre formulaire. Seuls les champs
 // de paiement viennent du prestataire : Stripe (Payment Element d'une session Checkout ui_mode elements)
@@ -14,23 +17,7 @@ import { colors, serif } from './theme';
 // garder), puis la page de la banque en iframe si elle demande le 3D Secure. Le paiement est relu côté
 // serveur avant d'être inscrit.
 export function Comptoir(_props: { onClose?: () => void }) {
-  // Retour du 3D Secure chargé dans son propre cadre : on prévient la page autour, qui vérifie le
-  // paiement auprès du serveur et affiche le résultat.
-  if (window.top !== window.self) {
-    try {
-      window.parent.postMessage({ status: 'retour-3ds' }, window.location.origin);
-    } catch {
-      // La vérification régulière de la page prendra le relais.
-    }
-    return <Text style={[styles.text, styles.padded]}>Je vérifie avec ta banque, deux secondes…</Text>;
-  }
-  // Arrivé ici depuis une page où la mesure d'audience tourne déjà (même document) : on recharge, pour
-  // que les champs de carte vivent dans une page sans aucun script tiers.
-  if ('gtag' in window) {
-    window.location.replace(window.location.href);
-    return null;
-  }
-  return <Page />;
+  return <PageCarte Page={Page} />;
 }
 
 function Page() {
@@ -292,32 +279,20 @@ function Page() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.bar}>
-        <View style={styles.barInner}>
-          <View style={styles.avatar}>
-            <Image source={require('../assets/brand/michel-portrait.png')} style={styles.avatarImage} accessibilityLabel="Michel" />
-          </View>
-          <Text style={styles.title}>Le comptoir de Michel</Text>
-          <Pressable onPress={() => window.location.assign('/chat')} accessibilityRole="link">
-            <Text style={styles.back}>Parler à Michel</Text>
-          </Pressable>
-        </View>
-      </View>
+      <BarreMichel
+        titre="Le comptoir de Michel"
+        retour="Parler à Michel"
+        onPress={() => window.location.assign('/chat')}
+        accessibilityRole="link"
+      />
       <ScrollView contentContainerStyle={styles.content}>
         {!data && !failed && <ActivityIndicator color={colors.accent} style={styles.padded} />}
         {(failed || (data && !ouvert)) && (
-          <View style={styles.card}>
-            <Text style={styles.quote}>Le comptoir ouvre bientôt, con.</Text>
-            <Text style={styles.text}>Je finis de ranger les verres. Repasse dans pas longtemps.</Text>
-          </View>
+          <ComptoirBientot />
         )}
         {data && ouvert && (
           <>
-            {merci && (
-              <View style={[styles.card, styles.thanks]}>
-                <Text style={styles.thanksText}>{merci}</Text>
-              </View>
-            )}
+            {merci && <CarteMerci>{merci}</CarteMerci>}
             <View style={styles.card}>
               <Text style={styles.quote}>
                 « Moi je suis gratuit, pardi. Par contre l'électricité du cerveau, elle se paie. »
@@ -387,47 +362,11 @@ function Page() {
                 {!avecStancer && <View nativeID={PAYMENT_ID} />}
                 {avecStancer && !secure && (
                   <>
-                    <TextInput
-                      value={numero}
-                      onChangeText={(t) => setNumero(formatNumero(t))}
-                      placeholder="Numéro de carte"
-                      placeholderTextColor={colors.tertiary}
-                      keyboardType="number-pad"
-                      autoComplete="cc-number"
-                      style={styles.input}
-                    />
-                    <View style={styles.row}>
-                      <TextInput
-                        value={expiration}
-                        onChangeText={(t) => setExpiration(formatExpiration(t))}
-                        placeholder="MM/AA"
-                        placeholderTextColor={colors.tertiary}
-                        keyboardType="number-pad"
-                        autoComplete="cc-exp"
-                        style={[styles.input, styles.half]}
-                      />
-                      <TextInput
-                        value={cvc}
-                        onChangeText={(t) => setCvc(t.replace(/\D/g, '').slice(0, 4))}
-                        placeholder="Code au dos"
-                        placeholderTextColor={colors.tertiary}
-                        keyboardType="number-pad"
-                        autoComplete="cc-csc"
-                        secureTextEntry
-                        style={[styles.input, styles.half]}
-                      />
-                    </View>
+                    <ChampsCarte {...{ numero, setNumero, expiration, setExpiration, cvc, setCvc }} />
                     <Text style={styles.small}>Paiement sécurisé par Stancer. Ta carte n'est jamais gardée chez Michel.</Text>
                   </>
                 )}
-                {secure && (
-                  <iframe
-                    src={secure}
-                    title="Vérification de ta banque"
-                    allow="payment"
-                    style={{ width: '100%', height: hauteur, border: 0, borderRadius: 12, backgroundColor: colors.background }}
-                  />
-                )}
+                {secure && <CadreBanque src={secure} hauteur={hauteur} />}
                 {refus && <Text style={styles.refus}>{refus}</Text>}
                 {!secure && (
                   <Pressable
@@ -455,27 +394,9 @@ function Page() {
               </View>
             )}
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>La note du mois</Text>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: `${Math.min(100, data.note_du_mois.pourcent)}%` }]} />
-              </View>
-              <Text style={styles.text}>
-                {data.note_du_mois.pourcent} % de l'électricité du mois est couverte
-                {data.note_du_mois.cout_eur > 0
-                  ? ` (${euros(Math.round(data.note_du_mois.recu_eur * 100))} sur ${euros(Math.round(data.note_du_mois.cout_eur * 100))}).`
-                  : '.'}
-              </Text>
-            </View>
+            <NoteDuMois note={data.note_du_mois} />
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Le carnet des copains</Text>
-              {data.carnet.length ? (
-                <Text style={styles.text}>{data.carnet.join(' · ')}</Text>
-              ) : (
-                <Text style={styles.text}>Le carnet est vide. Tu veux être le premier, hè ?</Text>
-              )}
-            </View>
+            <CarnetDesCopains carnet={data.carnet} />
           </>
         )}
 
@@ -519,60 +440,13 @@ const APPEARANCE: Appearance = {
     '.Label': { color: colors.secondary, fontWeight: '500' },
   },
 };
-const COLUMN = { width: '100%', maxWidth: 720, alignSelf: 'center' } as const;
 
 const styles = StyleSheet.create({
+  ...ecran,
+  ...ecranPaiement,
+  ...ecranComptoir,
   screen: { flex: 1, backgroundColor: colors.background },
-  bar: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator, backgroundColor: colors.bar },
-  barInner: { ...COLUMN, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: colors.ochre,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 50, height: 50, marginTop: 4 },
-  title: { flex: 1, color: colors.text, fontSize: 20, fontFamily: serif, fontWeight: '700' },
-  back: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  content: { ...COLUMN, padding: 16, paddingBottom: 48, gap: 14 },
-  padded: { margin: 24 },
-  pressed: { opacity: 0.6 },
-  dimmed: { opacity: 0.4 },
-  row: { flexDirection: 'row', gap: 10 },
-  half: { flex: 1, minWidth: 0 },
-  input: {
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.separator,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 16,
-    color: colors.text,
-    outlineColor: colors.accent,
-  },
-  refus: { color: colors.failed, fontSize: 15, lineHeight: 21 },
-  payer: { backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
-  payerText: { color: colors.onAccent, fontSize: 17, fontFamily: serif, fontWeight: '700' },
-  changed: { color: colors.tertiary, fontSize: 14, textDecorationLine: 'underline', textAlign: 'center' },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 18,
-    gap: 10,
-    boxShadow: '0 1px 2px rgba(60, 40, 20, 0.08)',
-  },
-  quote: { color: colors.accent, fontSize: 20, lineHeight: 28, fontFamily: serif, fontStyle: 'italic' },
-  text: { color: colors.text, fontSize: 16, lineHeight: 23 },
-  cardTitle: { color: colors.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  thanks: { backgroundColor: colors.accentSoft, borderWidth: 2, borderColor: colors.ochre },
-  thanksText: { color: colors.accent, fontSize: 26, lineHeight: 34, fontFamily: serif, fontWeight: '700', textAlign: 'center' },
-  paliers: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  input: champ,
   palier: {
     flexGrow: 1,
     flexBasis: 200,
@@ -583,10 +457,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
-  palierName: { color: colors.onAccent, fontSize: 17, fontFamily: serif, fontWeight: '700' },
-  palierPrice: { color: colors.ochre, fontSize: 16, fontWeight: '700' },
-  track: { height: 12, borderRadius: 6, backgroundColor: colors.accentSoft, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: colors.ochre },
-  small: { color: colors.tertiary, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 8 },
   link: { color: colors.tertiary, fontSize: 12, textDecorationLine: 'underline' },
 });

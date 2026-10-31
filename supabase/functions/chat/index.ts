@@ -5,6 +5,7 @@
 // deux services gratuits et sans clé.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
+import { corsHeaders } from "../_shared/cors.ts";
 
 // Seule la dernière question peut porter une photo (en base64) ; les plus anciennes
 // gardent juste la mention « photo », l'image n'est jamais renvoyée ni enregistrée.
@@ -142,24 +143,6 @@ const admin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   { auth: { persistSession: false } },
 );
-
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "*")
-  .split(",")
-  .map((o) => o.trim());
-
-function corsHeaders(origin: string | null): HeadersInit {
-  const allow = allowedOrigins.includes("*")
-    ? "*"
-    : origin && allowedOrigins.includes(origin)
-      ? origin
-      : allowedOrigins[0];
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    Vary: "Origin",
-  };
-}
 
 function reply(status: number, text: string, origin: string | null): Response {
   return new Response(text, {
