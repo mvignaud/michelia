@@ -73,10 +73,12 @@ export async function lireCausette(id: string): Promise<{ messages: Echange[]; c
   return data;
 }
 
-export async function mesCausettes(): Promise<MaCausette[]> {
+// Les liens partagés, par pages de MES_CAUSETTES_PAGE (du plus récent) ; avant : date du dernier lien déjà lu.
+export const MES_CAUSETTES_PAGE = 50;
+export async function mesCausettes(avant?: string): Promise<MaCausette[]> {
   const { data } = await supabase.auth.getSession();
   if (!data.session) return [];
-  const { data: rows, error } = await supabase.rpc('mes_causettes');
+  const { data: rows, error } = await supabase.rpc('mes_causettes', avant ? { p_avant: avant } : {});
   if (error) throw error;
   return rows ?? [];
 }

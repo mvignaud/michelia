@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   MAX_ECHANGES,
+  MES_CAUSETTES_PAGE,
   causetteTexte,
   causetteUrl,
   copier,
@@ -30,9 +31,13 @@ export function ConversationSheet({ echanges, onClose }: { echanges: Echange[]; 
   const [info, setInfo] = useState<string>();
   const [error, setError] = useState<string>();
   const [anciens, setAnciens] = useState<MaCausette[]>([]);
+  const [encore, setEncore] = useState(false);
 
   useEffect(() => {
-    mesCausettes().then(setAnciens, () => {});
+    mesCausettes().then((list) => {
+      setAnciens(list);
+      setEncore(list.length === MES_CAUSETTES_PAGE);
+    }, () => {});
   }, []);
 
   const selection = echanges.filter((_, i) => choisis.has(i));
@@ -81,6 +86,13 @@ export function ConversationSheet({ echanges, onClose }: { echanges: Echange[]; 
     run(async () => {
       await copier(url);
       setInfo('Lien copié.');
+    });
+
+  const plusAnciens = () =>
+    run(async () => {
+      const suite = await mesCausettes(anciens[anciens.length - 1]?.created_at);
+      setAnciens((list) => [...list, ...suite.filter((c) => !list.some((d) => d.id === c.id))]);
+      setEncore(suite.length === MES_CAUSETTES_PAGE);
     });
 
   const retirer = (id: string) =>
@@ -155,6 +167,11 @@ export function ConversationSheet({ echanges, onClose }: { echanges: Echange[]; 
                     </Pressable>
                   </View>
                 ))}
+                {encore && (
+                  <Pressable onPress={plusAnciens} disabled={busy} hitSlop={8} accessibilityRole="button">
+                    <Text style={styles.plus}>Voir les plus anciens</Text>
+                  </Pressable>
+                )}
               </View>
             )}
             <Button label="Fermer" onPress={onClose} />
@@ -207,4 +224,5 @@ const styles = StyleSheet.create({
   ancien: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   ancienText: { flex: 1, color: colors.secondary, fontSize: 13 },
   retirer: { color: colors.failed, fontSize: 13, fontWeight: '600' },
+  plus: { color: colors.accent, fontSize: 13, fontWeight: '600', paddingTop: 4 },
 });

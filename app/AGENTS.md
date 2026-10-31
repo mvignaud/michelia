@@ -25,9 +25,9 @@ Run lint and typecheck before declaring any task done.
 
 ## Navigation & Routing
 
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
+- This app does **not** use Expo Router, and `expo-router` is not a dependency. Do not add `src/app/` routes or suggest migrating to Expo Router.
+- Screens are chosen in `App.tsx`: on the web, from `window.location.pathname` (e.g. `/chat`, `/la-causette/<id>`); in the iOS and Android apps, from in-app state (sheets and modals). Add a new screen by extending that dispatch.
+- Web paths are rewritten to the right HTML file by `app/public/_redirects` (Cloudflare Pages).
 
 ## Building with EAS
 

@@ -75,7 +75,12 @@ Deno.serve(async (req) => {
     if (!pris?.length) continue;
 
     const debut = new Date(a.fin_periode);
-    const fin = finDePeriode(debut, a.formule as Formule);
+    // Jour de prélèvement d'origine (début de la première période) : un abonnement pris le 31 janvier
+    // passe le 28 février, puis revient le 31 mars au lieu de rester au 28.
+    const { data: premiere } = await admin.from("abonnement_echeances").select("periode_debut")
+      .eq("abonnement_id", a.id).order("periode_debut", { ascending: true }).limit(1);
+    const ancre = premiere?.length ? new Date(premiere[0].periode_debut).getUTCDate() : debut.getUTCDate();
+    const fin = finDePeriode(debut, a.formule as Formule, ancre);
     // Une seule échéance par période : si elle existe déjà (payée ou en cours), on la relit seulement.
     const { data: deja } = await admin.from("abonnement_echeances").select("paiement_id, statut")
       .eq("abonnement_id", a.id).eq("periode_debut", debut.toISOString()).neq("statut", "refuse").limit(1);
@@ -127,16 +132,7 @@ Deno.serve(async (req) => {
     if (!res.ok || typeof paymentId !== "string") {
       console.error("MichelIA+ : échéance refusée par Stancer", a.id, res.status, safeError(res.data));
       // Refus net (4xx) : comptée comme ratée, Michel réessaiera dans quelques jours.
-      if (res.status < 500) {
-        const { data: ab } = await admin.from("abonnements").select("echecs").eq("id", a.id).single();
-        const echecs = (ab?.echecs ?? 0) + 1;
-        await admin.from("abonnements").update({
-          statut: echecs >= 3 ? "expire" : "impaye",
-          echecs,
-          prochain_essai: new Date(Date.now() + 3 * 86_400_000).toISOString(),
-          updated_at: new Date().toISOString(),
-        }).eq("id", a.id);
-      }
+      if (res.status < 500) await echecSur(a.id);
       continue;
     }
     const { error: noteErr } = await admin.from("abonnement_echeances").insert({

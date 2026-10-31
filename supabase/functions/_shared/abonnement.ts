@@ -121,33 +121,26 @@ export async function confirmerEcheance(paiementId: string): Promise<Etat> {
 
 type Echeance = { id: number; abonnement_id: number; periode_fin: string };
 
-// L'échéance est payée : elle passe « paye » (une seule fois), puis l'abonnement est prolongé.
-async function marquerPayee(echeance: Echeance, moyen: Record<string, string>, paiementId?: string): Promise<Etat> {
-  const { data: marquee } = await admin
-    .from("abonnement_echeances")
-    .update({ statut: "paye", ...(paiementId ? { paiement_id: paiementId } : {}) })
-    .eq("id", echeance.id)
-    .eq("statut", "en_cours")
-    .select("id");
-  // Une autre confirmation est passée juste avant : l'abonnement est déjà à jour.
-  if (!marquee?.length) return { etat: "paye", fin_periode: echeance.periode_fin };
-
-  const { data: abonnement } = await admin.from("abonnements").select("statut, fin_periode").eq("id", echeance.abonnement_id).single();
-  const { error } = await admin
-    .from("abonnements")
-    .update({
-      // Une résiliation demandée pendant le paiement reste une résiliation.
-      statut: abonnement?.statut === "resilie" ? "resilie" : "actif",
-      fin_periode: [echeance.periode_fin, abonnement?.fin_periode].filter(Boolean).sort().pop(),
-      echecs: 0,
-      prochain_essai: null,
-      ...moyen,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", echeance.abonnement_id);
+// L'échéance est payée : elle passe « paye » (une seule fois) et l'abonnement est prolongé, dans la
+// même transaction (payer_echeance, migration 20261031010000_remarques_codex.sql). Une résiliation
+// demandée pendant le paiement y reste une résiliation. En cas d'erreur, rien n'est écrit : l'échéance
+// reste en cours et le cron la relit.
+async function marquerPayee(
+  echeance: Echeance,
+  moyen: { stancer_carte?: string; stancer_sepa?: string; derniers_chiffres?: string },
+  paiementId?: string,
+): Promise<Etat> {
+  const { error } = await admin.rpc("payer_echeance", {
+    p_echeance: echeance.id,
+    p_paiement: paiementId ?? null,
+    p_carte: moyen.stancer_carte ?? null,
+    p_sepa: moyen.stancer_sepa ?? null,
+    p_chiffres: moyen.derniers_chiffres ?? null,
+  });
   if (error) {
-    // Rare (un autre abonnement vivant entre-temps) : l'échéance est payée, on le voit dans les journaux.
-    console.error("MichelIA+ : abonnement non mis à jour après paiement", echeance.abonnement_id, error.code, error.message);
+    // Rare (un autre abonnement vivant entre-temps) : l'argent est parti, à regarder dans les journaux.
+    console.error("MichelIA+ : ALERTE échéance payée mais abonnement non mis à jour", echeance.abonnement_id, error.code, error.message);
+    return { etat: "attente" };
   }
   return { etat: "paye", fin_periode: echeance.periode_fin };
 }
@@ -281,24 +274,28 @@ export async function relireSepa(limite: number): Promise<number> {
     if (!marquee?.length) continue;
     rejets++;
     console.error("MichelIA+ : prélèvement SEPA rejeté", e.abonnement_id, statut, code || "sans code");
-    const { data: ab } = await admin.from("abonnements").select("statut, fin_periode, echecs").eq("id", e.abonnement_id).single();
-    if (!ab || ab.statut === "expire") continue;
-    // La période de ce prélèvement n'est plus payée : la fin revient à son début.
-    const recule = ab.fin_periode && new Date(ab.fin_periode).getTime() === new Date(e.periode_fin).getTime();
     // Un prélèvement accepté remet les échecs à zéro avant que la banque ne puisse le rejeter : on compte
     // donc les rejets de cette période (chaque nouvel essai la reprend), pour que l'identifiant unique
     // du prochain essai change et que l'arrêt arrive bien au bout de ECHECS_MAX.
     const { count } = await admin.from("abonnement_echeances").select("id", { count: "exact", head: true })
       .eq("abonnement_id", e.abonnement_id).eq("periode_debut", e.periode_debut).eq("statut", "refuse");
-    const echecs = Math.max((ab.echecs ?? 0) + 1, count ?? 0);
-    const arreter = !REJETS_A_RETENTER.includes(code) || echecs >= ECHECS_MAX;
-    await admin.from("abonnements").update({
-      statut: arreter ? "expire" : ab.statut === "resilie" ? "resilie" : "impaye",
-      echecs,
-      ...(recule ? { fin_periode: e.periode_debut } : {}),
-      prochain_essai: arreter ? null : new Date(Date.now() + RELANCE_JOURS * 86_400_000).toISOString(),
-      updated_at: new Date().toISOString(),
-    }).eq("id", e.abonnement_id);
+    // Écriture conditionnée au statut lu : une résiliation arrivée entre-temps reste une résiliation.
+    for (let essai = 0; essai < 3; essai++) {
+      const { data: ab } = await admin.from("abonnements").select("statut, fin_periode, echecs").eq("id", e.abonnement_id).single();
+      if (!ab || ab.statut === "expire") break;
+      // La période de ce prélèvement n'est plus payée : la fin revient à son début.
+      const recule = ab.fin_periode && new Date(ab.fin_periode).getTime() === new Date(e.periode_fin).getTime();
+      const echecs = Math.max((ab.echecs ?? 0) + 1, count ?? 0);
+      const arreter = !REJETS_A_RETENTER.includes(code) || echecs >= ECHECS_MAX;
+      const { data: fait } = await admin.from("abonnements").update({
+        statut: arreter ? "expire" : ab.statut === "resilie" ? "resilie" : "impaye",
+        echecs,
+        ...(recule ? { fin_periode: e.periode_debut } : {}),
+        prochain_essai: arreter ? null : new Date(Date.now() + RELANCE_JOURS * 86_400_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", e.abonnement_id).eq("statut", ab.statut).select("id");
+      if (fait?.length) break;
+    }
   }
   return rejets;
 }
@@ -307,23 +304,32 @@ export async function relireSepa(limite: number): Promise<number> {
 // réessayer tout de suite) ; ensuite, l'abonnement passe impayé et Michel réessaie dans quelques
 // jours, jusqu'à ECHECS_MAX fois.
 export async function echecSur(abonnementId: number): Promise<void> {
-  const { data } = await admin.from("abonnements").select("statut, echecs").eq("id", abonnementId).single();
-  if (!data || data.statut === "expire") return;
-  if (data.statut === "en_attente") {
-    await admin.from("abonnements").update({ statut: "expire", updated_at: new Date().toISOString() })
-      .eq("id", abonnementId).eq("statut", "en_attente");
-    return;
+  // Écriture conditionnée au statut lu : une résiliation arrivée entre-temps n'est jamais écrasée par
+  // « impayé » (on relit et on recommence).
+  for (let essai = 0; essai < 3; essai++) {
+    const { data } = await admin.from("abonnements").select("statut, echecs").eq("id", abonnementId).single();
+    if (!data || data.statut === "expire") return;
+    if (data.statut === "en_attente") {
+      await admin.from("abonnements").update({ statut: "expire", updated_at: new Date().toISOString() })
+        .eq("id", abonnementId).eq("statut", "en_attente");
+      return;
+    }
+    const echecs = (data.echecs ?? 0) + 1;
+    const { data: fait } = await admin
+      .from("abonnements")
+      .update({
+        statut: echecs >= ECHECS_MAX ? "expire" : data.statut === "resilie" ? "resilie" : "impaye",
+        echecs,
+        prochain_essai: new Date(Date.now() + RELANCE_JOURS * 86_400_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", abonnementId)
+      .eq("statut", data.statut)
+      .eq("echecs", data.echecs ?? 0)
+      .select("id");
+    if (fait?.length) return;
   }
-  const echecs = (data.echecs ?? 0) + 1;
-  await admin
-    .from("abonnements")
-    .update({
-      statut: echecs >= ECHECS_MAX ? "expire" : data.statut === "resilie" ? "resilie" : "impaye",
-      echecs,
-      prochain_essai: new Date(Date.now() + RELANCE_JOURS * 86_400_000).toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", abonnementId);
+  console.error("MichelIA+ : échec non compté (abonnement modifié sans arrêt)", abonnementId);
 }
 
 // Souscriptions sur le site jamais payées, plus vieilles que ageMs : supprimées, sauf celles dont le
