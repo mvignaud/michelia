@@ -42,3 +42,16 @@
 # à lire pour un moteur : hors de l'index. L'accueil les présente, c'est lui qu'on trouve sur Google.
 /cahier-de-doleances
   X-Robots-Tag: noindex
+
+# Le captcha des applis (/captcha) s'affiche aussi dans un cadre du panneau de l'extension Chrome
+# (chrome-extension://…), que frame-ancestors ne sait pas nommer de façon fiable : on retire la règle
+# pour cette page seulement. Elle ne fait rien d'autre que donner un jeton Turnstile.
+/captcha
+  ! Content-Security-Policy
+  X-Robots-Tag: noindex
+
+# Réglages publics des applis de bureau et de l'extension (adresse Supabase, clé publique, clé de site
+# Turnstile), écrits au déploiement par scripts/appli-json.mjs. Rien de secret.
+/appli.json
+  Cache-Control: no-cache
+  Access-Control-Allow-Origin: *

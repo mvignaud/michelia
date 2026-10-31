@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Michel IA",
+  "short_name": "Michel",
+  "version": "1.0.0",
+  "description": "Michel, l'IA gratuite avec l'accent du Gers, à côté de tes onglets. Recettes, mails, météo : il a un avis sur tout.",
+  "icons": {
+    "16": "icones/icone-16.png",
+    "32": "icones/icone-32.png",
+    "48": "icones/icone-48.png",
+    "128": "icones/icone-128.png"
+  },
+  "action": {
+    "default_title": "Causer avec Michel",
+    "default_icon": {
+      "16": "icones/icone-16.png",
+      "32": "icones/icone-32.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "panneau.html"
+  },
+  "background": {
+    "service_worker": "fond.js"
+  },
+  "permissions": ["sidePanel", "storage", "contextMenus"],
+  "host_permissions": [
+    "https://michel.beer/*",
+    "https://nuulykhqaeecqerfwdsn.supabase.co/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; frame-src https://michel.beer; connect-src https://michel.beer https://nuulykhqaeecqerfwdsn.supabase.co"
+  }
+}

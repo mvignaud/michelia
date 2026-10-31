@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Michel</title>
+<link rel="stylesheet" href="panneau.css">
+</head>
+<body>
+<header>
+  <img src="icones/icone-32.png" alt="" width="28" height="28">
+  <div class="titre">
+    <strong>Michel</strong>
+    <span id="etat">Au comptoir, prêt à causer</span>
+  </div>
+  <button id="nouvelle" type="button" title="Nouvelle causette">Nouvelle</button>
+  <button id="menu" type="button" title="Mon compte" aria-haspopup="true">⋯</button>
+</header>
+
+<div id="compte" hidden>
+  <p id="compte-qui"></p>
+  <form id="connexion">
+    <p>Déjà inscrit sur michel.beer ? Connecte-toi pour retrouver ton quota et MichelIA+.</p>
+    <input id="email" type="email" autocomplete="email" placeholder="Ton e-mail" required>
+    <input id="mdp" type="password" autocomplete="current-password" placeholder="Ton mot de passe" required>
+    <button type="submit">Se connecter</button>
+    <p class="petit">Pas de compte, ou un autre moyen de connexion (Google, SMS…) ? <a href="https://michel.beer/chat" target="_blank" rel="noopener">Ça se passe sur michel.beer</a>.</p>
+  </form>
+  <button id="deconnexion" type="button" hidden>Se déconnecter</button>
+  <p class="petit liens">
+    <a href="https://michel.beer/la-cotisation" target="_blank" rel="noopener">MichelIA+</a> ·
+    <a href="https://michel.beer/comptoir" target="_blank" rel="noopener">Payer un café</a> ·
+    <a href="https://michel.beer/confidentialite" target="_blank" rel="noopener">Confidentialité</a>
+  </p>
+</div>
+
+<main id="fil" aria-live="polite"></main>
+
+<div id="captcha" hidden>
+  <p id="captcha-texte">Michel vérifie que t'es pas un robot…</p>
+  <div id="captcha-cadre"></div>
+</div>
+
+<form id="saisie">
+  <textarea id="question" rows="1" placeholder="Pose ta question à Michel…" maxlength="4000"></textarea>
+  <button id="envoyer" type="submit" title="Envoyer">➤</button>
+</form>
+
+<script src="michel.js"></script>
+<script src="panneau.js"></script>
+</body>
+</html>
