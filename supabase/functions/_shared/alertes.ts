@@ -4,7 +4,13 @@ import { type Bloc, composer, type Courrier, euros, jour } from "./courriers.ts"
 
 export type Alerte = { id: number; genre: string; donnees: Record<string, unknown>; created_at: string };
 
-const TABLEAU = "https://supabase.com/dashboard/project/nuulykhqaeecqerfwdsn/editor";
+// Les boutons ouvrent directement la bonne table dans le Table Editor de Supabase : l'adresse veut le
+// numéro interne de la table (son oid), lu avec « select oid, relname from pg_class where relname = '…' ».
+// Il ne change que si la table est supprimée puis recréée : dans ce cas, relire l'oid et le mettre ici.
+const PROJET = "https://supabase.com/dashboard/project/nuulykhqaeecqerfwdsn";
+const TABLE = { doleances: 18443, notes_reponses: 18468, pourboires: 18401, abonnements: 18610 };
+const table = (nom: keyof typeof TABLE) => `${PROJET}/editor/${TABLE[nom]}?schema=public`;
+const COMPTES = `${PROJET}/auth/users`;
 const SIGNATURE = "Je retourne au comptoir.\nMichel";
 
 // Ce qu'une alerte devient dans un e-mail : un sujet, des paragraphes et le tableau des chiffres.
@@ -47,7 +53,7 @@ function fiche(a: Alerte): Fiche {
           `« ${txt(d.texte) ?? ""} »`,
           { lignes: [["Genre", cat], ["Contact", contact ?? "aucun"], ["Déposé par", d.compte ? "un compte" : "un visiteur"], ["N°", String(d.id ?? "?")]] },
           estEmail(contact) ? "Réponds à ce message, ça part directement chez la personne." : "Pas d'e-mail laissé, donc pas de réponse possible.",
-          { bouton: "Ouvrir le cahier", url: TABLEAU },
+          { bouton: "Ouvrir le cahier", url: table("doleances") },
         ],
         repondreA: estEmail(contact) ? contact!.trim() : undefined,
       };
@@ -60,7 +66,7 @@ function fiche(a: Alerte): Fiche {
           { lignes: [["Note", `${num(d.note)} sur 5`], ...ligne("Mode", txt(d.mode))] },
           ...(txt(d.question) ? [`La question : « ${txt(d.question)} »`] : []),
           `Ma réponse : « ${txt(d.reponse) ?? ""} »`,
-          { bouton: "Voir les notes", url: TABLEAU },
+          { bouton: "Voir les notes", url: table("notes_reponses") },
         ],
       };
     case "inscription": {
@@ -70,6 +76,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `Une nouvelle tête vient de s'inscrire chez Michel. On est ${num(d.total)} au comptoir maintenant.`,
           { lignes: [["Nom", nom || "pas dit"], ["E-mail", ou(d.email)], ["Inscrit avec", FOURNISSEURS[String(d.fournisseur)] ?? ou(d.fournisseur)], ...ligne("Né en", d.annee ? String(d.annee) : null)] },
+          { bouton: "Voir les comptes", url: COMPTES },
         ],
       };
     }
@@ -79,6 +86,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `${prenom ?? "Quelqu'un"} a supprimé son compte. Pas de rancune, la porte reste ouverte. On est ${num(d.total)} au comptoir.`,
           { lignes: [["Prénom", prenom ?? "pas dit"], ["Inscrit le", date(d.inscrit_le)]] },
+          { bouton: "Voir les comptes", url: COMPTES },
         ],
       };
     case "pourboire":
@@ -87,6 +95,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `${prenom ?? "Quelqu'un"} m'a laissé un pourboire. Ça, ça me fait plaisir.`,
           { lignes: [["Montant", euros(num(d.montant_cents))], ["Palier", ou(d.palier)], ["Par", CANAUX[String(d.canal)] ?? ou(d.canal)], ["Ce mois-ci", `${num(d.mois_nombre)} pourboires, ${euros(num(d.mois_cents))}`]] },
+          { bouton: "Voir les pourboires", url: table("pourboires") },
         ],
       };
     case "remboursement":
@@ -95,6 +104,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `Un pourboire vient d'être remboursé. Le reçu et l'avoir partent tout seuls chez la personne.`,
           { lignes: [["Remboursé", euros(num(d.rembourse_cents))], ["Sur un pourboire de", euros(num(d.montant_cents))], ...ligne("Reçu d'origine", txt(d.numero_recu)), ...ligne("Prénom", prenom)] },
+          { bouton: "Voir les pourboires", url: table("pourboires") },
         ],
       };
     case "abonnement":
@@ -103,6 +113,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `${prenom ?? "Quelqu'un"} vient de prendre MichelIA+. Ça fait ${num(d.actifs)} abonnés en tout.`,
           { lignes: [["Formule", prixFormule(d)], ["Payé par", paiement(d)], ["Jusqu'au", date(d.fin_periode)], ...ligne("E-mail", txt(d.email))] },
+          { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
     case "renouvellement":
@@ -111,6 +122,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `${prenom ?? "Un abonné"} reste avec nous pour une période de plus.`,
           { lignes: [["Montant", euros(num(d.montant_cents))], ["Formule", d.formule === "an" ? "à l'année" : "au mois"], ["Payé par", paiement(d)], ["Jusqu'au", date(d.periode_fin)]] },
+          { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
     case "impaye":
@@ -119,6 +131,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `Une échéance de ${prenom ?? "quelqu'un"} n'est pas passée. ${d.source === "web" ? "Je réessaie tout seul, et la personne est prévenue." : "La boutique réessaie de son côté."}`,
           { lignes: [["Formule", prixFormule(d)], ["Payé par", paiement(d)], ["Échecs d'affilée", String(num(d.echecs))], ...ligne("E-mail", txt(d.email))] },
+          { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
     case "reprise":
@@ -127,6 +140,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `Bonne nouvelle : l'abonnement de ${prenom ?? "quelqu'un"} est de nouveau actif.`,
           { lignes: [["Formule", prixFormule(d)], ["Payé par", paiement(d)], ["Jusqu'au", date(d.fin_periode)]] },
+          { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
     case "resiliation":
@@ -135,6 +149,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `${prenom ?? "Quelqu'un"} a résilié MichelIA+. Les avantages courent jusqu'au bout de ce qui est payé. Il reste ${num(d.actifs)} abonnés, résiliés en cours compris.`,
           { lignes: [["Formule", prixFormule(d)], ["Payé par", paiement(d)], ["Avantages jusqu'au", date(d.fin_periode)], ...ligne("E-mail", txt(d.email))] },
+          { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
     case "fin_abonnement":
@@ -143,6 +158,7 @@ function fiche(a: Alerte): Fiche {
         blocs: [
           `L'abonnement de ${prenom ?? "quelqu'un"} est terminé pour de bon.`,
           { lignes: [["Formule", prixFormule(d)], ["Payé par", paiement(d)], ["Échecs d'affilée", String(num(d.echecs))]] },
+          { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
     default:
