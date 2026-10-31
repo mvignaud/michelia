@@ -136,27 +136,39 @@ async function abonnementBoutique(event: any): Promise<Response> {
   }
   const store = event.store === "PLAY_STORE" ? "google" : "apple";
   const cle = `${event.store}:${origine}`;
-  const fin = Number(event.expiration_at_ms) > 0 ? new Date(Number(event.expiration_at_ms)).toISOString() : null;
+  const ms = (v: unknown) => (Number(v) > 0 ? new Date(Number(v)).toISOString() : null);
+  // Paiement raté chez la boutique : elle garde le droit pendant le délai de grâce, Michel aussi.
+  const grace = event.type === "BILLING_ISSUE" ? ms(event.grace_period_expiration_at_ms) : null;
+  const fin = [ms(event.expiration_at_ms), grace].filter(Boolean).sort().pop() ?? null;
+  const quand = ms(event.event_timestamp_ms);
   const montant = await montantEuros(event);
 
-  const { data: existant } = await admin.from("abonnements").select("id, fin_periode, prix_cents").eq("store_transaction", cle).maybeSingle();
-  // Les événements peuvent arriver dans le désordre : la fin de période ne recule jamais.
-  const finPeriode = [fin, existant?.fin_periode].filter(Boolean).sort().pop() ?? null;
+  const { data: existant } = await admin.from("abonnements")
+    .select("id, fin_periode, prix_cents, store_evenement_le").eq("store_transaction", cle).maybeSingle();
+  // Les événements peuvent arriver dans le désordre : un événement plus ancien que le dernier appliqué
+  // (EXPIRATION d'une vieille période arrivée après le RENEWAL) ne touche plus à l'abonnement ; son
+  // paiement, s'il en porte un, est quand même noté plus bas.
+  const perime = Boolean(existant?.store_evenement_le && quand && Date.parse(quand) < Date.parse(existant.store_evenement_le));
   const ligne = {
     user_id: userId,
     source: store,
     formule,
     statut,
     prix_cents: montant ?? existant?.prix_cents ?? 1,
-    fin_periode: finPeriode,
+    // Le dernier événement fait foi pour la fin de période (un remboursement peut l'avancer).
+    fin_periode: fin ?? existant?.fin_periode ?? null,
     store_produit: String(event.product_id).slice(0, 100),
     store_transaction: cle,
+    store_evenement_le: quand ?? existant?.store_evenement_le ?? null,
     essai: event.environment !== "PRODUCTION",
     // Date de la résiliation gardée jusqu'à l'expiration ; effacée si la personne se réabonne.
     resilie_le: statut === "resilie" ? new Date().toISOString() : statut === "actif" ? null : undefined,
     updated_at: new Date().toISOString(),
   };
-  const enregistre = existant
+  if (perime) console.log("MichelIA+ boutique : événement en retard, statut gardé", event.type, event.store);
+  const enregistre = perime
+    ? { data: { id: existant!.id }, error: null }
+    : existant
     ? await admin.from("abonnements").update(ligne).eq("id", existant.id).select("id").single()
     : await admin.from("abonnements").insert(ligne).select("id").single();
   if (enregistre.error) {
@@ -167,15 +179,16 @@ async function abonnementBoutique(event: any): Promise<Response> {
 
   // Un paiement de la boutique : une échéance (rejouable, une par transaction).
   const transaction = typeof event.transaction_id === "string" ? event.transaction_id : "";
-  if ((event.type === "INITIAL_PURCHASE" || event.type === "RENEWAL") && transaction && montant && fin) {
-    const debut = Number(event.purchased_at_ms) > 0 ? new Date(Number(event.purchased_at_ms)).toISOString() : new Date().toISOString();
+  const finPayee = ms(event.expiration_at_ms);
+  if ((event.type === "INITIAL_PURCHASE" || event.type === "RENEWAL") && transaction && montant && finPayee) {
+    const debut = ms(event.purchased_at_ms) ?? new Date().toISOString();
     const { error } = await admin.from("abonnement_echeances").upsert(
       {
         abonnement_id: enregistre.data.id,
         paiement_id: `${event.store}:${transaction}`,
         montant_cents: montant,
         periode_debut: debut,
-        periode_fin: fin,
+        periode_fin: finPayee,
         statut: "paye",
         essai: event.environment !== "PRODUCTION",
       },

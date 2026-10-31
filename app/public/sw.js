@@ -99,8 +99,14 @@ self.addEventListener('notificationclick', (event) => {
   const url = new URL(event.notification.data?.url || '/chat', self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
-      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
-      if (open && url === self.location.origin + '/chat') return open.focus();
+      // Un onglet déjà sur la bonne page est repris tel quel ; sinon, un onglet de Michel (l'accueil, par
+      // exemple) est emmené à la bonne page ; sinon on en ouvre un.
+      const memeSite = windows.filter((w) => new URL(w.url).origin === self.location.origin);
+      const deja = memeSite.find((w) => new URL(w.url).pathname === new URL(url).pathname);
+      if (deja) return deja.focus();
+      const autre = memeSite.find((w) => 'navigate' in w);
+      // navigate() refuse un onglet que ce service worker ne contrôle pas : on en ouvre un autre.
+      if (autre) return autre.navigate(url).then((w) => (w || autre).focus(), () => self.clients.openWindow(url));
       return self.clients.openWindow(url);
     }),
   );

@@ -1,7 +1,9 @@
 // Prépare une version des applis : notes « Nouveautés » pour l'App Store et Google Play + checklist de build.
-//   node scripts/notes-stores.mjs <build> [<version>] [--essai]   ex. : 8 1.0.1
+//   node scripts/notes-stores.mjs <build> [<version>] [--android <n>] [--essai]   ex. : 8 1.0.1 --android 6
 // Prend les nouveautés qui touchent les applis (ios / android) et pas encore livrées (sans « build: »),
 // écrit app/nouveautes/builds/<build>.md et inscrit « build: <build> » dans chacune. --essai : affiche sans rien écrire.
+// <build> est le numéro iOS (il nomme le fichier) ; les numéros EAS sont propres à chaque plateforme,
+// --android donne le code de version Android quand il diffère (même valeur que --build-android de fiches.mjs).
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOSSIER, lireNouveautes, TYPES } from './nouveautes-lib.mjs';
@@ -11,8 +13,14 @@ const MAX_APPLE = 4000; // App Store Connect : « Nouveautés de cette version �
 
 const build = Number(process.argv[2]);
 const essai = process.argv.includes('--essai');
+const iAndroid = process.argv.indexOf('--android');
+const android = iAndroid > 0 ? Number(process.argv[iAndroid + 1]) : build;
+if (!Number.isInteger(android) || android < 1) {
+  console.error('--android : numéro de build Android attendu, ex. --android 13');
+  process.exit(1);
+}
 // Version visible dans les stores (expo.version de app.json) : EAS n'incrémente que le numéro de build.
-const version = process.argv.slice(3).find((a) => a !== '--essai');
+const version = process.argv.slice(3).find((a, i, l) => a !== '--essai' && a !== '--android' && l[i - 1] !== '--android');
 if (version && !/^\d+\.\d+\.\d+$/.test(version)) {
   console.error(`Version « ${version} » : format 1.0.1 attendu.`);
   process.exit(1);
@@ -56,7 +64,7 @@ const google = notes(MAX_GOOGLE);
 
 const contenu = `# Build ${build}
 
-Préparé le ${new Date().toISOString().slice(0, 10)} avec \`node scripts/notes-stores.mjs ${build}${version ? ` ${version}` : ''}\`.${version ? ` Version des stores : **${version}** (déjà inscrite dans \`app/app.json\`).` : ''}
+Préparé le ${new Date().toISOString().slice(0, 10)} avec \`node scripts/notes-stores.mjs ${build}${version ? ` ${version}` : ''}${android !== build ? ` --android ${android}` : ''}\`.${version ? ` Version des stores : **${version}** (déjà inscrite dans \`app/app.json\`).` : ''}
 
 ## Ce qu'il contient
 
@@ -82,11 +90,11 @@ Le détail de chaque étape est dans [docs/PUBLIER-UNE-VERSION.md](../../../docs
 
 - [ ] Cette PR fusionnée (les nouveautés affichent alors « depuis le build ${build} »)
 - [ ] Sur le Mac, dans \`app/\` : \`git pull\` puis \`npx eas-cli build --platform all --profile production --auto-submit\`
-- [ ] Vérifier sur expo.dev que les deux builds portent bien le numéro ${build} (sinon, renommer ce fichier et corriger les \`build:\`)
+- [ ] Vérifier sur expo.dev les numéros : iOS ${build}, Android ${android} (sinon, renommer ce fichier et corriger les \`build:\`)
 - [ ] iOS : build ${build} reçu sur TestFlight, testé sur un iPhone
-- [ ] Android : build ${build} reçu en tests internes, testé sur un téléphone
+- [ ] Android : build ${android} (code de version Android) reçu en tests internes, testé sur un téléphone
 - [ ] App Store Connect : nouvelle version, coller les notes Apple, choisir le build ${build}, « Ajouter pour vérification »
-- [ ] Play Console : promouvoir le build ${build} sur la piste voulue, coller les notes Google
+- [ ] Play Console : promouvoir le build ${android} sur la piste voulue, coller les notes Google
 `;
 
 if (essai) {

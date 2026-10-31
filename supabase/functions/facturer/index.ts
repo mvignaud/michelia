@@ -67,9 +67,10 @@ const COLONNES = "id, paiement_id, prestataire, montant_cents, devise, palier, p
 const pourboires = () =>
   admin.from("pourboires").select(COLONNES).eq("canal", "web").eq("essai", false).in("prestataire", PRESTATAIRES);
 
-// Le remboursement Stancer (refd_…) d'un avoir de Michel : le n-ième remboursement du paiement pour le
-// n-ième avoir du pourboire, si les montants concordent. Sinon null, et E-KO lit les remboursements du
-// paiement (deux remboursements relevés au même passage font un seul avoir).
+// Le remboursement Stancer (refd_…) d'un avoir de Michel. Un avoir peut regrouper plusieurs
+// remboursements relevés au même passage : on cherche donc le remboursement qui commence juste après
+// ceux couverts par les avoirs précédents (sommes égales), et dont le montant est celui de l'avoir.
+// Sinon null, et E-KO lit les remboursements du paiement.
 async function remboursementStancer(
   a: { id: number; montant_cents: number; pourboire_id: number },
   l: { prestataire: string; paiement_carte: string | null },
@@ -77,11 +78,18 @@ async function remboursementStancer(
   if (l.prestataire !== "stancer" || !isCardPaymentId(l.paiement_carte)) return null;
   const [r, { data: freres }] = await Promise.all([
     remboursementsDe(l.paiement_carte),
-    admin.from("avoirs").select("id").eq("pourboire_id", a.pourboire_id).order("id"),
+    admin.from("avoirs").select("id, montant_cents").eq("pourboire_id", a.pourboire_id).order("id"),
   ]);
   const rang = (freres ?? []).findIndex((f) => f.id === a.id);
-  const refund = rang >= 0 ? r?.liste[rang] : undefined;
-  return refund && refund.montant === a.montant_cents && refund.id.startsWith("refd_") ? refund.id : null;
+  if (rang < 0 || !r) return null;
+  const dejaCouvert = (freres ?? []).slice(0, rang).reduce((t, f) => t + f.montant_cents, 0);
+  let cumul = 0;
+  for (const refund of r.liste) {
+    if (cumul === dejaCouvert) return refund.montant === a.montant_cents && refund.id.startsWith("refd_") ? refund.id : null;
+    cumul += refund.montant;
+    if (cumul > dejaCouvert) return null;
+  }
+  return null;
 }
 
 Deno.serve(async () => {
@@ -108,6 +116,9 @@ Deno.serve(async () => {
       .is("facture_reglee_at", null)
       .gte("created_at", c.facturation_eko_depuis || "2999-01-01")
       .lt("facture_tentatives", MAX_TENTATIVES)
+      // E-KO retrouve un remboursement Stancer par le paym_ du règlement : tant que le relevé des
+      // remboursements ne l'a pas complété, le pourboire attend son tour sans perdre d'essai.
+      .or("prestataire.neq.stancer,paiement_carte.not.is.null")
       .order("created_at")
       .limit(PAR_PASSAGE);
     if (error) return json(500, { error: error.message });
@@ -123,9 +134,6 @@ Deno.serve(async () => {
     for (const l of (tierId ? data ?? [] : []) as Ligne[]) {
       try {
         if (l.devise !== "eur") throw new Error(`devise ${l.devise} non gérée`);
-        // E-KO retrouve un remboursement Stancer par le paym_ du règlement : sans lui, pas de facture
-        // (le relevé des remboursements le complète).
-        if (l.prestataire === "stancer" && !l.paiement_carte) throw new Error("paiement Stancer (paym_) pas encore connu");
         await facturerVente({
           tierId,
           paiementId: l.paiement_id,
