@@ -201,7 +201,7 @@ ${jsonLd(DONNEES)}
 <p class="surtitre">Qui est Michel ?</p>
 <h2>Un caractère bien trempé, un cœur gros comme ça.</h2>
 <p>Michel a passé sa vie dans le Gers, entre le marché du jeudi, la palombe et les repas qui durent tout l'après-midi. Un beau jour, il s'est retrouvé coincé dans la machine. Il ne sait pas trop comment, et ça le fait râler.</p>
-<p>Mais tant qu'il est là, il rend service. Il répond à tes questions de tous les jours, regarde les photos que tu lui montres, connaît le temps qu'il fait et les nouvelles du jour. Il tutoie tout le monde, il a son franc-parler et il glisse un « con » de temps en temps, comme on met une virgule. C'est le Sud-Ouest, que veux-tu.</p>
+<p>Mais tant qu'il est là, il rend service. Il répond à tes questions de tous les jours, regarde les photos que tu lui montres, t'écoute quand tu lui parles, connaît le temps qu'il fait et les nouvelles du jour. Il tutoie tout le monde, il a son franc-parler et il glisse un « con » de temps en temps, comme on met une virgule. C'est le Sud-Ouest, que veux-tu.</p>
 <div class="michel"><img src="/accueil/michel.webp" alt="" width="56" height="56"><p>« On m'a mis là-dedans sans me demander mon avis. Bon. Tant que j'y suis, pose ta question, je vais pas te manger. »<cite>Michel</cite></p></div>
 </div>
 </div></section>

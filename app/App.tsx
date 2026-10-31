@@ -42,6 +42,7 @@ import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './
 import { pickPhoto, photoUri, type Photo } from './src/photo';
 import { AvatarMichel } from './src/Blocs';
 import { COLUMN, ecran } from './src/ecran';
+import { useDictee } from './src/dictee';
 import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
@@ -298,6 +299,7 @@ function Chat() {
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
     sentRef.current += 1;
+    dictee.couper();
     setDraft('');
     setAttached(undefined);
     setBusy(true);
@@ -398,6 +400,12 @@ function Chat() {
       setBubbles((all) => [...all, { id: newId(), role: 'assistant', content, local: true }]);
     }
   }
+
+  const dictee = useDictee({
+    texte: draft,
+    setTexte: setDraft,
+    signaler: (content) => setBubbles((all) => [...all, { id: newId(), role: 'assistant', content, local: true }]),
+  });
 
   const canSend = !busy && (draft.trim().length > 0 || !!attached);
   const suggestions = findMode(mode)?.suggestions ?? DEFAULT_SUGGESTIONS;
@@ -675,8 +683,18 @@ function Chat() {
               <TextInput
                 style={styles.input}
                 value={draft}
-                onChangeText={setDraft}
-                placeholder={attached ? 'Un mot sur ta photo ? (facultatif)' : 'Pose ta question à Michel…'}
+                onChangeText={(texte) => {
+                  // Corriger à la main pendant la dictée : on coupe le micro pour ne pas écraser la correction.
+                  dictee.couper();
+                  setDraft(texte);
+                }}
+                placeholder={
+                  dictee.ecoute
+                    ? "Vas-y, je t'écoute…"
+                    : attached
+                      ? 'Un mot sur ta photo ? (facultatif)'
+                      : 'Pose ta question à Michel…'
+                }
                 placeholderTextColor={colors.tertiary}
                 multiline
                 numberOfLines={1}
@@ -693,6 +711,18 @@ function Chat() {
                 }}
                 editable={!busy}
               />
+              {dictee.disponible && (
+                <Pressable
+                  style={({ pressed }) => [styles.attach, dictee.ecoute && styles.micOn, pressed && styles.pressed]}
+                  onPress={dictee.basculer}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel={dictee.ecoute ? 'Arrêter la dictée' : 'Parler à Michel'}
+                  accessibilityState={{ selected: dictee.ecoute }}
+                >
+                  <Text style={dictee.ecoute ? styles.micStop : styles.attachText}>{dictee.ecoute ? '■' : '🎙️'}</Text>
+                </Pressable>
+              )}
               <Pressable
                 style={({ pressed }) => [
                   styles.send,
@@ -912,6 +942,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   attachText: { fontSize: 19 },
+  micOn: { backgroundColor: colors.accent },
+  micStop: { color: colors.onAccent, fontSize: 16 },
   preview: { ...COLUMN, flexDirection: 'row', paddingHorizontal: 12, paddingTop: 10 },
   previewImage: { width: 64, height: 64, borderRadius: 10, backgroundColor: colors.accentSoft },
   previewRemove: {

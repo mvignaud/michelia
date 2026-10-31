@@ -1,5 +1,5 @@
 ---
-maj: 2026-10-30
+maj: 2026-10-31
 ---
 <!--
 Ce qui mijote chez Michel : la feuille de route publique, page michel.beer/ca-mijote (/roadmap y mène).
@@ -34,4 +34,4 @@ C'est épluché, c'est coupé, ça attend son tour.
 
 Pas oublié, juste mis de côté. Ça se bonifie, comme le jambon.
 
-- **La voix de Michel** : que je te réponde de vive voix, avec le vrai accent. Il faut d'abord trouver un vrai Gascon d'accord pour me prêter la sienne, et ça coûte une fortune en électricité. Ça viendra avec MichelIA+.
+- **La voix de Michel** : tu peux déjà me parler au micro, mais je te réponds par écrit. La suite, c'est que je te réponde de vive voix, avec le vrai accent. Il faut d'abord trouver un vrai Gascon d'accord pour me prêter la sienne, et ça coûte une fortune en électricité. Ça viendra avec MichelIA+.

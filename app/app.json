@@ -53,7 +53,7 @@
         {
           "photosPermission": "Michel a besoin de tes photos pour voir ce que tu veux lui montrer.",
           "cameraPermission": "Michel a besoin de l'appareil photo pour voir ce que tu veux lui montrer.",
-          "microphonePermission": false
+          "microphonePermission": "Michel a besoin du micro pour t'entendre quand tu lui parles."
         }
       ],
       [
@@ -62,6 +62,13 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#7A2E1D",
           "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Michel a besoin du micro pour t'entendre quand tu lui parles.",
+          "speechRecognitionPermission": "Michel a besoin de la reconnaissance vocale pour écrire ce que tu lui dis."
         }
       ]
     ],
