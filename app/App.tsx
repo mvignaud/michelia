@@ -683,7 +683,11 @@ function Chat() {
               <TextInput
                 style={styles.input}
                 value={draft}
-                onChangeText={setDraft}
+                onChangeText={(texte) => {
+                  // Corriger à la main pendant la dictée : on coupe le micro pour ne pas écraser la correction.
+                  dictee.couper();
+                  setDraft(texte);
+                }}
                 placeholder={
                   dictee.ecoute
                     ? "Vas-y, je t'écoute…"

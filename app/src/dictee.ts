@@ -111,7 +111,7 @@ export function useDictee({ texte, setTexte, signaler }: Options) {
     Reco.stop();
   }
 
-  // Arrête sans rien garder de plus (au moment d'envoyer le message).
+  // Arrête sans rien garder de plus (envoi du message, ou correction tapée au clavier).
   function couper() {
     if (!actif.current) return;
     actif.current = false;
