@@ -11,11 +11,14 @@
 </style>
 </head>
 <body>
-<!-- Captcha des applis iOS et Android : la page renvoie le jeton à l'appli. -->
+<!-- Captcha des applis iOS et Android et de l'extension Chrome (dans un cadre) : la page renvoie le jeton à l'appli. -->
 <div id="captcha"></div>
 <script>
   function send(message) {
     if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(message);
+    // Extension Chrome : le jeton ne part que vers une page d'extension qui nous affiche dans un cadre.
+    var hote = window.parent !== window && location.ancestorOrigins && location.ancestorOrigins[0];
+    if (hote && hote.indexOf('chrome-extension://') === 0) window.parent.postMessage(message, hote);
   }
   function start() {
     var key = new URLSearchParams(location.search).get('k');
