@@ -43,10 +43,15 @@
 /cahier-de-doleances
   X-Robots-Tag: noindex
 
-# Le captcha des applis (/captcha) s'affiche aussi dans un cadre des écrans de l'appli de bureau
-# (tauri://localhost sur Mac et Linux, http://tauri.localhost sous Windows) : la règle frame-ancestors
-# générale est remplacée pour cette page seulement. Elle ne fait rien d'autre que donner un jeton Turnstile.
+# Le captcha des applis (/captcha) s'affiche aussi dans un cadre du panneau de l'extension Chrome
+# (chrome-extension://…) et des écrans de l'appli de bureau (tauri://localhost, http://tauri.localhost), que frame-ancestors ne sait pas nommer de façon fiable : on retire la règle
+# pour cette page seulement. Elle ne fait rien d'autre que donner un jeton Turnstile.
 /captcha
   ! Content-Security-Policy
-  Content-Security-Policy: frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost
   X-Robots-Tag: noindex
+
+# Réglages publics des applis de bureau et de l'extension (adresse Supabase, clé publique, clé de site
+# Turnstile), écrits au déploiement par scripts/appli-json.mjs. Rien de secret.
+/appli.json
+  Cache-Control: no-cache
+  Access-Control-Allow-Origin: *

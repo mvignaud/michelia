@@ -11,14 +11,15 @@
 </style>
 </head>
 <body>
-<!-- Captcha des applis iOS et Android et de l'appli de bureau (dans un cadre) : la page renvoie le jeton à l'appli. -->
+<!-- Captcha des applis iOS et Android, de l'extension Chrome et de l'appli de bureau (dans un cadre) : la page renvoie le jeton à l'appli. -->
 <div id="captcha"></div>
 <script>
   function send(message) {
     if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(message);
-    // Appli de bureau (Tauri) : le jeton ne part que vers les écrans embarqués qui nous affichent dans un cadre.
-    var parent = window.parent !== window && location.ancestorOrigins && location.ancestorOrigins[0];
-    if (parent && /^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)$/.test(parent)) window.parent.postMessage(message, parent);
+    // Extension Chrome et appli de bureau (Tauri) : le jeton ne part que vers une page d'extension ou les
+    // écrans embarqués de l'appli qui nous affichent dans un cadre.
+    var hote = window.parent !== window && location.ancestorOrigins && location.ancestorOrigins[0];
+    if (hote && (hote.indexOf('chrome-extension://') === 0 || /^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)$/.test(hote))) window.parent.postMessage(message, hote);
   }
   function start() {
     var key = new URLSearchParams(location.search).get('k');
