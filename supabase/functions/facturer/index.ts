@@ -8,7 +8,7 @@
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { avoirVente, EkoError, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
-import { envoyerAvoir, envoyerRecu } from "../_shared/recu.ts";
+import { envoyerAvoir, envoyerRecu, TVA_POURBOIRE } from "../_shared/recu.ts";
 import { isCardPaymentId, remboursementsDe } from "../_shared/stancer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -143,6 +143,7 @@ Deno.serve(async () => {
           montantTtcCents: l.montant_cents,
           date: jourParis(new Date(l.created_at)),
           prestataire: l.prestataire,
+          tvaPourcent: TVA_POURBOIRE * 100,
         }, l.facture_code, async (numero) => {
           await admin.from("pourboires").update({ facture_code: numero }).eq("id", l.id);
         });
@@ -190,6 +191,7 @@ Deno.serve(async () => {
           montantTtcCents: l.montant_cents,
           moyen: "Carte bancaire",
           transaction: l.paiement_carte ?? l.paiement_id,
+          tauxTva: TVA_POURBOIRE,
         });
       } catch (e) {
         console.error(`Pourboire ${l.id} : reçu impossible à préparer`, e instanceof Error ? e.message : e);
@@ -248,6 +250,7 @@ Deno.serve(async () => {
             montantTtcCents: l.montant_cents,
             moyen: "Carte bancaire",
             transaction: l.paiement_carte ?? l.paiement_id,
+            tauxTva: TVA_POURBOIRE,
           },
         });
       } catch (e) {
