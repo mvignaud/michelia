@@ -44,6 +44,11 @@ export async function tiersGenerique(nom: string): Promise<number> {
   return Number(cree.data.id);
 }
 
+// Comptes de produit des lignes de facture, repris tels quels dans Pennylane (consigne E-KO, 1/11/2026) :
+// un pourboire est une libéralité reçue (sans TVA), un abonnement MichelIA+ une prestation de services.
+export const COMPTE_POURBOIRE = "758200";
+export const COMPTE_ABONNEMENT = "706000";
+
 export type Vente = {
   tierId: number;
   paiementId: string; // identifiant du paiement chez le prestataire (clés d'idempotence)
@@ -54,6 +59,7 @@ export type Vente = {
   date: string; // AAAA-MM-JJ, heure de Paris
   prestataire: string; // fournisseur de paiement au sens d'E-KO : « stancer », « stripe »
   tvaPourcent: number; // taux de TVA de la ligne : 20, ou 0 pour un pourboire
+  compte: string; // compte de produit de la ligne : COMPTE_POURBOIRE ou COMPTE_ABONNEMENT
 };
 
 // Facture émise et réglée. `code` : numéro déjà obtenu lors d'un passage précédent ; `noter` le garde dès
@@ -74,6 +80,7 @@ export async function facturerVente(v: Vente, code: string | null, noter: (code:
         quantity: 1,
         unit_price_ttc: ttc,
         vat_rate: v.tvaPourcent,
+        account: v.compte,
         line_type: "service",
         external_ref: v.paiementId.slice(0, 64),
       }],

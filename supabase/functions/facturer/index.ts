@@ -7,7 +7,7 @@
 // Sans danger si quelqu'un d'autre l'appelle : elle ne traite que les pourboires en attente.
 // Jamais les paiements d'essai, jamais les achats des applis (Apple et Google en sont les vendeurs).
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
-import { avoirVente, EkoError, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
+import { avoirVente, COMPTE_POURBOIRE, EkoError, ekoConfigure, facturerVente, tiersGenerique } from "../_shared/eko.ts";
 import { envoyerAvoir, envoyerRecu, TVA_POURBOIRE } from "../_shared/recu.ts";
 import { isCardPaymentId, remboursementsDe } from "../_shared/stancer.ts";
 
@@ -144,6 +144,7 @@ Deno.serve(async () => {
           date: jourParis(new Date(l.created_at)),
           prestataire: l.prestataire,
           tvaPourcent: TVA_POURBOIRE * 100,
+          compte: COMPTE_POURBOIRE,
         }, l.facture_code, async (numero) => {
           await admin.from("pourboires").update({ facture_code: numero }).eq("id", l.id);
         });
