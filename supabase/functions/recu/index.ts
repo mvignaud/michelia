@@ -3,7 +3,7 @@
 // du paiement (les applis, qui n'ont pas de téléchargement). La liste des reçus du compte vient de
 // mes_recus(), appelée avec le jeton du visiteur : un reçu qui n'y est pas n'existe pas pour lui.
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
-import { envoyerAvoir, envoyerRecu, pdfAvoir, pdfRecu, type Recu } from "../_shared/recu.ts";
+import { envoyerAvoir, envoyerRecu, pdfAvoir, pdfRecu, type Recu, TVA_POURBOIRE } from "../_shared/recu.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -61,6 +61,7 @@ Deno.serve(async (req) => {
     moyen: "Carte bancaire",
     transaction: p.paiement_carte ?? p.paiement_id,
     rembourseCents: ligne.rembourse_cents,
+    tauxTva: TVA_POURBOIRE,
   };
 
   const avoir = piece.genre === "avoir"

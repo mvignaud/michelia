@@ -1,12 +1,14 @@
 // Reçu de paiement aux couleurs de Michel, envoyé au client par e-mail (courriers.ts) en pièce jointe PDF.
 // La facture officielle vit dans l'ERP E-KO de GOLDEN PRINT (jamais envoyée au client) : le reçu en
-// reprend le numéro quand elle existe déjà. TVA à 20 % sur des prix TTC.
+// reprend le numéro quand elle existe déjà. Prix TTC ; un pourboire n'a pas de TVA (TVA_POURBOIRE).
 import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
 import { envoyerCourrier, paiementRecu, remboursement } from "./courriers.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 
 export const TAUX_TVA = 0.2;
+// Un pourboire est un don sans contrepartie : pas de TVA (consigne de Mathieu, 1/11/2026).
+export const TVA_POURBOIRE = 0;
 
 // Mentions du vendeur, imprimées en pied de reçu.
 const VENDEUR = [
@@ -29,13 +31,14 @@ export type Recu = {
   moyen: string; // ex. « Carte bancaire »
   transaction?: string | null; // identifiant du paiement chez le prestataire (paym_… chez Stancer)
   rembourseCents?: number; // déjà remboursé au client (reçu redemandé depuis l'espace compte)
+  tauxTva: number; // 0,2 pour 20 % ; 0 : pas de TVA (pourboire)
 };
 
 // Avoir de remboursement de Michel, adressé au client : il annule tout ou partie d'un reçu.
 export type Avoir = { numero: string; montantCents: number; date: Date; recu: Recu };
 
-export function decompose(ttcCents: number) {
-  const ht = Math.round(ttcCents / (1 + TAUX_TVA));
+export function decompose(ttcCents: number, taux: number) {
+  const ht = Math.round(ttcCents / (1 + taux));
   return { ht, tva: ttcCents - ht, ttc: ttcCents };
 }
 
@@ -112,14 +115,19 @@ async function pdfPiece(r: Recu, avoir?: Avoir): Promise<Uint8Array> {
   };
   page.drawLine({ start: { x: m, y: y + 18 }, end: { x: droite, y: y + 18 }, thickness: 1, color: C.ocre });
   const signe = avoir ? "- " : "";
-  const { ht, tva, ttc } = decompose(avoir ? avoir.montantCents : r.montantTtcCents);
+  const { ht, tva, ttc } = decompose(avoir ? avoir.montantCents : r.montantTtcCents, r.tauxTva);
   ligne(avoir ? `Remboursement : ${r.libelle}` : r.libelle, signe + euros(ttc));
   y -= 6;
-  ligne("Montant hors taxes", signe + euros(ht));
-  ligne(`TVA ${Math.round(TAUX_TVA * 100)} %`, signe + euros(tva));
+  if (r.tauxTva) {
+    ligne("Montant hors taxes", signe + euros(ht));
+    ligne(`TVA ${Math.round(r.tauxTva * 100)} %`, signe + euros(tva));
+  } else {
+    ligne("TVA", "non applicable");
+  }
   page.drawLine({ start: { x: m, y: y + 14 }, end: { x: droite, y: y + 14 }, thickness: 1, color: C.ocre });
   y -= 4;
-  ligne(avoir ? "Total remboursé TTC" : "Total payé TTC", signe + euros(ttc), gras, 13);
+  const ttcMot = r.tauxTva ? " TTC" : "";
+  ligne((avoir ? "Total remboursé" : "Total payé") + ttcMot, signe + euros(ttc), gras, 13);
   if (!avoir && r.rembourseCents) ligne("Remboursé", `- ${euros(r.rembourseCents)}`, gras);
   ligne(avoir ? "Remboursé sur" : "Moyen de paiement", r.moyen);
   if (r.transaction) ligne("N° de transaction", r.transaction);
