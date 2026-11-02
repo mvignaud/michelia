@@ -137,8 +137,11 @@ mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `
      `POST /subscriptions` avec `bill_now`, la carte (`stancer_card`, `card_…` + `cust_…`) ou le mandat
      (`stancer_sepa`, `sepa_…`), e-mails au client et résiliation automatique coupés. Code `SUB-…` dans
      `abonnements.eko_abonnement`, première facture sur la première échéance (`eko_facture`, `eko_facture_id`) ;
+     Première facture pas rattachée (réponse incomplète, écriture ratée) : relue dans les périodes de
+     l'abonnement (`GET /subscriptions/{code}/billing-cycles`) aux passages suivants ;
   2. le premier paiement (`paym_…`) est enregistré sur cette facture (`POST /payments`, `card_online`) ;
-  3. résiliation demandée par l'abonné : `/cancel` avec `at_period_end` (`eko_resilie_le`) ;
+  3. résiliation demandée par l'abonné : `/cancel` avec `at_period_end` (`eko_resilie_le`) ; déjà
+     arrivé au bout chez Michel (`expire`) sans résiliation transmise : `/cancel` immédiat ;
   4. reprise avant la fin de période : `PATCH auto_renew: true`, vérifié par une relecture.
   Un refus sur le fond (422) ou 5 essais ratés : `abonnements.eko_erreur`, ALERTE dans les journaux ;
   vider `eko_erreur` (et `eko_tentatives`) pour relancer. Sans `eko_abonnement`, Michel continue de prélever
@@ -150,8 +153,9 @@ mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `
   - `cycle.billed` : nouvelle échéance en cours (`paiement_id = eko:<cycle>`, `eko_cycle`, facture) ;
     la première période est rattachée à l'échéance du premier paiement.
   - `cycle.paid` : échéance payée (`payer_echeance`), MichelIA+ prolongé jusqu'à la fin de la période.
-  - `cycle.failed` : abonnement `impaye` ; un prélèvement SEPA rejeté après coup rouvre l'échéance et
-    ramène `fin_periode` au début de la période. E-KO retente à J+3, J+7 et J+14.
+  - `cycle.failed` : abonnement `impaye` ; un prélèvement SEPA rejeté après coup (`payment_rejected`,
+    survenu après le paiement) rouvre l'échéance et ramène `fin_periode` au début de la période ; l'échec
+    d'un essai précédent livré en retard est ignoré. E-KO retente à J+3, J+7 et J+14.
   - `dunning.exhausted` (J+21) : résiliation immédiate chez E-KO, abonnement `expire`.
   - `subscription.cancel_scheduled` / `subscription.cancelled` : `resilie` / `expire` (ou `resilie`
     jusqu'à la fin de la période payée).

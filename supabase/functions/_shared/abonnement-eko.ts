@@ -7,7 +7,7 @@
 //   ratée, relances épuisées, résiliation.
 // Tant que michelia_plus_eko_actif ne vaut pas 'true', rien ne part : Michel prélève lui-même, comme avant.
 import { admin, isCardPaymentId } from "./stancer.ts";
-import { EkoError, ekoConfigure, type MoyenAbonnement, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
+import { EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
 
 const MAX_TENTATIVES = 5;
 const MAX_ESSAIS_EVENEMENT = 5;
@@ -50,6 +50,17 @@ async function noterErreur(abonnementId: number, tentatives: number, e: unknown,
 
 type Paiement = { id: number; paiement_id: string; montant_cents: number; numero_recu: string | null; created_at: string; statut: string; eko_facture: string | null; eko_facture_id: number | null; eko_regle_le: string | null; eko_cycle: string | null };
 
+// La première facture E-KO (et sa période) sur l'échéance du premier paiement. Lève une erreur si
+// l'écriture échoue : l'étape 1 bis de synchroniserEko la reprend.
+async function lierPremiereFacture(echeanceId: number, f: { factureId: number; factureCode: string | null; cycleId: string | null }): Promise<void> {
+  const { error } = await admin.from("abonnement_echeances").update({ eko_facture: f.factureCode, eko_facture_id: f.factureId }).eq("id", echeanceId);
+  if (error) throw new Error(`première facture non notée : ${error.message}`);
+  if (f.cycleId) {
+    const { error: cycleErr } = await admin.from("abonnement_echeances").update({ eko_cycle: f.cycleId }).eq("id", echeanceId).is("eko_cycle", null);
+    if (cycleErr) throw new Error(`première période non notée : ${cycleErr.message}`);
+  }
+}
+
 // Le passage horaire : nouveaux abonnements, premiers paiements, résiliations et reprises.
 export async function synchroniserEko(limite: number): Promise<{ crees: number; regles: number; resilies: number; repris: number }> {
   const bilan = { crees: 0, regles: 0, resilies: 0, repris: 0 };
@@ -89,19 +100,38 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
         await admin.from("abonnements").update({ eko_tiers: tiers }).eq("id", a.id);
       }
       const sub = await souscrireEko({ abonnementId: a.id, tierCode: tiers, planCode: plan, moyen });
-      // Le code tout de suite : une reprise ne souscrit jamais deux fois.
-      await admin.from("abonnements").update({ eko_abonnement: sub.code, eko_tentatives: 0 }).eq("id", a.id);
+      // Le code tout de suite : une reprise ne souscrit jamais deux fois. Pas noté : on recommence au
+      // passage suivant, avec la même clé (E-KO rend la même souscription).
+      const { error: noteErr } = await admin.from("abonnements").update({ eko_abonnement: sub.code, eko_tentatives: 0 }).eq("id", a.id);
+      if (noteErr) throw new Error(`abonnement ${sub.code} non noté : ${noteErr.message}`);
       bilan.crees++;
-      if (sub.factureId) {
-        await admin.from("abonnement_echeances").update({ eko_facture: sub.factureCode, eko_facture_id: sub.factureId }).eq("id", premier.id);
-        if (sub.cycleId) {
-          await admin.from("abonnement_echeances").update({ eko_cycle: sub.cycleId }).eq("id", premier.id).is("eko_cycle", null);
-        }
-      } else {
-        console.error("MichelIA+ E-KO : ALERTE souscription sans première facture, premier paiement à enregistrer à la main", a.id, sub.code);
-      }
+      // Première facture sur l'échéance du premier paiement ; ratée, l'étape 1 bis la reprend.
+      if (sub.factureId) await lierPremiereFacture(premier.id, { factureId: sub.factureId, factureCode: sub.factureCode, cycleId: sub.cycleId });
     } catch (e) {
       await noterErreur(a.id, a.eko_tentatives, e, "souscription");
+    }
+  }
+
+  // 1 bis. Souscriptions notées dont la première facture n'est pas rattachée (réponse sans facture,
+  // écriture ratée) : relue chez E-KO dans les périodes de l'abonnement.
+  const { data: recents } = await admin.from("abonnements")
+    .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, created_at, statut, eko_facture_id, eko_cycle)")
+    .eq("source", "web").not("eko_abonnement", "is", null).is("eko_erreur", null)
+    .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString())
+    .order("id", { ascending: false })
+    .limit(200);
+  for (const a of recents ?? []) {
+    const echeances = (a.abonnement_echeances ?? []) as Paiement[];
+    if (echeances.some((e) => e.eko_cycle || e.eko_facture_id)) continue;
+    const premier = echeances.filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id))
+      .sort((x, y) => x.created_at.localeCompare(y.created_at))[0];
+    if (!premier) continue;
+    try {
+      const facture = await premiereFactureEko(a.eko_abonnement!);
+      if (!facture) throw new Error("première facture introuvable dans les périodes E-KO");
+      await lierPremiereFacture(premier.id, facture);
+    } catch (e) {
+      await noterErreur(a.id, a.eko_tentatives, e, "rattachement de la première facture");
     }
   }
 
@@ -127,12 +157,14 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
     }
   }
 
-  // 3. Résiliations demandées par l'abonné : E-KO coupe au terme déjà payé.
-  const { data: resilies } = await admin.from("abonnements").select("id, eko_abonnement, eko_tentatives")
-    .eq("statut", "resilie").not("eko_abonnement", "is", null).is("eko_resilie_le", null).is("eko_erreur", null).limit(limite);
+  // 3. Résiliations demandées par l'abonné : E-KO coupe au terme déjà payé. Un abonnement déjà arrivé
+  // au bout chez Michel (expire) sans que la résiliation soit partie est coupé tout de suite chez E-KO,
+  // pour qu'aucune période ne soit plus prélevée.
+  const { data: resilies } = await admin.from("abonnements").select("id, statut, eko_abonnement, eko_tentatives")
+    .in("statut", ["resilie", "expire"]).not("eko_abonnement", "is", null).is("eko_resilie_le", null).is("eko_erreur", null).limit(limite);
   for (const a of resilies ?? []) {
     try {
-      await resilierEko(a.eko_abonnement!, true, "Résilié par l'abonné depuis son espace Michel");
+      await resilierEko(a.eko_abonnement!, a.statut === "resilie", a.statut === "resilie" ? "Résilié par l'abonné depuis son espace Michel" : "Abonnement terminé chez Michel");
       await admin.from("abonnements").update({ eko_resilie_le: maintenant(), eko_tentatives: 0 }).eq("id", a.id);
       bilan.resilies++;
     } catch (e) {

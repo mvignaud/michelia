@@ -200,6 +200,18 @@ export async function reglerFacture(r: {
   }, `reglement-${r.transaction}`);
 }
 
+// La première période d'un abonnement et sa facture, relues dans son historique (billing-cycles), quand la
+// réponse de la souscription n'a pas pu être notée. null si E-KO n'en a pas encore.
+export async function premiereFactureEko(code: string): Promise<{ factureId: number; factureCode: string | null; cycleId: string | null } | null> {
+  const r = await eko("GET", `/subscriptions/${encodeURIComponent(code)}/billing-cycles?per_page=100`);
+  // deno-lint-ignore no-explicit-any
+  const cycles = ((r?.data ?? []) as any[]).filter((c) => c?.invoice_id != null)
+    .sort((x, y) => String(x.period_start ?? "").localeCompare(String(y.period_start ?? "")));
+  const c = cycles[0];
+  if (!c) return null;
+  return { factureId: Number(c.invoice_id), factureCode: c.invoice_code != null ? String(c.invoice_code) : null, cycleId: c.id != null ? String(c.id) : null };
+}
+
 // Résiliation : à la fin de la période payée (choix de l'abonné) ou tout de suite (relances épuisées).
 export async function resilierEko(code: string, finDePeriode: boolean, motif: string): Promise<void> {
   await eko("POST", `/subscriptions/${encodeURIComponent(code)}/cancel`, { at_period_end: finDePeriode, reason: motif });
