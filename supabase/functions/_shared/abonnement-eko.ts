@@ -7,7 +7,7 @@
 //   ratée, relances épuisées, résiliation.
 // Tant que michelia_plus_eko_actif ne vaut pas 'true', rien ne part : Michel prélève lui-même, comme avant.
 import { admin, isCardPaymentId } from "./stancer.ts";
-import { EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
+import { coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
 
 const MAX_TENTATIVES = 5;
 const MAX_ESSAIS_EVENEMENT = 5;
@@ -269,7 +269,9 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
       return;
     }
     case "subscription.cancel_scheduled": {
-      // Résiliation programmée depuis E-KO (ou transmise par Michel : déjà notée).
+      // Résiliation programmée depuis E-KO (ou transmise par Michel : déjà notée). Relue chez E-KO : un
+      // avis en retard, arrivé après une reprise, ne doit pas résilier un abonnement qui renouvelle.
+      if (!(await coupureProgrammeeEko(a.eko_abonnement))) return;
       await admin.from("abonnements").update({ statut: "resilie", resilie_le: maintenant(), eko_resilie_le: maintenant(), updated_at: maintenant() })
         .eq("id", a.id).in("statut", ["actif", "impaye"]);
       return;
@@ -340,8 +342,10 @@ async function periodePayee(a: Abonnement, d: any, survenu: string): Promise<voi
   if (!e) throw new PasEncore("période payée pas encore vue");
   if (e.statut === "paye") return;
   const transaction = typeof d.transaction_id === "string" && isCardPaymentId(d.transaction_id) ? d.transaction_id : null;
-  const { error } = await admin.rpc("payer_echeance", { p_echeance: e.id, p_paiement: transaction, p_carte: null, p_sepa: null, p_chiffres: null });
+  const { data: paye, error } = await admin.rpc("payer_echeance", { p_echeance: e.id, p_paiement: transaction, p_carte: null, p_sepa: null, p_chiffres: null });
   if (error) throw new Error(`période payée non notée : ${error.message}`);
+  // payer_echeance ne paie qu'une échéance en cours : sinon, rien n'a été écrit, on le dit.
+  if (paye !== true) throw new Error(`période payée non notée : échéance ${e.id} au statut ${e.statut}`);
   await admin.from("abonnement_echeances").update({ eko_regle_le: heureDe(survenu).toISOString() }).eq("id", e.id);
   console.log("MichelIA+ E-KO : période payée", a.id, e.periode_fin);
 }

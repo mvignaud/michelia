@@ -221,6 +221,11 @@ export async function resilierEko(code: string, finDePeriode: boolean, motif: st
 // plus de coupure.
 export async function reprendreEko(code: string): Promise<boolean> {
   await eko("PATCH", `/subscriptions/${encodeURIComponent(code)}`, { auto_renew: true });
+  return !(await coupureProgrammeeEko(code));
+}
+
+// E-KO prévoit-il de couper l'abonnement en fin de période (état actuel, relu chez lui) ?
+export async function coupureProgrammeeEko(code: string): Promise<boolean> {
   const lu = await eko("GET", `/subscriptions/${encodeURIComponent(code)}`);
-  return lu?.data?.cancel_at_period_end === false;
+  return lu?.data?.cancel_at_period_end !== false;
 }

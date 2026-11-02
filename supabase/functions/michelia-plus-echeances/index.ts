@@ -41,7 +41,8 @@ Deno.serve(async (req) => {
 
   // Échéances restées en cours (Stancer lent à répondre, page SEPA pas encore revenue) : relues.
   const { data: enCours } = await admin.from("abonnement_echeances").select("paiement_id, stancer_intent")
-    .eq("statut", "en_cours").not("paiement_id", "like", "eko:%")
+    // Les périodes d'E-KO (eko_cycle) sont suivies par ses webhooks, jamais relues ici.
+    .eq("statut", "en_cours").is("eko_cycle", null).not("paiement_id", "like", "eko:%")
     .lt("created_at", new Date(Date.now() - 600_000).toISOString()).limit(PAR_PASSAGE);
   for (const e of enCours ?? []) {
     await (e.stancer_intent && e.paiement_id === e.stancer_intent ? confirmerSepa(e.stancer_intent) : confirmerEcheance(e.paiement_id));
