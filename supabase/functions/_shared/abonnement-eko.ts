@@ -307,6 +307,11 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
       return periodeRatee(a, d, survenu);
     case "dunning.exhausted": {
       // Relances finies sans paiement (J+21) : l'abonnement s'arrête tout de suite.
+      // Sauf si la période a été payée depuis (avis livré en retard après le cycle.paid) : rien à couper.
+      if (a.statut !== "expire" && !(await impayeToujoursDu(a.id, d.cycle_id ?? d.cycle?.id))) {
+        console.log("MichelIA+ E-KO : relances épuisées ignorées, la période a été payée depuis", a.id);
+        return;
+      }
       if (a.statut !== "expire") {
         try {
           await resilierEko(a.eko_abonnement, false, "Relances épuisées sans paiement");
@@ -343,6 +348,19 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
       return;
     }
   }
+}
+
+// Reste-t-il quelque chose d'impayé ? La période de l'avis si E-KO la donne, sinon toute période E-KO
+// encore en cours (non payée) de l'abonnement.
+async function impayeToujoursDu(abonnementId: number, cycleId: unknown): Promise<boolean> {
+  if (cycleId !== undefined && cycleId !== null && cycleId !== "") {
+    const e = await echeanceDuCycle(cycleId);
+    if (e) return e.statut === "en_cours";
+  }
+  const { count, error } = await admin.from("abonnement_echeances").select("id", { count: "exact", head: true })
+    .eq("abonnement_id", abonnementId).not("eko_cycle", "is", null).eq("statut", "en_cours");
+  if (error) throw new Error(`périodes illisibles : ${error.message}`);
+  return (count ?? 0) > 0;
 }
 
 // deno-lint-ignore no-explicit-any
