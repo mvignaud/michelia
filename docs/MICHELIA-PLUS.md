@@ -143,6 +143,8 @@ mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `
   3. résiliation demandée par l'abonné : `/cancel` avec `at_period_end` (`eko_resilie_le`) ; déjà
      arrivé au bout chez Michel (`expire`) sans résiliation transmise : `/cancel` immédiat ;
   4. reprise avant la fin de période : `PATCH auto_renew: true`, vérifié par une relecture.
+  5. compte supprimé (la cascade emporte l'abonnement) : un déclencheur garde avant la suppression le code
+     E-KO dans `eko_resiliations`, puis `/cancel` immédiat (`transmise_le`), retenté à chaque passage.
   Un refus sur le fond (422) ou 5 essais ratés : `abonnements.eko_erreur`, ALERTE dans les journaux ;
   vider `eko_erreur` (et `eko_tentatives`) pour relancer. Sans `eko_abonnement`, Michel continue de prélever
   lui-même, comme avant.
@@ -155,7 +157,8 @@ mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `
   - `cycle.paid` : échéance payée (`payer_echeance`), MichelIA+ prolongé jusqu'à la fin de la période.
   - `cycle.failed` : abonnement `impaye` ; un prélèvement SEPA rejeté après coup (`payment_rejected`,
     survenu après le paiement) rouvre l'échéance et ramène `fin_periode` au début de la période ; l'échec
-    d'un essai précédent livré en retard est ignoré. E-KO retente à J+3, J+7 et J+14.
+    d'un essai précédent livré en retard est ignoré ; l'heure du rejet est gardée (`eko_rejete_le`) et un
+    `cycle.paid` plus ancien, livré après, est ignoré. E-KO retente à J+3, J+7 et J+14.
   - `dunning.exhausted` (J+21) : résiliation immédiate chez E-KO, abonnement `expire`.
   - `subscription.cancel_scheduled` / `subscription.cancelled` : `resilie` / `expire` (ou `resilie`
     jusqu'à la fin de la période payée).

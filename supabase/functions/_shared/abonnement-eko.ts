@@ -104,8 +104,14 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
       const sub = await souscrireEko({ abonnementId: a.id, tierCode: tiers, planCode: plan, moyen });
       // Le code tout de suite : une reprise ne souscrit jamais deux fois. Pas noté : on recommence au
       // passage suivant, avec la même clé (E-KO rend la même souscription).
-      const { error: noteErr } = await admin.from("abonnements").update({ eko_abonnement: sub.code, eko_tentatives: 0 }).eq("id", a.id);
+      const { data: note, error: noteErr } = await admin.from("abonnements").update({ eko_abonnement: sub.code, eko_tentatives: 0 }).eq("id", a.id).select("id");
       if (noteErr) throw new Error(`abonnement ${sub.code} non noté : ${noteErr.message}`);
+      if (!note?.length) {
+        // Compte supprimé pendant la souscription : l'abonnement n'existe plus chez Michel, E-KO le
+        // coupe au passage (étape 5).
+        await garderResiliation(sub.code);
+        continue;
+      }
       bilan.crees++;
       // Première facture sur l'échéance du premier paiement ; ratée, l'étape 1 bis la reprend.
       if (sub.factureId) await lierPremiereFacture(premier.id, { factureId: sub.factureId, factureCode: sub.factureCode, cycleId: sub.cycleId });
@@ -197,7 +203,35 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
       console.error("MichelIA+ E-KO : ALERTE reprise non transmise, retentée au prochain passage", a.id, messageDe(e));
     }
   }
+
+  // 5. Comptes supprimés : leur abonnement E-KO (gardé par un déclencheur avant la suppression) est coupé
+  // tout de suite, pour qu'aucune période ne soit prélevée sans compte d'où la résilier. Retenté à chaque passage.
+  const { data: orphelins } = await admin.from("eko_resiliations").select("eko_abonnement, essais")
+    .is("transmise_le", null).order("demande_le").limit(limite);
+  for (const o of orphelins ?? []) {
+    try {
+      try {
+        await resilierEko(o.eko_abonnement, false, "Compte Michel supprimé par son titulaire");
+      } catch (e) {
+        // 422 : déjà résilié chez E-KO, rien de plus à transmettre.
+        if (!(e instanceof EkoError && e.status === 422)) throw e;
+      }
+      const { error: fini } = await admin.from("eko_resiliations").update({ transmise_le: maintenant(), erreur: null })
+        .eq("eko_abonnement", o.eko_abonnement);
+      if (fini) throw new Error(`résiliation transmise mais pas notée : ${fini.message}`);
+      bilan.resilies++;
+    } catch (e) {
+      await admin.from("eko_resiliations").update({ essais: (o.essais ?? 0) + 1, erreur: messageDe(e) }).eq("eko_abonnement", o.eko_abonnement);
+      console.error("MichelIA+ E-KO : ALERTE abonnement d'un compte supprimé pas encore coupé, retenté au prochain passage", o.eko_abonnement, messageDe(e));
+    }
+  }
   return bilan;
+}
+
+// Un abonnement E-KO à couper parce que son compte Michel n'existe plus.
+async function garderResiliation(code: string): Promise<void> {
+  const { error } = await admin.from("eko_resiliations").upsert({ eko_abonnement: code }, { onConflict: "eko_abonnement", ignoreDuplicates: true });
+  if (error) console.error("MichelIA+ E-KO : ALERTE résiliation d'un compte supprimé non gardée", code, error.message);
 }
 
 // ── Webhooks d'E-KO, gardés dans eko_evenements par la fonction eko-webhook.
@@ -255,8 +289,13 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
   if (!code) throw new Error("webhook sans abonnement");
   const { data: ab } = await admin.from("abonnements").select("id, statut, fin_periode, echecs, essai, eko_abonnement, eko_resilie_le")
     .eq("eko_abonnement", code).maybeSingle();
-  // Souscription en cours de notation chez Michel (le webhook arrive pendant l'appel) : plus tard.
-  if (!ab) throw new PasEncore(`abonnement ${code} pas encore connu`);
+  if (!ab) {
+    // Compte supprimé : l'abonnement est coupé chez E-KO (étape 5), ses avis n'ont plus rien à mettre à jour.
+    const { data: supprime } = await admin.from("eko_resiliations").select("eko_abonnement").eq("eko_abonnement", code).maybeSingle();
+    if (supprime) return;
+    // Souscription en cours de notation chez Michel (le webhook arrive pendant l'appel) : plus tard.
+    throw new PasEncore(`abonnement ${code} pas encore connu`);
+  }
   const a = ab as Abonnement;
 
   switch (evenement) {
@@ -309,7 +348,7 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
 // deno-lint-ignore no-explicit-any
 async function echeanceDuCycle(cycleId: unknown): Promise<any> {
   if (cycleId === undefined || cycleId === null || cycleId === "") throw new Error("webhook sans cycle");
-  const { data } = await admin.from("abonnement_echeances").select("id, abonnement_id, statut, periode_debut, periode_fin, eko_regle_le")
+  const { data } = await admin.from("abonnement_echeances").select("id, abonnement_id, statut, periode_debut, periode_fin, eko_regle_le, eko_rejete_le")
     .eq("eko_cycle", String(cycleId)).maybeSingle();
   return data;
 }
@@ -368,6 +407,11 @@ async function periodePayee(a: Abonnement, d: any, survenu: string): Promise<voi
   const e = await echeanceDuCycle(d.cycle_id ?? d.cycle?.id);
   if (!e) throw new PasEncore("période payée pas encore vue");
   if (e.statut === "paye") return;
+  // Un paiement antérieur au dernier rejet bancaire de la période (avis livré en retard) ne compte plus.
+  if (e.eko_rejete_le && heureDe(survenu).getTime() <= new Date(e.eko_rejete_le).getTime()) {
+    console.log("MichelIA+ E-KO : paiement ancien ignoré, rejeté depuis par la banque", a.id, e.id);
+    return;
+  }
   const transaction = typeof d.transaction_id === "string" && isCardPaymentId(d.transaction_id) ? d.transaction_id : null;
   const { data: paye, error } = await admin.rpc("payer_echeance", { p_echeance: e.id, p_paiement: transaction, p_carte: null, p_sepa: null, p_chiffres: null });
   if (error) throw new Error(`période payée non notée : ${error.message}`);
@@ -396,6 +440,13 @@ async function periodeRatee(a: Abonnement, d: any, survenu: string): Promise<voi
     const { error } = await admin.from("abonnement_echeances").update({ statut: "en_cours", eko_regle_le: null })
       .eq("id", e.id).eq("statut", "paye");
     if (error) throw new Error(`période rejetée non rouverte : ${error.message}`);
+  }
+  // L'heure du rejet est gardée (la plus récente) : un avis de paiement plus ancien, livré ensuite, est ignoré.
+  if (rejet) {
+    const quand = heureDe(survenu).toISOString();
+    const { error } = await admin.from("abonnement_echeances").update({ eko_rejete_le: quand })
+      .eq("id", e.id).or(`eko_rejete_le.is.null,eko_rejete_le.lt.${quand}`);
+    if (error) throw new Error(`heure du rejet non notée : ${error.message}`);
   }
   // Une période non payée ne compte pas dans le droit : si la fin est encore la sienne, elle revient à son
   // début. Rejouable (une reprise après une coupure refait ce recul), et l'erreur est remontée pour
