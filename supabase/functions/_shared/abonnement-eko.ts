@@ -122,13 +122,24 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
 
   // 1 bis. Souscriptions notées dont la première facture n'est pas rattachée (réponse sans facture,
   // écriture ratée) : relue chez E-KO dans les périodes de l'abonnement.
-  const { data: recents } = await admin.from("abonnements")
-    .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, created_at, statut, eko_facture_id, eko_cycle)")
-    .eq("source", "web").not("eko_abonnement", "is", null).is("eko_erreur", null)
-    .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString())
-    .order("id", { ascending: false })
-    .limit(200);
-  for (const a of recents ?? []) {
+  // Lu par pages : les abonnements déjà rattachés ne prennent jamais la place d'un abonnement à reprendre.
+  const recents: { id: number; eko_abonnement: string | null; eko_tentatives: number; abonnement_echeances: unknown }[] = [];
+  const depuis7j = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  for (let page = 0; page < 50; page++) {
+    const { data, error: pageErr } = await admin.from("abonnements")
+      .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, created_at, statut, eko_facture_id, eko_cycle)")
+      .eq("source", "web").not("eko_abonnement", "is", null).is("eko_erreur", null)
+      .gte("created_at", depuis7j)
+      .order("id", { ascending: false })
+      .range(page * 200, page * 200 + 199);
+    if (pageErr) {
+      console.error("MichelIA+ E-KO : abonnements récents illisibles", pageErr.message);
+      break;
+    }
+    recents.push(...(data ?? []));
+    if ((data ?? []).length < 200) break;
+  }
+  for (const a of recents) {
     const echeances = (a.abonnement_echeances ?? []) as Paiement[];
     if (echeances.some((e) => e.eko_cycle || e.eko_facture_id)) continue;
     const premier = echeances.filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id))
