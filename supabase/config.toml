@@ -67,3 +67,7 @@ verify_jwt = false
 [functions.alertes]
 # Appelée par pg_cron sans clé : elle n'écrit qu'à Mathieu (alertes_destinataire), une fois par alerte.
 verify_jwt = false
+
+[functions.eko-webhook]
+# Appelée par E-KO sans jeton : chaque envoi est vérifié par sa signature HMAC (EKO_WEBHOOK_SECRET).
+verify_jwt = false
