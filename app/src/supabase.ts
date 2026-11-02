@@ -20,9 +20,20 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 // Chaque visiteur reçoit un compte anonyme : c'est lui qui porte le quota du jour.
 // Sur le web, sa création passe par le captcha Turnstile (si la clé de site est configurée).
+// Plusieurs écrans peuvent demander un jeton en même temps au premier chargement :
+// une seule création de compte (et un seul captcha) est partagée entre eux.
+let anonymousSignIn: Promise<string> | null = null;
+
 export async function getAccessToken(): Promise<string> {
   const { data } = await supabase.auth.getSession();
   if (data.session) return data.session.access_token;
+  anonymousSignIn ??= signInAnonymously().finally(() => {
+    anonymousSignIn = null;
+  });
+  return anonymousSignIn;
+}
+
+async function signInAnonymously(): Promise<string> {
   const captchaToken = await getCaptchaToken();
   const { data: created, error } = await supabase.auth.signInAnonymously({
     options: { captchaToken },

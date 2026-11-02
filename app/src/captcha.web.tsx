@@ -10,6 +10,9 @@ type Turnstile = {
   remove: (widgetId: string) => void;
 };
 
+// Délai sans réponse de Cloudflare, prolongé quand une case à cocher s'affiche.
+const TIMEOUT_MS = 30_000;
+
 let scriptLoading: Promise<Turnstile> | null = null;
 
 function loadTurnstile(): Promise<Turnstile> {
@@ -42,18 +45,31 @@ export async function getCaptchaToken(): Promise<string | undefined> {
   });
   document.body.appendChild(container);
 
+  let widgetId: string | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await new Promise<string>((resolve, reject) => {
-      turnstile.render(container, {
+      const echec = () => reject(new Error('Vérification anti-robot échouée, réessaie.'));
+      // Sans réponse de Cloudflare, on abandonne au lieu d'attendre indéfiniment.
+      timer = setTimeout(echec, TIMEOUT_MS);
+      widgetId = turnstile.render(container, {
         sitekey: SITE_KEY,
         appearance: 'interaction-only',
         language: 'fr',
         callback: resolve,
-        'error-callback': () => reject(new Error('Vérification anti-robot échouée, réessaie.')),
+        'error-callback': echec,
         'expired-callback': () => reject(new Error('Vérification expirée, réessaie.')),
+        'timeout-callback': () => reject(new Error('Vérification expirée, réessaie.')),
+        // Une vraie case à cocher s'affiche : on laisse le temps de la cocher.
+        'before-interactive-callback': () => {
+          clearTimeout(timer);
+          timer = setTimeout(echec, 5 * TIMEOUT_MS);
+        },
       });
     });
   } finally {
+    clearTimeout(timer);
+    if (widgetId !== undefined) turnstile.remove(widgetId);
     container.remove();
   }
 }
@@ -61,8 +77,6 @@ export async function getCaptchaToken(): Promise<string | undefined> {
 // Appli de bureau : Cloudflare n'accepte le captcha que sur michel.beer. Comme dans les applis iOS et
 // Android, il tourne dans la petite page michel.beer/captcha, ici dans un cadre, qui nous renvoie le jeton.
 // Le cadre reste invisible tant que Cloudflare ne demande pas de cocher la case.
-const TIMEOUT_MS = 30_000;
-
 function captchaBureau(): Promise<string> {
   const frame = document.createElement('iframe');
   frame.src = `${SITE_PUBLIC}/captcha?k=${encodeURIComponent(SITE_KEY)}`;
