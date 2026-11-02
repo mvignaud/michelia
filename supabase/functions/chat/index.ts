@@ -39,9 +39,10 @@ const CACHE_MAX_CHARS = 200;
 const FRESH = /m[ée]t[ée]o|temps|pleu|pluie|soleil|neige|orage|chaud|froid|actu|nouvelles|news|info|aujourd|demain|ce soir|week-end|match|score|résultat/i;
 // Demandes de blague : jamais servies depuis le cache, sinon Michel raconte toujours les mêmes.
 const JOKE = /blague|histoire dr[ôo]le|devinette|fais[- ]moi rire/i;
-// Questions qui parlent de la personne ou de ses proches : jamais dans le cache, la réponse
-// pourrait reprendre un détail personnel et être resservie à quelqu'un d'autre.
-const PERSONAL = /je m'appelle|mon (pr[ée])?nom|appelle[- ]moi|j'habite|je (vis|travaille|suis n[ée]e?)|\b(mon|ma|mes) (femme|mari|copain|copine|compagn|fils|fille|enfant|gosse|petit|m[èe]re|p[èe]re|fr[èe]re|s(oe|œ)ur|patron|chef|voisin|coll[èe]gue|m[ée]decin|docteur|maladie|sant[ée]|adresse|t[ée]l[ée]phone|mail|banque|compte)/i;
+// Questions à la première personne (« je », « mon », « m'… ») : jamais dans le cache, la réponse
+// pourrait reprendre un détail personnel et être resservie à quelqu'un d'autre. Ne restent que
+// les questions générales (« c'est quoi un confit ? », « salut Michel, ça va ? »).
+const PERSONAL = /(^|[^\p{L}])((je|moi|mon|ma|mes|me|nous|notre|nos)(?=[^\p{L}]|$)|[jm]['’])/iu;
 // Mot à majuscule en cours de phrase (prénom, nom de lieu…) : la question vise sans doute
 // quelqu'un ou quelque part de précis, elle ne va pas dans le cache. « Michel » est permis.
 const PROPER_NOUN = /[^.!?\s]\s+(?!Michel\b)\p{Lu}\p{Ll}/u;
