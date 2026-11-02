@@ -4,6 +4,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Pressable,
   ScrollView,
@@ -113,6 +114,19 @@ export function AccountScreen({ session, initialMode, onClose, onProfile, onAdmi
   useEffect(() => {
     if (member && (mode === 'signin' || mode === 'signup')) onClose();
   }, [member]);
+
+  // Bouton retour d'Android : revient à l'écran d'avant (connexion ou profil) au lieu de quitter l'appli,
+  // puis ferme le compte.
+  useEffect(() => {
+    const abonne = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (editingAvatar) setEditingAvatar(false);
+      else if (mode === 'signup' || mode === 'forgot') go('signin');
+      else if (mode === 'phone') go(member ? 'profile' : 'signin');
+      else onClose();
+      return true;
+    });
+    return () => abonne.remove();
+  }, [editingAvatar, mode, member, onClose]);
 
   function go(next: AccountMode) {
     setMode(next);
