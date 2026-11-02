@@ -247,7 +247,7 @@ function Chat() {
 
   useEffect(() => {
     loadMemory().then((memory) => {
-      setName(memory.name);
+      setName((current) => current ?? memory.name);
       setBubbles((current) => [...memory.messages.map((m) => ({ ...m, id: newId() })), ...current]);
       setLoaded(true);
     });
@@ -256,16 +256,20 @@ function Chat() {
   // Membre : on reprend la conversation gardée sur le compte. S'il n'y en a pas encore,
   // celle de l'appareil y sera envoyée à la prochaine sauvegarde.
   const [syncedFor, setSyncedFor] = useState<string>();
+  // Échanges commencés pendant que la conversation du compte se charge : ils restent à l'écran.
+  const pendingSync = useRef(new Set<string>());
   useEffect(() => {
     setSyncedFor(undefined);
     if (!memberId || !loaded) return;
     let cancelled = false;
     loadAccountMemory(memberId).then((remote) => {
       if (cancelled) return;
+      const keep = new Set(pendingSync.current);
+      pendingSync.current.clear();
       if (remote?.messages.length) {
         setBubbles((current) => [
           ...remote.messages.map((m) => ({ ...m, id: newId() })),
-          ...current.filter((b) => b.local),
+          ...current.filter((b) => b.local || keep.has(b.id)),
         ]);
       }
       if (remote?.name) setName((current) => current ?? remote.name);
@@ -273,6 +277,8 @@ function Chat() {
     });
     return () => {
       cancelled = true;
+      // Changement de compte : les échanges en attente ne passent pas à l'autre compte.
+      pendingSync.current.clear();
     };
   }, [memberId, loaded]);
 
@@ -300,6 +306,7 @@ function Chat() {
       question,
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
+    if (memberId && syncedFor !== memberId) pendingSync.current.add(question.id).add(answerId);
     sentRef.current += 1;
     dictee.couper();
     setDraft('');
