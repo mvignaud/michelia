@@ -140,6 +140,8 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   // 2. Premiers paiements (encaissés par Michel) à enregistrer sur la première facture E-KO.
   const { data: aRegler } = await admin.from("abonnement_echeances")
     .select("id, abonnement_id, paiement_id, montant_cents, numero_recu, created_at, eko_facture_id, abonnements!inner(eko_tentatives)")
+    // Les abonnements bloqués (eko_erreur) sortent de la file : ils n'empêchent pas les suivants de passer.
+    .is("abonnements.eko_erreur", null)
     .not("eko_facture_id", "is", null).is("eko_regle_le", null).eq("statut", "paye").like("paiement_id", "paym_%")
     .order("id").limit(limite);
   for (const e of aRegler ?? []) {
@@ -199,7 +201,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
 
 // ── Webhooks d'E-KO, gardés dans eko_evenements par la fonction eko-webhook.
 
-type Abonnement = { id: number; statut: string; fin_periode: string | null; echecs: number; essai: boolean; eko_abonnement: string };
+type Abonnement = { id: number; statut: string; fin_periode: string | null; echecs: number; essai: boolean; eko_abonnement: string; eko_resilie_le: string | null };
 
 class PasEncore extends Error {}
 
@@ -250,7 +252,7 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
   const suivis = ["cycle.billed", "cycle.paid", "cycle.failed", "dunning.exhausted", "subscription.cancelled", "subscription.cancel_scheduled"];
   if (!suivis.includes(evenement)) return;
   if (!code) throw new Error("webhook sans abonnement");
-  const { data: ab } = await admin.from("abonnements").select("id, statut, fin_periode, echecs, essai, eko_abonnement")
+  const { data: ab } = await admin.from("abonnements").select("id, statut, fin_periode, echecs, essai, eko_abonnement, eko_resilie_le")
     .eq("eko_abonnement", code).maybeSingle();
   // Souscription en cours de notation chez Michel (le webhook arrive pendant l'appel) : plus tard.
   if (!ab) throw new PasEncore(`abonnement ${code} pas encore connu`);
@@ -292,6 +294,9 @@ async function appliquer(evenement: string, d: any, code: string | null, survenu
     case "subscription.cancel_scheduled": {
       // Résiliation programmée depuis E-KO (ou transmise par Michel : déjà notée). Relue chez E-KO : un
       // avis en retard, arrivé après une reprise, ne doit pas résilier un abonnement qui renouvelle.
+      // Reprise demandée chez Michel après une résiliation déjà transmise (eko_resilie_le posé) : elle
+      // part vers E-KO au prochain passage (étape 4) ; l'avis ne la défait pas.
+      if (["actif", "impaye"].includes(a.statut) && a.eko_resilie_le) return;
       if (!(await coupureProgrammeeEko(a.eko_abonnement))) return;
       await admin.from("abonnements").update({ statut: "resilie", resilie_le: maintenant(), eko_resilie_le: maintenant(), updated_at: maintenant() })
         .eq("id", a.id).in("statut", ["actif", "impaye"]);
