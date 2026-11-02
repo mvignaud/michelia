@@ -169,7 +169,7 @@ export async function traiterEvenement(livraison: number): Promise<void> {
     .eq("livraison", livraison).maybeSingle();
   if (!ev || ev.traite_le) return;
   try {
-    await appliquer(ev.evenement, ev.charge?.data ?? {}, ev.abonnement);
+    await appliquer(ev.evenement, ev.charge?.data ?? {}, ev.abonnement, String(ev.charge?.occurred_at ?? ""));
     await admin.from("eko_evenements").update({ traite_le: maintenant(), erreur: null }).eq("livraison", livraison);
   } catch (e) {
     const essais = (ev.essais ?? 0) + 1;
@@ -193,7 +193,7 @@ export async function reprendreEvenements(limite: number): Promise<void> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function appliquer(evenement: string, d: any, code: string | null): Promise<void> {
+async function appliquer(evenement: string, d: any, code: string | null, survenu: string): Promise<void> {
   const suivis = ["cycle.billed", "cycle.paid", "cycle.failed", "dunning.exhausted", "subscription.cancelled", "subscription.cancel_scheduled"];
   if (!suivis.includes(evenement)) return;
   if (!code) throw new Error("webhook sans abonnement");
@@ -207,9 +207,9 @@ async function appliquer(evenement: string, d: any, code: string | null): Promis
     case "cycle.billed":
       return periodeFacturee(a, d.cycle ?? {});
     case "cycle.paid":
-      return periodePayee(a, d);
+      return periodePayee(a, d, survenu);
     case "cycle.failed":
-      return periodeRatee(a, d);
+      return periodeRatee(a, d, survenu);
     case "dunning.exhausted": {
       // Relances finies sans paiement (J+21) : l'abonnement s'arrête tout de suite.
       if (a.statut !== "expire") {
@@ -248,7 +248,7 @@ async function appliquer(evenement: string, d: any, code: string | null): Promis
 // deno-lint-ignore no-explicit-any
 async function echeanceDuCycle(cycleId: unknown): Promise<any> {
   if (cycleId === undefined || cycleId === null || cycleId === "") throw new Error("webhook sans cycle");
-  const { data } = await admin.from("abonnement_echeances").select("id, abonnement_id, statut, periode_debut, periode_fin")
+  const { data } = await admin.from("abonnement_echeances").select("id, abonnement_id, statut, periode_debut, periode_fin, eko_regle_le")
     .eq("eko_cycle", String(cycleId)).maybeSingle();
   return data;
 }
@@ -293,28 +293,43 @@ async function periodeFacturee(a: Abonnement, c: any): Promise<void> {
   }
 }
 
+// Heure d'un événement d'E-KO (occurred_at), sinon maintenant.
+const heureDe = (survenu: string) => {
+  const t = new Date(survenu);
+  return Number.isNaN(t.getTime()) ? new Date() : t;
+};
+
 // Le prélèvement d'E-KO est passé (ou Michel a enregistré le premier paiement) : la période est payée,
-// MichelIA+ est prolongé jusqu'à sa fin, les échecs repartent à zéro.
+// MichelIA+ est prolongé jusqu'à sa fin, les échecs repartent à zéro. eko_regle_le garde l'heure du
+// paiement chez E-KO : un échec plus ancien qui arriverait ensuite ne le défait pas (periodeRatee).
 // deno-lint-ignore no-explicit-any
-async function periodePayee(a: Abonnement, d: any): Promise<void> {
+async function periodePayee(a: Abonnement, d: any, survenu: string): Promise<void> {
   const e = await echeanceDuCycle(d.cycle_id ?? d.cycle?.id);
   if (!e) throw new PasEncore("période payée pas encore vue");
   if (e.statut === "paye") return;
   const transaction = typeof d.transaction_id === "string" && isCardPaymentId(d.transaction_id) ? d.transaction_id : null;
   const { error } = await admin.rpc("payer_echeance", { p_echeance: e.id, p_paiement: transaction, p_carte: null, p_sepa: null, p_chiffres: null });
   if (error) throw new Error(`période payée non notée : ${error.message}`);
-  await admin.from("abonnement_echeances").update({ eko_regle_le: maintenant() }).eq("id", e.id);
+  await admin.from("abonnement_echeances").update({ eko_regle_le: heureDe(survenu).toISOString() }).eq("id", e.id);
   console.log("MichelIA+ E-KO : période payée", a.id, e.periode_fin);
 }
 
 // Le prélèvement a raté, ou un prélèvement SEPA déjà compté a été rejeté par la banque : la période
 // redevient due (E-KO retente à J+3, J+7 et J+14), l'abonnement passe impayé. Une période rejetée après
 // coup n'est plus payée : MichelIA+ revient au début de cette période.
+// Une période déjà payée n'est rouverte que par un vrai rejet (payment_rejected) survenu après son
+// paiement : l'échec d'un essai précédent, livré en retard après le cycle.paid du nouvel essai, est ignoré.
 // deno-lint-ignore no-explicit-any
-async function periodeRatee(a: Abonnement, d: any): Promise<void> {
+async function periodeRatee(a: Abonnement, d: any, survenu: string): Promise<void> {
   const e = await echeanceDuCycle(d.cycle_id ?? d.cycle?.id);
   if (!e) throw new PasEncore("période ratée pas encore vue");
   if (e.statut === "paye") {
+    const rejet = String(d.failure_reason ?? "") === "payment_rejected";
+    const apresPaiement = !e.eko_regle_le || heureDe(survenu).getTime() > new Date(e.eko_regle_le).getTime();
+    if (!rejet || !apresPaiement) {
+      console.log("MichelIA+ E-KO : échec ancien ignoré, la période est payée", a.id, e.id);
+      return;
+    }
     const { data: rouverte } = await admin.from("abonnement_echeances").update({ statut: "en_cours", eko_regle_le: null })
       .eq("id", e.id).eq("statut", "paye").select("id");
     if (rouverte?.length && a.fin_periode && new Date(a.fin_periode).getTime() === new Date(e.periode_fin).getTime()) {
