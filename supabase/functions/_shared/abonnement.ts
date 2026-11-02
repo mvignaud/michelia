@@ -255,6 +255,8 @@ export async function relireSepa(limite: number): Promise<number> {
     .select("id, abonnement_id, paiement_id, periode_debut, periode_fin, abonnements!inner(moyen)")
     .eq("statut", "paye")
     .eq("abonnements.moyen", "sepa")
+    // Prélevés par E-KO : il suit lui-même les rejets (webhook cycle.failed).
+    .is("abonnements.eko_abonnement", null)
     .like("paiement_id", "paym_%")
     .gt("created_at", new Date(Date.now() - RELECTURE_SEPA_JOURS * 86_400_000).toISOString())
     // Les moins récemment relus d'abord : chaque prélèvement passe à son tour, même s'ils sont nombreux.
