@@ -52,7 +52,8 @@ Deno.serve(async (req) => {
     return reply(400, "Corps illisible");
   }
   const livraison = Number(req.headers.get("x-subscriptions-delivery-id"));
-  const evenement = String(req.headers.get("x-subscriptions-event") ?? charge?.event ?? "").slice(0, 64);
+  // Le type vient du corps signé, jamais de l'en-tête (qui n'est pas couvert par la signature).
+  const evenement = typeof charge?.event === "string" ? charge.event.slice(0, 64) : "";
   if (!Number.isSafeInteger(livraison) || livraison <= 0 || !evenement) return reply(400, "Envoi incomplet");
   const code = charge?.data?.subscription?.code;
 

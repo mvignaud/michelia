@@ -200,14 +200,18 @@ export async function traiterEvenement(livraison: number): Promise<void> {
   const { data: ev } = await admin.from("eko_evenements").select("livraison, evenement, abonnement, charge, traite_le, essais")
     .eq("livraison", livraison).maybeSingle();
   if (!ev || ev.traite_le) return;
+  // Réservation : l'essai est compté avant le traitement, à condition que personne ne l'ait compté entre
+  // la lecture et maintenant. Le webhook et le cron ne traitent donc jamais le même envoi en même temps.
+  const essais = (ev.essais ?? 0) + 1;
+  const { data: pris } = await admin.from("eko_evenements").update({ essais })
+    .eq("livraison", livraison).eq("essais", ev.essais ?? 0).is("traite_le", null).select("livraison");
+  if (!pris?.length) return;
   try {
     await appliquer(ev.evenement, ev.charge?.data ?? {}, ev.abonnement, String(ev.charge?.occurred_at ?? ""));
     await admin.from("eko_evenements").update({ traite_le: maintenant(), erreur: null }).eq("livraison", livraison);
   } catch (e) {
-    const essais = (ev.essais ?? 0) + 1;
     const abandon = essais >= MAX_ESSAIS_EVENEMENT;
     await admin.from("eko_evenements").update({
-      essais,
       erreur: messageDe(e),
       ...(abandon ? { traite_le: maintenant() } : {}),
     }).eq("livraison", livraison);
@@ -368,11 +372,19 @@ async function periodeRatee(a: Abonnement, d: any, survenu: string): Promise<voi
     }
     const { data: rouverte } = await admin.from("abonnement_echeances").update({ statut: "en_cours", eko_regle_le: null })
       .eq("id", e.id).eq("statut", "paye").select("id");
-    if (rouverte?.length && a.fin_periode && new Date(a.fin_periode).getTime() === new Date(e.periode_fin).getTime()) {
-      await admin.from("abonnements").update({ fin_periode: e.periode_debut, updated_at: maintenant() }).eq("id", a.id);
+    // Recul seulement si la fin est toujours celle de cette période (écriture conditionnée, pas sur une
+    // lecture ancienne).
+    if (rouverte?.length) {
+      await admin.from("abonnements").update({ fin_periode: e.periode_debut, updated_at: maintenant() })
+        .eq("id", a.id).eq("fin_periode", e.periode_fin);
     }
   }
-  await admin.from("abonnements").update({ statut: "impaye", echecs: (a.echecs ?? 0) + 1, updated_at: maintenant() })
-    .eq("id", a.id).in("statut", ["actif", "impaye"]);
+  // Un échec de plus, sur le compte lu : si quelqu'un l'a changé entre-temps, on relit et on recommence.
+  for (let essai = 0; essai < 3; essai++) {
+    const { data: lu } = await admin.from("abonnements").select("echecs").eq("id", a.id).single();
+    const { data: fait } = await admin.from("abonnements").update({ statut: "impaye", echecs: (lu?.echecs ?? 0) + 1, updated_at: maintenant() })
+      .eq("id", a.id).in("statut", ["actif", "impaye"]).eq("echecs", lu?.echecs ?? 0).select("id");
+    if (fait?.length || !lu) break;
+  }
   console.error("MichelIA+ E-KO : prélèvement raté", a.id, String(d.failure_reason ?? "").slice(0, 60), String(d.psp_status ?? "").slice(0, 40));
 }
