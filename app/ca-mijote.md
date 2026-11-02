@@ -1,5 +1,5 @@
 ---
-maj: 2026-10-31
+maj: 2026-11-02
 ---
 <!--
 Ce qui mijote chez Michel : la feuille de route publique, page michel.beer/ca-mijote (/roadmap y mène).
