@@ -31,9 +31,10 @@ export function registerServiceWorker() {
   if (bureau || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   // En développement le cache servirait de vieux fichiers : seulement sur le site publié.
   if (__DEV__) return;
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
-  });
+  const enregistrer = () => void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  // Si la page a déjà fini de charger, l'événement « load » ne reviendra pas : on enregistre tout de suite.
+  if (document.readyState === 'complete') enregistrer();
+  else window.addEventListener('load', enregistrer, { once: true });
 }
 
 export function isOffline() {
@@ -41,6 +42,7 @@ export function isOffline() {
 }
 
 function standalone() {
+  if (typeof window === 'undefined') return false;
   return (
     window.matchMedia?.('(display-mode: standalone)').matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
@@ -50,6 +52,7 @@ function standalone() {
 // Safari sur iPhone ou iPad (les iPad récents se déclarent comme un Mac tactile).
 // Les autres navigateurs iOS savent aussi ajouter à l'écran d'accueil depuis leur menu Partager.
 function ios() {
+  if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent;
   return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
@@ -68,11 +71,12 @@ export function useInstall(): InstallState {
     mode,
     install: async () => {
       if (!deferred) return;
+      // On le retire avant d'attendre : un double appui ne relance pas prompt() (qui ne marche qu'une fois).
       const event = deferred;
-      await event.prompt();
-      await event.userChoice.catch(() => undefined);
       deferred = null;
       notify();
+      await event.prompt().catch(() => undefined);
+      await event.userChoice.catch(() => undefined);
     },
   };
 }

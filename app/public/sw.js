@@ -1,11 +1,27 @@
 // Service worker de MichelIA : l'appli s'ouvre même sans réseau, et Michel le dit gentiment.
 // Seules les ressources du site sont mises en cache : jamais les appels à Supabase, Google ou Cloudflare.
 // v2 : la page d'accueil à « / », le chat à « /chat ».
-const VERSION = 'michelia-v2';
-const ESSENTIEL = ['/', '/chat', '/hors-ligne.html', '/manifest.webmanifest', '/icones/icone-192.png'];
+// v3 : on ne garde plus que des fichiers du site (liste blanche), jamais une réponse de données.
+const VERSION = 'michelia-v3';
+// La page « hors ligne » est indispensable ; le reste se met en cache s'il répond, sans bloquer l'installation.
+const INDISPENSABLE = '/hors-ligne.html';
+const UTILE = ['/', '/chat', '/manifest.webmanifest', '/icones/icone-192.png'];
+// Fichiers du site qu'on peut servir depuis le cache : images, styles, polices, manifeste.
+const FICHIER_DU_SITE = /\.(png|jpe?g|webp|gif|svg|ico|css|woff2?|ttf|webmanifest)$/i;
+
+// Une réponse ne va en cache que si elle vient bien de chez nous et ne l'interdit pas.
+function gardable(response) {
+  if (!response.ok || response.type !== 'basic') return false;
+  const cacheControl = response.headers.get('Cache-Control') || '';
+  return !/no-store|private/i.test(cacheControl);
+}
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(ESSENTIEL)));
+  event.waitUntil(
+    caches.open(VERSION).then((cache) =>
+      cache.add(INDISPENSABLE).then(() => Promise.all(UTILE.map((u) => cache.add(u).catch(() => undefined)))),
+    ),
+  );
   self.skipWaiting();
 });
 
@@ -29,7 +45,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok && (url.pathname === '/' || url.pathname === '/chat')) {
+          if (gardable(response) && (url.pathname === '/' || url.pathname === '/chat')) {
             const copy = response.clone();
             caches.open(VERSION).then((cache) => cache.put(url.pathname, copy));
           }
@@ -47,7 +63,7 @@ self.addEventListener('fetch', (event) => {
         (cached) =>
           cached ||
           fetch(request).then((response) => {
-            if (response.ok) {
+            if (gardable(response)) {
               const copy = response.clone();
               caches.open(VERSION).then((cache) => cache.put(request, copy));
             }
@@ -58,12 +74,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Le reste (icônes, pages légales) : le cache tout de suite, mis à jour en douce.
+  // Tout ce qui n'est pas un fichier du site (données, JSON, futures routes d'API) : réseau seul, jamais de cache,
+  // pour ne jamais servir de vieilles infos de compte.
+  if (!FICHIER_DU_SITE.test(url.pathname)) return;
+
+  // Icônes, images, styles : le cache tout de suite, mis à jour en douce.
   event.respondWith(
     caches.match(request).then((cached) => {
       const network = fetch(request)
         .then((response) => {
-          if (response.ok) {
+          if (gardable(response)) {
             const copy = response.clone();
             caches.open(VERSION).then((cache) => cache.put(request, copy));
           }
