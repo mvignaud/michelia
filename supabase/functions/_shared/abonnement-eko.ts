@@ -11,6 +11,8 @@ import { coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, pre
 
 const MAX_TENTATIVES = 5;
 const MAX_ESSAIS_EVENEMENT = 5;
+// Marque d'un webhook en cours de traitement (eko_evenements.erreur), le temps de la réservation.
+const EN_COURS = "en_cours";
 
 const jourParis = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(d);
 const messageDe = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 500);
@@ -160,15 +162,23 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   // 3. Résiliations demandées par l'abonné : E-KO coupe au terme déjà payé. Un abonnement déjà arrivé
   // au bout chez Michel (expire) sans que la résiliation soit partie est coupé tout de suite chez E-KO,
   // pour qu'aucune période ne soit plus prélevée.
-  const { data: resilies } = await admin.from("abonnements").select("id, statut, eko_abonnement, eko_tentatives")
-    .in("statut", ["resilie", "expire"]).not("eko_abonnement", "is", null).is("eko_resilie_le", null).is("eko_erreur", null).limit(limite);
+  // Toujours tentée, même si l'abonnement porte une erreur de facturation (eko_erreur) : une résiliation
+  // ne doit jamais rester bloquée derrière un autre problème. Ratée, elle est retentée à chaque passage.
+  const { data: resilies } = await admin.from("abonnements").select("id, statut, eko_abonnement")
+    .in("statut", ["resilie", "expire"]).not("eko_abonnement", "is", null).is("eko_resilie_le", null).limit(limite);
   for (const a of resilies ?? []) {
     try {
       await resilierEko(a.eko_abonnement!, a.statut === "resilie", a.statut === "resilie" ? "Résilié par l'abonné depuis son espace Michel" : "Abonnement terminé chez Michel");
-      await admin.from("abonnements").update({ eko_resilie_le: maintenant(), eko_tentatives: 0 }).eq("id", a.id);
+      await admin.from("abonnements").update({ eko_resilie_le: maintenant() }).eq("id", a.id);
       bilan.resilies++;
     } catch (e) {
-      await noterErreur(a.id, a.eko_tentatives, e, "résiliation");
+      // 422 : E-KO refuse parce que l'abonnement est déjà résilié chez lui ; rien de plus à transmettre.
+      if (e instanceof EkoError && e.status === 422) {
+        console.error("MichelIA+ E-KO : résiliation refusée (déjà résilié ?), à vérifier", a.id, messageDe(e));
+        await admin.from("abonnements").update({ eko_resilie_le: maintenant() }).eq("id", a.id);
+      } else {
+        console.error("MichelIA+ E-KO : ALERTE résiliation non transmise, retentée au prochain passage", a.id, messageDe(e));
+      }
     }
   }
 
@@ -197,23 +207,28 @@ class PasEncore extends Error {}
 // avant ce qu'il suppose (abonnement pas encore noté, période pas encore vue) est laissé au cron, qui le
 // reprend quelques minutes plus tard.
 export async function traiterEvenement(livraison: number): Promise<void> {
-  const { data: ev } = await admin.from("eko_evenements").select("livraison, evenement, abonnement, charge, traite_le, essais")
+  const { data: ev } = await admin.from("eko_evenements").select("livraison, evenement, abonnement, charge, traite_le, essais, erreur")
     .eq("livraison", livraison).maybeSingle();
-  if (!ev || ev.traite_le) return;
-  // Réservation : l'essai est compté avant le traitement, à condition que personne ne l'ait compté entre
-  // la lecture et maintenant. Le webhook et le cron ne traitent donc jamais le même envoi en même temps.
+  if (!ev) return;
+  // Réservation pour toute la durée du traitement : traite_le posé avec erreur = EN_COURS, par une
+  // écriture conditionnelle (un seul gagnant). Un traitement coupé en route est repris après 10 minutes.
+  const perimee = new Date(Date.now() - 600_000).toISOString();
   const essais = (ev.essais ?? 0) + 1;
-  const { data: pris } = await admin.from("eko_evenements").update({ essais })
-    .eq("livraison", livraison).eq("essais", ev.essais ?? 0).is("traite_le", null).select("livraison");
+  const { data: pris } = await admin.from("eko_evenements")
+    .update({ traite_le: maintenant(), erreur: EN_COURS, essais })
+    .eq("livraison", livraison)
+    .or(`traite_le.is.null,and(erreur.eq.${EN_COURS},traite_le.lt.${perimee})`)
+    .select("livraison");
   if (!pris?.length) return;
   try {
     await appliquer(ev.evenement, ev.charge?.data ?? {}, ev.abonnement, String(ev.charge?.occurred_at ?? ""));
     await admin.from("eko_evenements").update({ traite_le: maintenant(), erreur: null }).eq("livraison", livraison);
   } catch (e) {
     const abandon = essais >= MAX_ESSAIS_EVENEMENT;
+    // Raté : la réservation est rendue (traite_le vide) pour que le cron le reprenne, sauf au dernier essai.
     await admin.from("eko_evenements").update({
       erreur: messageDe(e),
-      ...(abandon ? { traite_le: maintenant() } : {}),
+      traite_le: abandon ? maintenant() : null,
     }).eq("livraison", livraison);
     if (abandon || !(e instanceof PasEncore)) {
       console.error(`MichelIA+ E-KO : ${abandon ? "ALERTE webhook abandonné" : "webhook en échec"}`, livraison, ev.evenement, messageDe(e));
@@ -223,8 +238,10 @@ export async function traiterEvenement(livraison: number): Promise<void> {
 
 // Les webhooks pas encore traités (traitement raté, ou arrivés trop tôt), repris par le cron.
 export async function reprendreEvenements(limite: number): Promise<void> {
+  const perimee = new Date(Date.now() - 600_000).toISOString();
   const { data } = await admin.from("eko_evenements").select("livraison")
-    .is("traite_le", null).lt("recu_le", new Date(Date.now() - 120_000).toISOString()).order("livraison").limit(limite);
+    .or(`traite_le.is.null,and(erreur.eq.${EN_COURS},traite_le.lt.${perimee})`)
+    .lt("recu_le", new Date(Date.now() - 120_000).toISOString()).order("livraison").limit(limite);
   for (const e of data ?? []) await traiterEvenement(e.livraison);
 }
 
