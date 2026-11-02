@@ -4,11 +4,15 @@
 // (jeton card_…) ou le mandat SEPA signé (sepa_…), sans la personne. Elle relit aussi les échéances
 // restées en cours et les prélèvements SEPA encore rejetables, arrête les abonnements résiliés arrivés
 // au bout, et ceux qui ont raté trop d'échéances (_shared/abonnement.ts).
+// Abonnés passés chez E-KO (abonnements.eko_abonnement) : E-KO facture et prélève lui-même, Michel ne
+// les prélève plus ; ce passage pousse les nouveaux abonnés dans E-KO et reprend ses webhooks ratés
+// (_shared/abonnement-eko.ts).
 // Seul le cron l'appelle : il envoie le secret « michelia_plus_cron » du coffre (vault), vérifié ici.
 // Et même rejouée, elle ne prélève qu'une fois par période : l'identifiant unique envoyé à Stancer
 // dépend de l'abonnement, de la période et du nombre d'échecs, et Stancer refuse un doublon.
 import { admin, stancer, stancerConfigured } from "../_shared/stancer.ts";
 import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, reprendrePremiersSepa, safeError } from "../_shared/abonnement.ts";
+import { reprendreEvenements, synchroniserEko } from "../_shared/abonnement-eko.ts";
 
 const PAR_PASSAGE = 20;
 
@@ -37,7 +41,8 @@ Deno.serve(async (req) => {
 
   // Échéances restées en cours (Stancer lent à répondre, page SEPA pas encore revenue) : relues.
   const { data: enCours } = await admin.from("abonnement_echeances").select("paiement_id, stancer_intent")
-    .eq("statut", "en_cours").lt("created_at", new Date(Date.now() - 600_000).toISOString()).limit(PAR_PASSAGE);
+    .eq("statut", "en_cours").not("paiement_id", "like", "eko:%")
+    .lt("created_at", new Date(Date.now() - 600_000).toISOString()).limit(PAR_PASSAGE);
   for (const e of enCours ?? []) {
     await (e.stancer_intent && e.paiement_id === e.stancer_intent ? confirmerSepa(e.stancer_intent) : confirmerEcheance(e.paiement_id));
   }
@@ -51,6 +56,8 @@ Deno.serve(async (req) => {
     .eq("source", "web")
     .in("moyen", ["carte", "sepa"])
     .in("statut", ["actif", "impaye"])
+    // Chez E-KO : c'est lui qui prélève.
+    .is("eko_abonnement", null)
     .lte("fin_periode", maintenant)
     .or(`prochain_essai.is.null,prochain_essai.lte.${maintenant}`)
     .order("fin_periode", { ascending: true })
@@ -152,5 +159,13 @@ Deno.serve(async (req) => {
     if (etat.etat === "paye") preleves++;
     console.log("MichelIA+ : échéance", a.id, etat.etat);
   }
-  return json(200, { dus: dus?.length ?? 0, preleves, rejets });
+  // E-KO : nouveaux abonnés, premiers paiements, résiliations, reprises, puis webhooks à reprendre.
+  let eko = {};
+  try {
+    eko = await synchroniserEko(PAR_PASSAGE);
+    await reprendreEvenements(50);
+  } catch (e) {
+    console.error("MichelIA+ E-KO : passage interrompu", e instanceof Error ? e.message : e);
+  }
+  return json(200, { dus: dus?.length ?? 0, preleves, rejets, eko });
 });

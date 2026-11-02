@@ -1,7 +1,7 @@
 // Client minimal de l'API de l'ERP E-KO (GOLDEN PRINT), doc : /mnt/project-files/factures/documentation-api-eko.md.
 // Jeton Bearer EKO_API_TOKEN (secret des Edge Functions), le locataire vient du jeton.
 // Habilitations du jeton : tiers.view, tiers.create, invoices.create, invoices.issue, payments.create,
-// et invoices.credit pour les avoirs.
+// invoices.credit pour les avoirs, et pour MichelIA+ (plus bas) les habilitations des abonnements.
 //
 // Facture créée avec sa ligne (POST /invoices), émise sans aucun envoi au client (POST /invoices/{code}/issue),
 // puis réglée par le paiement en ligne déjà encaissé (POST /payments, card_online + psp). Création et
@@ -134,4 +134,81 @@ export async function avoirVente(a: {
     if (e instanceof EkoError && (e.status === 404 || e.status === 405)) return null;
     throw e;
   }
+}
+
+// ── Abonnements MichelIA+ (module Abonnements d'E-KO, réponse du 1/11/2026 :
+// /mnt/project-files/factures/reponse-eko-abonnements.md). E-KO tient le contrat, facture chaque période
+// et la prélève chez Stancer sur la carte (card_…) ou le mandat (sepa_…) obtenus par Michel au premier
+// paiement. Plans réglés dans l'écran d'E-KO : prix TTC, compte 706000, aucun e-mail au client, pas de
+// résiliation automatique en fin de relances. Habilitations en plus : tiers.create, subscriptions.view,
+// subscriptions.create, subscriptions.update, subscriptions.cancel, subscription-plans.view.
+
+// Un abonné : client particulier nominatif, sans e-mail (rien ne doit jamais partir d'E-KO vers lui).
+// Rend le code du tiers (CU…). Rejouable : la clé suit le compte Michel.
+export async function tiersAbonne(userId: string, nom: string): Promise<string> {
+  const cree = await eko("POST", "/tiers", {
+    name: nom.slice(0, 120),
+    is_customer: true,
+    type_tiers: "PARTICULIER",
+    default_currency: "EUR",
+    default_country: "FR",
+  }, `tiers-abonne-${userId}`);
+  return String(cree.data.code);
+}
+
+export type MoyenAbonnement =
+  | { provider: "stancer_card"; card_id: string; customer_id?: string }
+  | { provider: "stancer_sepa"; sepa_id: string };
+
+// Souscription : la première période est facturée tout de suite (bill_now), sans envoi ni prélèvement ;
+// Michel y enregistre le premier paiement, déjà encaissé. Les suivantes, E-KO les facture et les prélève.
+// Rejouable : la clé suit l'abonnement Michel. Rend le code SUB-… et la première facture.
+export async function souscrireEko(s: {
+  abonnementId: number; tierCode: string; planCode: string; moyen: MoyenAbonnement;
+}): Promise<{ code: string; factureId: number | null; factureCode: string | null; cycleId: string | null }> {
+  const r = await eko("POST", "/subscriptions", {
+    tier_code: s.tierCode,
+    plan_code: s.planCode,
+    bill_now: true,
+    payment_method: s.moyen,
+    customer_notifications: false,
+    dunning_auto_cancel: false,
+    internal_notes: `MichelIA+ abonnement ${s.abonnementId}`,
+  }, `abonnement-${s.abonnementId}`);
+  const premier = r.data?.first_cycle ?? null;
+  return {
+    code: String(r.data.code),
+    factureId: premier?.invoice_id != null ? Number(premier.invoice_id) : null,
+    factureCode: premier?.invoice_code != null ? String(premier.invoice_code) : null,
+    cycleId: premier?.id != null ? String(premier.id) : null,
+  };
+}
+
+// Règlement d'une facture déjà émise par un paiement encaissé chez Stancer (paym_…). E-KO n'enregistre
+// jamais deux fois un même paiement du prestataire.
+export async function reglerFacture(r: {
+  factureId: number; transaction: string; reference: string; montantTtcCents: number; date: string;
+}): Promise<void> {
+  await eko("POST", "/payments", {
+    invoice_id: r.factureId,
+    paid_at: r.date,
+    amount: r.montantTtcCents / 100,
+    currency: "EUR",
+    method: "card_online",
+    reference: r.reference,
+    psp: { provider: "stancer", payment_id: r.transaction },
+  }, `reglement-${r.transaction}`);
+}
+
+// Résiliation : à la fin de la période payée (choix de l'abonné) ou tout de suite (relances épuisées).
+export async function resilierEko(code: string, finDePeriode: boolean, motif: string): Promise<void> {
+  await eko("POST", `/subscriptions/${encodeURIComponent(code)}/cancel`, { at_period_end: finDePeriode, reason: motif });
+}
+
+// L'abonné reprend avant la fin de sa période : le renouvellement repart. Rend vrai si E-KO ne prévoit
+// plus de coupure.
+export async function reprendreEko(code: string): Promise<boolean> {
+  await eko("PATCH", `/subscriptions/${encodeURIComponent(code)}`, { auto_renew: true });
+  const lu = await eko("GET", `/subscriptions/${encodeURIComponent(code)}`);
+  return lu?.data?.cancel_at_period_end === false;
 }

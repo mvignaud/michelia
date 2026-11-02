@@ -120,3 +120,46 @@ Le mandat se signe chez Michel (`_shared/mandat.ts`), plus sur la page Stancer :
   et sur la page de la cotisation, valent pré-notification (conditions, section MichelIA+).
 - À faire : copie du mandat dans E-KO (fil des factures, à partir de `mandats_sepa` et du PDF) ; changer d'IBAN
   depuis l'espace compte.
+
+## E-KO : contrat, factures et prélèvements
+
+Depuis le 2/11/2026 (module Abonnements d'E-KO, réponse d'E-KO du 1/11 :
+`/mnt/project-files/factures/reponse-eko-abonnements.md`), E-KO tient le contrat de chaque abonné du
+site, facture chaque période et la prélève chez Stancer. Michel garde le premier paiement (3D Secure ou
+mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `_shared/abonnement-eko.ts`,
+`_shared/eko.ts`, fonction `eko-webhook`. Migration `20261102010000_michelia_plus_eko.sql`.
+
+- Interrupteur `michelia_plus_eko_actif` (`false` par défaut) et date `michelia_plus_eko_depuis` : seuls
+  les abonnements pris à partir de cette date partent dans E-KO. Codes des plans dans
+  `michelia_plus_eko_plans` (`{"mois": "PLAN-MICHELIA-MOIS", "an": "PLAN-MICHELIA-AN"}`).
+- Toutes les heures (`michelia-plus-echeances` → `synchroniserEko`) :
+  1. abonné payé pas encore dans E-KO : tiers particulier nominatif sans e-mail (`POST /tiers`), puis
+     `POST /subscriptions` avec `bill_now`, la carte (`stancer_card`, `card_…` + `cust_…`) ou le mandat
+     (`stancer_sepa`, `sepa_…`), e-mails au client et résiliation automatique coupés. Code `SUB-…` dans
+     `abonnements.eko_abonnement`, première facture sur la première échéance (`eko_facture`, `eko_facture_id`) ;
+  2. le premier paiement (`paym_…`) est enregistré sur cette facture (`POST /payments`, `card_online`) ;
+  3. résiliation demandée par l'abonné : `/cancel` avec `at_period_end` (`eko_resilie_le`) ;
+  4. reprise avant la fin de période : `PATCH auto_renew: true`, vérifié par une relecture.
+  Un refus sur le fond (422) ou 5 essais ratés : `abonnements.eko_erreur`, ALERTE dans les journaux ;
+  vider `eko_erreur` (et `eko_tentatives`) pour relancer. Sans `eko_abonnement`, Michel continue de prélever
+  lui-même, comme avant.
+- Un abonnement avec `eko_abonnement` n'est plus prélevé par Michel (ni relu pour les rejets SEPA).
+- Webhooks (`eko-webhook`, signature `X-Subscriptions-Signature` vérifiée avec `EKO_WEBHOOK_SECRET`) :
+  gardés dans `eko_evenements` (un par `X-Subscriptions-Delivery-Id`), acquittés, puis traités ; ratés
+  ou arrivés trop tôt, repris par le cron (5 essais, puis ALERTE).
+  - `cycle.billed` : nouvelle échéance en cours (`paiement_id = eko:<cycle>`, `eko_cycle`, facture) ;
+    la première période est rattachée à l'échéance du premier paiement.
+  - `cycle.paid` : échéance payée (`payer_echeance`), MichelIA+ prolongé jusqu'à la fin de la période.
+  - `cycle.failed` : abonnement `impaye` ; un prélèvement SEPA rejeté après coup rouvre l'échéance et
+    ramène `fin_periode` au début de la période. E-KO retente à J+3, J+7 et J+14.
+  - `dunning.exhausted` (J+21) : résiliation immédiate chez E-KO, abonnement `expire`.
+  - `subscription.cancel_scheduled` / `subscription.cancelled` : `resilie` / `expire` (ou `resilie`
+    jusqu'à la fin de la période payée).
+- Côté E-KO : plans `PLAN-MICHELIA-MOIS` (3,99 € TTC) et `PLAN-MICHELIA-AN` (39 € TTC), TVA 20 %,
+  compte 706000, « e-mails au client » et « résilier en fin de relances » décochés ; jeton avec
+  `tiers.create`, `subscriptions.view/create/update/cancel`, `subscription-plans.view` ; endpoint webhook
+  `https://nuulykhqaeecqerfwdsn.supabase.co/functions/v1/eko-webhook` sur `cycle.billed`, `cycle.paid`,
+  `cycle.failed`, `dunning.exhausted`, `subscription.cancel_scheduled`, `subscription.cancelled`.
+- Pas encore : reçus Michel des échéances suivantes et e-mails d'impayé (les webhooks en donnent la
+  matière), frais de rejet (clause à ajouter aux conditions avant de les activer), avoir E-KO sur le
+  remboursement d'une échéance.
