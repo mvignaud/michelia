@@ -185,15 +185,16 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   }
 
   // 4. Reprises avant la fin de la période : le renouvellement repart chez E-KO.
-  const { data: repris } = await admin.from("abonnements").select("id, eko_abonnement, eko_tentatives")
-    .in("statut", ["actif", "impaye"]).not("eko_abonnement", "is", null).not("eko_resilie_le", "is", null).is("eko_erreur", null).limit(limite);
+  // Comme les résiliations : toujours tentée, même avec une erreur de facturation, et retentée à chaque passage.
+  const { data: repris } = await admin.from("abonnements").select("id, eko_abonnement")
+    .in("statut", ["actif", "impaye"]).not("eko_abonnement", "is", null).not("eko_resilie_le", "is", null).limit(limite);
   for (const a of repris ?? []) {
     try {
       if (!(await reprendreEko(a.eko_abonnement!))) throw new Error("E-KO prévoit toujours la coupure en fin de période");
-      await admin.from("abonnements").update({ eko_resilie_le: null, eko_tentatives: 0 }).eq("id", a.id);
+      await admin.from("abonnements").update({ eko_resilie_le: null }).eq("id", a.id);
       bilan.repris++;
     } catch (e) {
-      await noterErreur(a.id, a.eko_tentatives, e, "reprise");
+      console.error("MichelIA+ E-KO : ALERTE reprise non transmise, retentée au prochain passage", a.id, messageDe(e));
     }
   }
   return bilan;
@@ -385,28 +386,33 @@ async function periodePayee(a: Abonnement, d: any, survenu: string): Promise<voi
 async function periodeRatee(a: Abonnement, d: any, survenu: string): Promise<void> {
   const e = await echeanceDuCycle(d.cycle_id ?? d.cycle?.id);
   if (!e) throw new PasEncore("période ratée pas encore vue");
+  const rejet = String(d.failure_reason ?? "") === "payment_rejected";
   if (e.statut === "paye") {
-    const rejet = String(d.failure_reason ?? "") === "payment_rejected";
     const apresPaiement = !e.eko_regle_le || heureDe(survenu).getTime() > new Date(e.eko_regle_le).getTime();
     if (!rejet || !apresPaiement) {
       console.log("MichelIA+ E-KO : échec ancien ignoré, la période est payée", a.id, e.id);
       return;
     }
-    const { data: rouverte } = await admin.from("abonnement_echeances").update({ statut: "en_cours", eko_regle_le: null })
-      .eq("id", e.id).eq("statut", "paye").select("id");
-    // Recul seulement si la fin est toujours celle de cette période (écriture conditionnée, pas sur une
-    // lecture ancienne).
-    if (rouverte?.length) {
-      await admin.from("abonnements").update({ fin_periode: e.periode_debut, updated_at: maintenant() })
-        .eq("id", a.id).eq("fin_periode", e.periode_fin);
-    }
+    const { error } = await admin.from("abonnement_echeances").update({ statut: "en_cours", eko_regle_le: null })
+      .eq("id", e.id).eq("statut", "paye");
+    if (error) throw new Error(`période rejetée non rouverte : ${error.message}`);
+  }
+  // Une période non payée ne compte pas dans le droit : si la fin est encore la sienne, elle revient à son
+  // début. Rejouable (une reprise après une coupure refait ce recul), et l'erreur est remontée pour
+  // que l'événement soit repris.
+  if (rejet) {
+    const { error } = await admin.from("abonnements").update({ fin_periode: e.periode_debut, updated_at: maintenant() })
+      .eq("id", a.id).eq("fin_periode", e.periode_fin);
+    if (error) throw new Error(`droit non ramené au début de la période : ${error.message}`);
   }
   // Un échec de plus, sur le compte lu : si quelqu'un l'a changé entre-temps, on relit et on recommence.
   for (let essai = 0; essai < 3; essai++) {
-    const { data: lu } = await admin.from("abonnements").select("echecs").eq("id", a.id).single();
-    const { data: fait } = await admin.from("abonnements").update({ statut: "impaye", echecs: (lu?.echecs ?? 0) + 1, updated_at: maintenant() })
+    const { data: lu, error: luErr } = await admin.from("abonnements").select("echecs").eq("id", a.id).single();
+    if (luErr) throw new Error(`abonnement illisible : ${luErr.message}`);
+    const { data: fait, error } = await admin.from("abonnements").update({ statut: "impaye", echecs: (lu?.echecs ?? 0) + 1, updated_at: maintenant() })
       .eq("id", a.id).in("statut", ["actif", "impaye"]).eq("echecs", lu?.echecs ?? 0).select("id");
-    if (fait?.length || !lu) break;
+    if (error) throw new Error(`impayé non noté : ${error.message}`);
+    if (fait?.length) break;
   }
   console.error("MichelIA+ E-KO : prélèvement raté", a.id, String(d.failure_reason ?? "").slice(0, 60), String(d.psp_status ?? "").slice(0, 40));
 }
