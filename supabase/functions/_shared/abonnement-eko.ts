@@ -406,7 +406,12 @@ const heureDe = (survenu: string) => {
 async function periodePayee(a: Abonnement, d: any, survenu: string): Promise<void> {
   const e = await echeanceDuCycle(d.cycle_id ?? d.cycle?.id);
   if (!e) throw new PasEncore("période payée pas encore vue");
-  if (e.statut === "paye") return;
+  if (e.statut === "paye") {
+    // Déjà payée : l'heure du paiement manque si son écriture avait raté (ou si l'avis rejoue) ; on la
+    // complète, sans quoi un vieux rejet livré ensuite rouvrirait la période.
+    if (!e.eko_regle_le) await noterHeurePaiement(e.id, survenu);
+    return;
+  }
   // Un paiement antérieur au dernier rejet bancaire de la période (avis livré en retard) ne compte plus.
   if (e.eko_rejete_le && heureDe(survenu).getTime() <= new Date(e.eko_rejete_le).getTime()) {
     console.log("MichelIA+ E-KO : paiement ancien ignoré, rejeté depuis par la banque", a.id, e.id);
@@ -417,8 +422,15 @@ async function periodePayee(a: Abonnement, d: any, survenu: string): Promise<voi
   if (error) throw new Error(`période payée non notée : ${error.message}`);
   // payer_echeance ne paie qu'une échéance en cours : sinon, rien n'a été écrit, on le dit.
   if (paye !== true) throw new Error(`période payée non notée : échéance ${e.id} au statut ${e.statut}`);
-  await admin.from("abonnement_echeances").update({ eko_regle_le: heureDe(survenu).toISOString() }).eq("id", e.id);
+  await noterHeurePaiement(e.id, survenu);
   console.log("MichelIA+ E-KO : période payée", a.id, e.periode_fin);
+}
+
+// Heure du paiement chez E-KO. Ratée, l'erreur remonte : l'avis est repris et la complète (période déjà payée).
+async function noterHeurePaiement(echeanceId: number, survenu: string): Promise<void> {
+  const { error } = await admin.from("abonnement_echeances").update({ eko_regle_le: heureDe(survenu).toISOString() })
+    .eq("id", echeanceId).is("eko_regle_le", null);
+  if (error) throw new Error(`heure du paiement non notée : ${error.message}`);
 }
 
 // Le prélèvement a raté, ou un prélèvement SEPA déjà compté a été rejeté par la banque : la période
