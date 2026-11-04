@@ -32,9 +32,9 @@ export const COUNTRIES = [
   { code: 'CI', name: "Côte d'Ivoire", dial: '+225' },
 ];
 
-type Country = (typeof COUNTRIES)[number];
+export type Country = (typeof COUNTRIES)[number];
 
-const flag = (code: string) =>
+export const flag = (code: string) =>
   String.fromCodePoint(...[...code].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
 
 // Numéro complet : indicatif du pays + numéro sans son 0 de tête (sauf s'il commence déjà par + ou 00).
