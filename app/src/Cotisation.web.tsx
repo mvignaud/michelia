@@ -7,6 +7,7 @@ import { carteSaisie, pageSecure } from './carte';
 import { CadreBanque, ChampsCarte, champ, PageCarte } from './CarteFields.web';
 import { euros } from './comptoir';
 import { ecran, ecranCotisation, ecranPaiement } from './ecran';
+import { COUNTRIES, type Country, flag, fullPhone } from './PhoneField';
 import { supabase } from './supabase';
 import { colors } from './theme';
 
@@ -45,7 +46,29 @@ const lireSepa = () => {
 const formatIban = (t: string) =>
   t.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 34).replace(/(.{4})/g, '$1 ').trim();
 const ibanSaisi = (t: string) => /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(t.replace(/\s/g, ''));
-const mobileSaisi = (t: string) => t.replace(/[^\d]/g, '').length >= 9;
+// Mobile : le pays (drapeau et indicatif) se choisit à part, ou se devine quand on colle un +33… ou 0033….
+// En France et outre-mer, le numéro s'affiche par paires et doit avoir ses 9 chiffres (06 / 07 ou 6 / 7).
+const PAIRES = new Set(['+33', '+262', '+590', '+596', '+594']);
+const paysDevine = (t: string) => {
+  const chiffres = t.replace(/^00/, '+').replace(/[^\d+]/g, '');
+  if (!chiffres.startsWith('+')) return null;
+  // L'indicatif le plus long qui colle (+262 avant +2…), la France d'abord pour +33.
+  const pays = [...COUNTRIES].sort((a, b) => b.dial.length - a.dial.length).find((c) => chiffres.startsWith(c.dial));
+  return pays ? { pays, reste: chiffres.slice(pays.dial.length) } : null;
+};
+const formatMobile = (pays: Country, t: string) => {
+  const chiffres = t.replace(/\D/g, '');
+  if (!PAIRES.has(pays.dial)) return chiffres.slice(0, 14).replace(/(\d{3})(?=\d)/g, '$1 ');
+  const local = chiffres.slice(0, chiffres.startsWith('0') ? 10 : 9);
+  if (!local || local.startsWith('0')) return local.replace(/(\d{2})(?=\d)/g, '$1 ');
+  return `${local[0]} ${local.slice(1).replace(/(\d{2})(?=\d)/g, '$1 ')}`.trim();
+};
+const mobileSaisi = (pays: Country, t: string) => {
+  const numero = fullPhone(pays, t);
+  if (pays.dial === '+33') return /^\+33[67]\d{8}$/.test(numero);
+  if (PAIRES.has(pays.dial)) return new RegExp(`^\\${pays.dial}\\d{9}$`).test(numero);
+  return /^\+[1-9]\d{7,14}$/.test(numero);
+};
 
 // Le corps d'une réponse d'erreur de la fonction (champ fautif, essais restants).
 const corpsErreur = async (error: unknown): Promise<Record<string, unknown> | null> => {
@@ -82,6 +105,7 @@ function Page() {
   const [iban, setIban] = useState('');
   const [titulaire, setTitulaire] = useState('');
   const [mobile, setMobile] = useState('');
+  const [pays, setPays] = useState<Country>(COUNTRIES[0]);
   const [code, setCode] = useState('');
   const [codeEnvoye, setCodeEnvoye] = useState<string | null>(null);
   const [accepte, setAccepte] = useState(false);
@@ -193,17 +217,18 @@ function Page() {
     if (sending) return;
     if (!ibanSaisi(iban)) return setRefus("Vérifie l'IBAN : il commence par FR76 pour un compte français.");
     if (titulaire.trim().length < 3) return setRefus('Mets le nom du titulaire du compte, comme sur ton RIB.');
-    if (!mobileSaisi(mobile)) return setRefus('Mets un numéro de mobile, pour recevoir le code.');
+    if (!mobileSaisi(pays, mobile)) return setRefus(`Vérifie ton numéro de mobile ${flag(pays.code)} ${pays.dial} : il me faut le bon, pour t'envoyer le code.`);
     if (!accepte) return setRefus("Coche la case des conditions, c'est la loi, con.");
     setSending(true);
     setRefus(null);
     try {
       const captcha = await getCaptchaToken();
       const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
-        body: { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: mobile, captcha },
+        body: { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha },
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      if (statut === 503) return setRefus("Mes SMS sont en panne pour l'instant. Réessaie plus tard, ou paie par carte.");
       if (statut === 409) {
         if ((await corpsErreur(error))?.error === 'Signature déjà en cours')
           return setRefus('Une signature est déjà en route dans un autre onglet. Attends deux minutes, puis recharge la page.');
@@ -503,14 +528,13 @@ function Page() {
                   autoComplete="name"
                   style={styles.input}
                 />
-                <TextInput
-                  value={mobile}
-                  onChangeText={(t) => setMobile(t.replace(/[^\d+ ]/g, '').slice(0, 20))}
-                  placeholder="Mobile, pour le code de signature"
-                  placeholderTextColor={colors.tertiary}
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
-                  style={styles.input}
+                <ChampMobile
+                  pays={pays}
+                  valeur={mobile}
+                  onChange={(p, v) => {
+                    setPays(p);
+                    setMobile(v);
+                  }}
                 />
                 <Text style={styles.small}>
                   Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Le premier prélèvement part tout de suite,
@@ -602,11 +626,74 @@ function Page() {
   );
 }
 
+// Le mobile : drapeau et indicatif à gauche (liste des pays au toucher), numéro à droite.
+function ChampMobile({ pays, valeur, onChange }: { pays: Country; valeur: string; onChange: (pays: Country, valeur: string) => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <View>
+      <View style={styles.ligneMobile}>
+        <Pressable
+          onPress={() => setOuvert((o) => !o)}
+          accessibilityRole="button"
+          accessibilityLabel={`Pays du mobile : ${pays.name}`}
+          style={[styles.input, styles.indicatif]}
+        >
+          <Text style={styles.indicatifTexte}>
+            {flag(pays.code)} {pays.dial} ▾
+          </Text>
+        </Pressable>
+        <TextInput
+          value={valeur}
+          onChangeText={(t) => {
+            const devine = paysDevine(t);
+            if (devine) return onChange(devine.pays, formatMobile(devine.pays, devine.reste));
+            // Un indicatif pas encore complet (+3…) : on le laisse tel quel le temps de finir.
+            if (/^\s*(\+|00)/.test(t)) return onChange(pays, t.replace(/[^\d+]/g, '').slice(0, 16));
+            onChange(pays, formatMobile(pays, t));
+          }}
+          placeholder={PAIRES.has(pays.dial) ? '06 12 34 56 78' : 'Mobile'}
+          placeholderTextColor={colors.tertiary}
+          keyboardType="phone-pad"
+          autoComplete="tel-national"
+          accessibilityLabel="Mobile, pour le code de signature"
+          style={[styles.input, styles.numeroMobile]}
+        />
+      </View>
+      {ouvert && (
+        <ScrollView style={styles.listePays} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          {COUNTRIES.map((c) => (
+            <Pressable
+              key={c.code}
+              onPress={() => {
+                onChange(c, formatMobile(c, valeur));
+                setOuvert(false);
+              }}
+              style={styles.optionPays}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.text, c.code === pays.code && styles.paysChoisi]}>
+                {flag(c.code)} {c.name} {c.dial}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   ...ecran,
   ...ecranPaiement,
   ...ecranCotisation,
   screen: { flex: 1, backgroundColor: colors.background },
   input: champ,
+  ligneMobile: { flexDirection: 'row', gap: 8 },
+  indicatif: { justifyContent: 'center' },
+  indicatifTexte: { color: colors.text, fontSize: 16 },
+  numeroMobile: { flex: 1, minWidth: 0 },
+  listePays: { maxHeight: 240, marginTop: 6, borderRadius: 12, borderWidth: 1, borderColor: colors.separator, backgroundColor: colors.background },
+  optionPays: { paddingVertical: 8, paddingHorizontal: 12 },
+  paysChoisi: { color: colors.accent, fontWeight: '700' },
   case: { color: colors.accent, fontSize: 20, lineHeight: 22 },
 });
