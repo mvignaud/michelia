@@ -403,6 +403,8 @@ async function appleAbonnements(api) {
     // Prix : le palier français, et ses équivalents dans les autres pays ; seulement là où il n'y en a pas.
     const prix = await api(`/v1/subscriptions/${sub.id}/prices?include=territory&limit=200`);
     const deja = new Set((prix.data ?? []).map((x) => x.relationships?.territory?.data?.id).filter(Boolean));
+    for (const x of prix.data ?? []) dire(`  prix : ${x.relationships?.territory?.data?.id ?? "?"} ${JSON.stringify(x.attributes)}`);
+    if (!(prix.data ?? []).length) dire(`  aucun prix (réponse : ${JSON.stringify(prix).slice(0, 300)})`);
     const manquants = pays.filter((t) => !deja.has(t));
     if (!manquants.length) {
       dire('  prix déjà posés');
