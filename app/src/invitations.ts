@@ -15,7 +15,7 @@ const JOUR = 24 * 3600 * 1000;
 // Délai avant de reparler du même sujet.
 const ECART: Record<Genre, number> = { pourboire: 3 * JOUR, inscription: JOUR, avis: Infinity };
 // Messages envoyés dans la visite avant d'en parler au fil de la causette.
-const APRES: Record<Genre, number> = { inscription: 4, pourboire: 12, avis: 6 };
+const APRES: Record<Genre, number> = { inscription: 4, pourboire: 12, avis: 4 };
 // Ancienneté de l'appareil avant de demander un avis : qu'on ait eu le temps de se faire une idée.
 const AVIS_APRES = 3 * JOUR;
 export const LIEN_AVIS = 'https://fr.trustpilot.com/evaluate/michel.beer';
@@ -89,8 +89,10 @@ export async function inviter(input: {
     if (pourboire) possibles.push('pourboire');
     if (!membre) possibles.push('inscription');
   } else {
-    if (!membre && envoyes >= APRES.inscription) possibles.push('inscription');
+    // L'avis passe devant l'inscription : il ne vient qu'une fois, et sinon un invité qui revient chaque
+    // jour n'entendrait parler que d'inscription.
     if (envoyes >= APRES.avis) possibles.push('avis');
+    if (!membre && envoyes >= APRES.inscription) possibles.push('inscription');
     if (pourboire && envoyes >= APRES.pourboire) possibles.push('pourboire');
   }
   if (!possibles.length) return null;
