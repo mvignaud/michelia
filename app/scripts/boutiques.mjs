@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPLE_APP_ID, PACKAGE, appleApi, dire, envoyerFichierApple, googleToken, http, mode } from './stores-lib.mjs';
+import { APPLE_APP_ID, PACKAGE, appleApi, dire, envoyerFichierApple, googleToken, http, md5, mode } from './stores-lib.mjs';
 
 const DESCRIPTION = 'Un pourboire pour Michel, sans contrepartie.';
 const NOTE_VERIFICATION =
@@ -73,7 +73,10 @@ async function captureRevue(api, { lire, type, relation, relationType, id, fichi
   // Une capture déjà là est gardée si c'est le même fichier ; sinon (par exemple la capture du comptoir
   // posée en attendant celle de MichelIA+), elle est remplacée.
   // Juste après l'envoi, Apple la garde quelque temps en UPLOAD_COMPLETE le temps de la traiter : on ne la renvoie pas.
-  const memeFichier = actuelle?.attributes?.fileName === path.basename(fichier);
+  // Apple renomme le fichier « SOURCE » une fois traité : on compare donc la somme MD5, pas le nom.
+  const memeFichier =
+    actuelle?.attributes?.fileName === path.basename(fichier) ||
+    actuelle?.attributes?.sourceFileChecksum === md5(fs.readFileSync(fichier));
   const etatCapture = actuelle?.attributes?.assetDeliveryState?.state;
   if (memeFichier && ['COMPLETE', 'UPLOAD_COMPLETE'].includes(etatCapture)) {
     return dire(`  capture de vérification déjà là (${etatCapture})`);
