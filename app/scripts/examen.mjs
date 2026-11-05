@@ -33,6 +33,8 @@ async function apple() {
   dire('Apple (App Store Connect)');
   const api = await appleApi();
   if (!api) return dire('  clés absentes, ignoré.');
+  // Un réglage préalable qui échoue (build, version, notes) bloque l'envoi : sinon Apple publierait l'ancien build.
+  const erreursAvant = etat.erreurs;
 
   // Le build : numéro EAS = CFBundleVersion, traité par Apple (VALID).
   const builds = (
@@ -112,6 +114,8 @@ async function apple() {
   else dire('  classification par âge : remplie');
   const cat = await api(`/v1/appInfos/${info.id}/primaryCategory`).then((r) => r.data).catch(() => null);
   if (!cat) manque("catégorie principale absente : App Store Connect > Informations sur l'app (Divertissement)");
+
+  if (etat.erreurs > erreursAvant) return dire('  → envoi à l’examen Apple non tenté : un réglage de la version a échoué (voir ci-dessus).');
 
   // Achats intégrés prêts (pourboires, MichelIA+) : envoyés avec la version, sinon Apple les ignore.
   const iaps = (await api(`/v1/apps/${APPLE_APP_ID}/inAppPurchasesV2?limit=50`).catch(() => ({ data: [] }))).data;
