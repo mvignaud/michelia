@@ -393,23 +393,16 @@ async function appleAbonnements(api) {
         }),
       );
 
-    // Pays où l'abonnement est en vente : ceux de la disponibilité déjà posée (elle a pu être réglée dans la
-    // console sur plus de pays), sinon les nôtres. Un pays en vente sans prix laisse l'abonnement MISSING_METADATA.
-    const pays = dispo
-      ? (await api(`/v1/subscriptionAvailabilities/${dispo.id}/availableTerritories?limit=200`)).data.map((t) => t.id)
-      : Object.values(PAYS);
-    if (dispo) dire(`  en vente dans ${pays.length} pays`);
+    if (dispo) {
+      const enVente = (await api(`/v1/subscriptionAvailabilities/${dispo.id}/availableTerritories?limit=200`)).data;
+      dire(`  en vente dans ${enVente.length} pays`);
+    }
 
-    // Prix : le palier français, et ses équivalents dans les autres pays ; seulement là où il n'y en a pas.
+    // Prix : le palier français et ses équivalents dans TOUS les pays Apple, même ceux où l'abonnement n'est pas
+    // en vente (la disponibilité décide où il se vend). Sans prix partout, Apple le laisse MISSING_METADATA
+    // (« Vous devez ajouter un prix d'abonnement ») même avec les prix des pays en vente.
     const prix = await api(`/v1/subscriptions/${sub.id}/prices?include=territory&limit=200`);
     const deja = new Set((prix.data ?? []).map((x) => x.relationships?.territory?.data?.id).filter(Boolean));
-    for (const x of prix.data ?? []) dire(`  prix : ${x.relationships?.territory?.data?.id ?? "?"} ${JSON.stringify(x.attributes)}`);
-    if (!(prix.data ?? []).length) dire(`  aucun prix (réponse : ${JSON.stringify(prix).slice(0, 300)})`);
-    const manquants = pays.filter((t) => !deja.has(t));
-    if (!manquants.length) {
-      dire('  prix déjà posés');
-      continue;
-    }
     const points = (await api(`/v1/subscriptions/${sub.id}/pricePoints?filter[territory]=FRA&limit=8000`)).data;
     const point = points.find((x) => memePrix(x.attributes.customerPrice, a.prix));
     if (!point) {
@@ -421,6 +414,12 @@ async function appleAbonnements(api) {
       await api(`/v1/subscriptionPricePoints/${point.id}/equalizations?include=territory&limit=200`)
     ).data;
     const parPays = { FRA: point.id, ...Object.fromEntries(equivalents.map((x) => [x.relationships?.territory?.data?.id, x.id])) };
+    const manquants = Object.keys(parPays).filter((t) => t !== 'undefined' && !deja.has(t));
+    if (!manquants.length) {
+      dire(`  prix déjà posés (${deja.size} pays)`);
+      continue;
+    }
+    dire(`  prix posés dans ${deja.size} pays, ${manquants.length} à ajouter`);
     for (const t of manquants) {
       if (!parPays[t]) {
         etat.erreurs++;
