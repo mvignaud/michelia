@@ -162,6 +162,32 @@ async function apple() {
       fichier: CAPTURE_COMPTOIR,
     });
 
+    // Disponibilité (exigée par Apple depuis 2024, sinon le produit reste MISSING_METADATA) : mêmes pays
+    // que les abonnements, posée une fois.
+    let dispoIap = null;
+    try {
+      dispoIap = (await api(`/v2/inAppPurchases/${iap.id}/inAppPurchaseAvailability`)).data;
+    } catch (e) {
+      if (e.status !== 404) throw e;
+    }
+    if (!dispoIap)
+      await agir(`disponible en ${Object.keys(PAYS).join(', ')}`, () =>
+        api('/v1/inAppPurchaseAvailabilities', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'inAppPurchaseAvailabilities',
+              attributes: { availableInNewTerritories: false },
+              relationships: {
+                inAppPurchase: { data: { type: 'inAppPurchases', id: iap.id } },
+                availableTerritories: { data: Object.values(PAYS).map((id) => ({ type: 'territories', id })) },
+              },
+            },
+          },
+        }),
+      );
+    else dire('  disponibilité déjà posée');
+
     // Prix : posé seulement s'il n'y en a pas encore (base France, Apple calcule les autres pays).
     let schedule = null;
     try {
