@@ -318,6 +318,7 @@ async function appleAbonnements(api) {
 
     const locs = (await api(`/v1/subscriptions/${sub.id}/subscriptionLocalizations`)).data;
     const fr = locs.find((l) => l.attributes.locale === 'fr-FR');
+    for (const l of locs) dire(`  localisation ${l.attributes.locale} : ${l.attributes.state ?? '?'}`);
     if (!fr)
       await agir('localisation fr-FR', () =>
         api('/v1/subscriptionLocalizations', {
