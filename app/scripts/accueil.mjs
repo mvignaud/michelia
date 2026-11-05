@@ -23,6 +23,13 @@ const MARQUE = 'data-page="accueil"';
 // sortie bureau-vX.Y.Z publiée, sinon les liens michel.beer/telecharger/… mèneraient à une page vide.
 const BUREAU_PUBLIE = false;
 // Les installeurs gardent le même nom d'une version à l'autre : public/_redirects mène à la dernière.
+// Applis mobiles : passer à true quand le store a validé l'appli (avant, les liens mènent à « introuvable »).
+const APPLE_PUBLIE = false;
+const GOOGLE_PUBLIE = false;
+const STORES = [
+  ...(APPLE_PUBLIE ? [['App Store', 'https://apps.apple.com/fr/app/id6828365649']] : []),
+  ...(GOOGLE_PUBLIE ? [['Google Play', 'https://play.google.com/store/apps/details?id=beer.michel.app']] : []),
+];
 const TELECHARGER = [
   ['Windows', '/telecharger/windows'],
   ['Mac', '/telecharger/mac'],
@@ -56,7 +63,7 @@ const DONNEES = {
       logo: `${SITE}/icones/icone-512.png`,
       email: 'contact@michel.beer',
       address: { '@type': 'PostalAddress', addressLocality: 'Manciet', postalCode: '32370', addressRegion: 'Gers', addressCountry: 'FR' },
-      sameAs: ['https://github.com/mvignaud/michelia', 'https://www.facebook.com/michel.beer.32', 'https://www.instagram.com/michel.beer.32/', 'https://fr.trustpilot.com/review/michel.beer'],
+      sameAs: ['https://github.com/mvignaud/michelia', 'https://www.facebook.com/michel.beer.32', 'https://www.instagram.com/michel.beer.32/', 'https://fr.trustpilot.com/review/michel.beer', ...STORES.map(([, lien]) => lien)],
     },
     {
       '@type': 'WebApplication',
@@ -108,7 +115,7 @@ header nav .lien{color:var(--gris)}
 .hero h1{font-size:clamp(36px,6vw,58px);line-height:1.08;margin:0 0 18px;letter-spacing:-.01em}
 .hero h1 em{color:var(--brique);font-style:normal}
 .hero p.chapo{font-size:clamp(18px,2.2vw,21px);color:#4a3f37;margin:0 0 28px;max-width:34em}
-.hero .actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.hero .actions,#telephone .actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 .hero .rassure{color:var(--gris);font-size:14px;margin:18px 0 0}
 .hero img{border-radius:28px;box-shadow:0 18px 40px rgba(60,40,20,.14)}
 section.bloc{padding:56px 0}
@@ -308,8 +315,14 @@ ${servis
 <p class="surtitre">Dans ta poche</p>
 <h2>Michel, aussi sur ton téléphone.</h2>
 <p>Sur iPhone comme sur Android, ouvre michel.beer et ajoute Michel à ton écran d'accueil : il s'ouvre comme une vraie appli, il te prévient quand il y a du neuf.</p>
-<p>Les applis MichelIA arrivent sur l'App Store et Google Play. Apple et Google les regardent sous toutes les coutures avant de les mettre en rayon, et ils prennent leur temps, comme le notaire.</p>
-<div class="actions"><a class="bouton" href="/chat">Parler à Michel</a></div>
+${
+  STORES.length === 2
+    ? "<p>Les applis MichelIA sont en rayon sur l'App Store et Google Play : gratuites, et Michel y râle tout pareil.</p>"
+    : STORES.length === 1
+      ? `<p>L'appli MichelIA est en rayon sur ${STORES[0][0]}. L'autre arrive : le magasin la regarde encore sous toutes les coutures, et il prend son temps, comme le notaire.</p>`
+      : "<p>Les applis MichelIA arrivent sur l'App Store et Google Play. Apple et Google les regardent sous toutes les coutures avant de les mettre en rayon, et ils prennent leur temps, comme le notaire.</p>"
+}
+<div class="actions">${STORES.map(([nom, lien]) => `<a class="bouton" href="${lien}">Sur ${nom}</a>`).join('')}<a class="bouton${STORES.length ? ' clair' : ''}" href="/chat">Parler à Michel</a></div>
 </div>
 </div></section>
 
