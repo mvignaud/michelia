@@ -1,0 +1,56 @@
+# Examen des stores : publie un build pour tout le monde (examen Apple + production Google) : app/scripts/examen.mjs.
+# Se lance à la main : GitHub > Actions > « Examen des stores » > Run workflow. Par défaut, un essai qui ne change rien.
+# Avant : « Publier les applis » (le build) puis « Fiches des stores » (textes, captures, notes).
+# Secrets du dépôt : ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, PLAY_SERVICE_ACCOUNT_JSON.
+name: Examen des stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Numéro de build iOS à publier (voir « État Expo »)"
+        type: string
+        required: true
+      build_android:
+        description: "Code de version Android, s'il diffère"
+        type: string
+        default: ""
+      appliquer:
+        description: Appliquer pour de vrai (sinon essai)
+        type: boolean
+        default: false
+      seulement:
+        description: "Stores (apple,google), vide = les deux"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# Une seule à la fois : deux envois en parallèle créeraient deux soumissions Apple.
+concurrency:
+  group: examen-stores
+  cancel-in-progress: false
+
+jobs:
+  examen:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Examen
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          APPLIQUER: ${{ inputs.appliquer && '--appliquer' || '' }}
+          BUILD: ${{ inputs.build }}
+          BUILD_ANDROID: ${{ inputs.build_android }}
+          SEULEMENT: ${{ inputs.seulement }}
+        run: node scripts/examen.mjs $APPLIQUER --build "$BUILD" ${BUILD_ANDROID:+--build-android "$BUILD_ANDROID"} ${SEULEMENT:+--seulement "$SEULEMENT"}

@@ -12,11 +12,10 @@
 //   PLAY_SERVICE_ACCOUNT_JSON                   compte de service Google Play (JSON complet)
 //   REVENUECAT_API_KEY                          clé secrète RevenueCat API v2 (sk_…)
 // Aucune clé n'est jamais affichée.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPLE_APP_ID, PACKAGE, appleApi, dire, googleToken, http, mode } from './stores-lib.mjs';
+import { APPLE_APP_ID, PACKAGE, appleApi, dire, envoyerFichierApple, googleToken, http, mode } from './stores-lib.mjs';
 
 const DESCRIPTION = 'Un pourboire pour Michel, sans contrepartie.';
 const NOTE_VERIFICATION =
@@ -63,8 +62,7 @@ const CAPTURE_ABO = fs.existsSync(path.join(CAPTURES, 'revue-michelia-plus.png')
   ? path.join(CAPTURES, 'revue-michelia-plus.png')
   : CAPTURE_COMPTOIR;
 
-// Envoi d'une capture par le protocole d'Apple : réservation, morceaux envoyés là où Apple le dit,
-// puis validation avec la somme MD5 du fichier.
+// Capture de vérification d'un produit : gardée si c'est le même fichier, sinon remplacée.
 async function captureRevue(api, { lire, type, relation, relationType, id, fichier }) {
   let actuelle = null;
   try {
@@ -83,37 +81,7 @@ async function captureRevue(api, { lire, type, relation, relationType, id, fichi
   const avant = actuelle ? `, remplace ${actuelle.attributes?.fileName ?? '?'} en ${etatCapture ?? '?'}` : '';
   await agir(`capture de vérification (${path.basename(fichier)}${avant})`, async () => {
     if (actuelle) await api(`/v1/${type}/${actuelle.id}`, { method: 'DELETE' });
-    const octets = fs.readFileSync(fichier);
-    const reserve = (
-      await api(`/v1/${type}`, {
-        method: 'POST',
-        body: {
-          data: {
-            type,
-            attributes: { fileName: path.basename(fichier), fileSize: octets.length },
-            relationships: { [relation]: { data: { type: relationType, id } } },
-          },
-        },
-      })
-    ).data;
-    for (const op of reserve.attributes.uploadOperations) {
-      const res = await fetch(op.url, {
-        method: op.method,
-        headers: Object.fromEntries((op.requestHeaders ?? []).map((h) => [h.name, h.value])),
-        body: octets.subarray(op.offset, op.offset + op.length),
-      });
-      if (!res.ok) throw new Error(`envoi de la capture refusé (${res.status})`);
-    }
-    await api(`/v1/${type}/${reserve.id}`, {
-      method: 'PATCH',
-      body: {
-        data: {
-          type,
-          id: reserve.id,
-          attributes: { uploaded: true, sourceFileChecksum: crypto.createHash('md5').update(octets).digest('hex') },
-        },
-      },
-    });
+    await envoyerFichierApple(api, type, { [relation]: { type: relationType, id } }, fichier);
   });
 }
 
