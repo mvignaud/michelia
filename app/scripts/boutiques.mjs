@@ -134,6 +134,7 @@ async function apple() {
     // Nom et description en français.
     const locs = (await api(`/v2/inAppPurchases/${iap.id}/inAppPurchaseLocalizations`)).data;
     const fr = locs.find((l) => l.attributes.locale === 'fr-FR');
+    for (const l of locs) dire(`  localisation ${l.attributes.locale} : ${l.attributes.state ?? '?'}`);
     if (!fr) {
       await agir('localisation fr-FR', () =>
         api('/v1/inAppPurchaseLocalizations', {
@@ -276,10 +277,14 @@ async function appleAbonnements(api) {
     );
   }
 
+  // Pour comprendre un MISSING_METADATA : l'état des noms du groupe (Apple les vérifie aussi).
+  for (const l of locsGroupe) dire(`  nom du groupe ${l.attributes.locale} : ${l.attributes.state ?? '?'}`);
+
   const existants = (await api(`/v1/subscriptionGroups/${groupe.id}/subscriptions?limit=50`)).data;
   for (const a of ABONNEMENTS) {
     let sub = existants.find((x) => x.attributes.productId === a.id);
     dire(`- ${a.id}${sub ? ` (${sub.attributes.state})` : ' (nouveau)'}`);
+    if (sub?.attributes.state === 'MISSING_METADATA') dire(`  attributs : ${JSON.stringify(sub.attributes)}`);
     if (!sub) {
       await agir('créer l’abonnement', async () => {
         sub = (
@@ -303,7 +308,26 @@ async function appleAbonnements(api) {
         ).data;
       });
       if (!sub) continue;
-    } else if (sub.attributes.reviewNote !== NOTE_ABO) {
+    }
+    // Michel se vend seulement sur l'App Store grand public : les marchés Apple Business / School (et leurs
+    // abonnements multipostes) demandent des prix à part et laissent l'abonnement MISSING_METADATA.
+    if (sub.attributes?.multiSeatStatus === 'ENABLED')
+      await agir('pas d’abonnement multiposte', () =>
+        api(`/v1/subscriptions/${sub.id}`, {
+          method: 'PATCH',
+          body: { data: { type: 'subscriptions', id: sub.id, attributes: { multiSeatStatus: 'DISABLED' } } },
+        }),
+      );
+    const marches = sub.attributes?.marketSettings;
+    if (Array.isArray(marches) && (marches.length !== 1 || marches[0] !== 'APP_STORE')) {
+      await agir('vendu seulement sur l’App Store (ni Business ni School)', () =>
+        api(`/v1/subscriptions/${sub.id}`, {
+          method: 'PATCH',
+          body: { data: { type: 'subscriptions', id: sub.id, attributes: { marketSettings: ['APP_STORE'] } } },
+        }),
+      );
+    }
+    if (sub.attributes?.reviewNote !== NOTE_ABO) {
       await agir('note pour la vérification', () =>
         api(`/v1/subscriptions/${sub.id}`, {
           method: 'PATCH',
@@ -314,6 +338,7 @@ async function appleAbonnements(api) {
 
     const locs = (await api(`/v1/subscriptions/${sub.id}/subscriptionLocalizations`)).data;
     const fr = locs.find((l) => l.attributes.locale === 'fr-FR');
+    for (const l of locs) dire(`  localisation ${l.attributes.locale} : ${l.attributes.state ?? '?'}`);
     if (!fr)
       await agir('localisation fr-FR', () =>
         api('/v1/subscriptionLocalizations', {
@@ -368,21 +393,16 @@ async function appleAbonnements(api) {
         }),
       );
 
-    // Pays où l'abonnement est en vente : ceux de la disponibilité déjà posée (elle a pu être réglée dans la
-    // console sur plus de pays), sinon les nôtres. Un pays en vente sans prix laisse l'abonnement MISSING_METADATA.
-    const pays = dispo
-      ? (await api(`/v1/subscriptionAvailabilities/${dispo.id}/availableTerritories?limit=200`)).data.map((t) => t.id)
-      : Object.values(PAYS);
-    if (dispo) dire(`  en vente dans ${pays.length} pays`);
+    if (dispo) {
+      const enVente = (await api(`/v1/subscriptionAvailabilities/${dispo.id}/availableTerritories?limit=200`)).data;
+      dire(`  en vente dans ${enVente.length} pays`);
+    }
 
-    // Prix : le palier français, et ses équivalents dans les autres pays ; seulement là où il n'y en a pas.
+    // Prix : le palier français et ses équivalents dans TOUS les pays Apple, même ceux où l'abonnement n'est pas
+    // en vente (la disponibilité décide où il se vend). Sans prix partout, Apple le laisse MISSING_METADATA
+    // (« Vous devez ajouter un prix d'abonnement ») même avec les prix des pays en vente.
     const prix = await api(`/v1/subscriptions/${sub.id}/prices?include=territory&limit=200`);
     const deja = new Set((prix.data ?? []).map((x) => x.relationships?.territory?.data?.id).filter(Boolean));
-    const manquants = pays.filter((t) => !deja.has(t));
-    if (!manquants.length) {
-      dire('  prix déjà posés');
-      continue;
-    }
     const points = (await api(`/v1/subscriptions/${sub.id}/pricePoints?filter[territory]=FRA&limit=8000`)).data;
     const point = points.find((x) => memePrix(x.attributes.customerPrice, a.prix));
     if (!point) {
@@ -394,6 +414,12 @@ async function appleAbonnements(api) {
       await api(`/v1/subscriptionPricePoints/${point.id}/equalizations?include=territory&limit=200`)
     ).data;
     const parPays = { FRA: point.id, ...Object.fromEntries(equivalents.map((x) => [x.relationships?.territory?.data?.id, x.id])) };
+    const manquants = Object.keys(parPays).filter((t) => t !== 'undefined' && !deja.has(t));
+    if (!manquants.length) {
+      dire(`  prix déjà posés (${deja.size} pays)`);
+      continue;
+    }
+    dire(`  prix posés dans ${deja.size} pays, ${manquants.length} à ajouter`);
     for (const t of manquants) {
       if (!parPays[t]) {
         etat.erreurs++;
