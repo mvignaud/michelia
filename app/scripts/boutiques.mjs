@@ -311,6 +311,13 @@ async function appleAbonnements(api) {
     }
     // Michel se vend seulement sur l'App Store grand public : les marchés Apple Business / School (et leurs
     // abonnements multipostes) demandent des prix à part et laissent l'abonnement MISSING_METADATA.
+    if (sub.attributes?.multiSeatStatus === 'ENABLED')
+      await agir('pas d’abonnement multiposte', () =>
+        api(`/v1/subscriptions/${sub.id}`, {
+          method: 'PATCH',
+          body: { data: { type: 'subscriptions', id: sub.id, attributes: { multiSeatStatus: 'DISABLED' } } },
+        }),
+      );
     const marches = sub.attributes?.marketSettings;
     if (Array.isArray(marches) && (marches.length !== 1 || marches[0] !== 'APP_STORE')) {
       await agir('vendu seulement sur l’App Store (ni Business ni School)', () =>
