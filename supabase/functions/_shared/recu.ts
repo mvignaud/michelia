@@ -2,13 +2,9 @@
 // La facture officielle vit dans l'ERP E-KO de GOLDEN PRINT (jamais envoyée au client) : le reçu en
 // reprend le numéro quand elle existe déjà. Prix TTC ; un pourboire n'a pas de TVA (TVA_POURBOIRE).
 import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
-import { envoyerCourrier, paiementRecu, remboursement } from "./courriers.ts";
+import { envoyerCourrier, paiementRecu, remboursement, TRUSTPILOT_BCC } from "./courriers.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
-// Adresse d'invitation automatique de Trustpilot (copie cachée « BCC », Trustpilot Business >
-// Invitations automatiques). Vide : pas d'invitation. Trustpilot lit l'e-mail du client dans le
-// courrier et l'invite à donner son avis (une fois par période, réglée chez Trustpilot).
-const TRUSTPILOT_BCC = (Deno.env.get("TRUSTPILOT_BCC") ?? "").trim();
 
 export const TAUX_TVA = 0.2;
 // Un pourboire est un don sans contrepartie : pas de TVA (consigne de Mathieu, 1/11/2026).

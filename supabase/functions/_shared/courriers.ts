@@ -10,6 +10,11 @@ const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@miche
 // Les réponses des gens arrivent dans la boîte de contact (l'expéditeur, lui, ne lit rien).
 const MAIL_REPLY_TO = Deno.env.get("MAIL_REPLY_TO") ?? "Michel (MichelIA) <contact@michel.beer>";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
+// Adresse d'invitation automatique de Trustpilot (copie cachée « BCC », Trustpilot Business >
+// Invitations automatiques). Vide : pas d'invitation. Trustpilot lit l'e-mail du destinataire dans le
+// courrier et l'invite à donner son avis (une fois par période, réglée chez Trustpilot).
+export const TRUSTPILOT_BCC = (Deno.env.get("TRUSTPILOT_BCC") ?? "").trim();
+export const LIEN_AVIS = "https://fr.trustpilot.com/evaluate/michel.beer";
 
 const BRIQUE = "#7A2E1D";
 const OCRE = "#D9A441";
@@ -142,6 +147,17 @@ export const abonnementAnnule = (p: { prenom?: string | null; formule: string; f
     { lignes: [["Formule", p.formule], ["Avantages jusqu'au", jour(p.finAcces)]] },
     `Si tu changes d'avis, tu peux te réabonner quand tu veux.`,
     { bouton: "Mon espace", url: p.urlEspace },
+  ]);
+
+// --- Avis Trustpilot --------------------------------------------------------------------
+
+// Une seule fois par inscrit, quelques jours après l'inscription (fonction « avis »).
+export const demandeAvis = (p: { prenom?: string | null }) =>
+  composer(`Alors, Michel, tu en penses quoi ?`, p.prenom, [
+    `Ça fait quelques jours que tu as ton compte chez moi. Je voudrais savoir ce que tu en penses, pour de vrai : ce qui t'aide, ce qui t'agace, ce qui manque.`,
+    `Si tu as deux minutes, laisse ton avis sur Trustpilot. Le bon comme le moins bon, je prends tout : ça m'aide à m'améliorer, et ça aide les autres à me trouver. Trustpilot t'enverra peut-être aussi sa propre invitation, c'est la même chose.`,
+    { bouton: "Donner mon avis", url: LIEN_AVIS },
+    `Et si tu préfères me le dire en face, réponds simplement à ce message.`,
   ]);
 
 // --- Prélèvement SEPA -------------------------------------------------------------------

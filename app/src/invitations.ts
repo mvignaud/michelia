@@ -1,18 +1,24 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Les petites invitations de Michel : laisser un pourboire au comptoir, ou s'inscrire pour qu'il ne
-// t'oublie pas. Une seule par visite, jamais deux fois de suite le même jour, et jamais à côté d'un
-// mot sur l'alcool (loi Evin). Dans les applis, le pourboire n'est proposé que par l'achat intégré.
-export type Genre = 'pourboire' | 'inscription';
+// Les petites invitations de Michel : laisser un pourboire au comptoir, s'inscrire pour qu'il ne
+// t'oublie pas, ou donner son avis sur Trustpilot. Une seule par visite, jamais deux fois de suite le
+// même jour, et jamais à côté d'un mot sur l'alcool (loi Evin). Dans les applis, le pourboire n'est
+// proposé que par l'achat intégré.
+// L'avis : une seule fois par appareil, au fil de la causette (jamais après une bonne note : Trustpilot
+// interdit de ne solliciter que les contents), quand l'appareil connaît Michel depuis quelques jours.
+export type Genre = 'pourboire' | 'inscription' | 'avis';
 export type Moment = 'note' | 'causette';
 export type Invitation = { genre: Genre; texte: string; bouton: string };
 
 const KEY = 'michelia:invitations:v1';
 const JOUR = 24 * 3600 * 1000;
 // Délai avant de reparler du même sujet.
-const ECART: Record<Genre, number> = { pourboire: 3 * JOUR, inscription: JOUR };
+const ECART: Record<Genre, number> = { pourboire: 3 * JOUR, inscription: JOUR, avis: Infinity };
 // Messages envoyés dans la visite avant d'en parler au fil de la causette.
-const APRES: Record<Genre, number> = { inscription: 4, pourboire: 12 };
+const APRES: Record<Genre, number> = { inscription: 4, pourboire: 12, avis: 4 };
+// Ancienneté de l'appareil avant de demander un avis : qu'on ait eu le temps de se faire une idée.
+const AVIS_APRES = 3 * JOUR;
+export const LIEN_AVIS = 'https://fr.trustpilot.com/evaluate/michel.beer';
 
 const TEXTES: Record<Genre, Record<Moment, string[]>> = {
   pourboire: {
@@ -38,11 +44,19 @@ const TEXTES: Record<Genre, Record<Moment, string[]>> = {
       "On s'entend bien, toi et moi. Inscris-toi, que je te reconnaisse même si tu changes de téléphone.",
     ],
   },
+  avis: {
+    note: [],
+    causette: [
+      "Ça fait quelques jours qu'on se fréquente. Dis aux gens ce que tu penses de moi sur Trustpilot, en bien comme en mal. Je râlerai pas, promis… enfin, pas trop.",
+      "Une faveur : raconte sur Trustpilot comment ça se passe avec Michel. Le bon comme le moins bon, ça m'aide à m'améliorer, et ça aide les autres à me trouver.",
+    ],
+  },
 };
 
-const BOUTONS: Record<Genre, string> = { pourboire: 'Passer au comptoir', inscription: "M'inscrire" };
+const BOUTONS: Record<Genre, string> = { pourboire: 'Passer au comptoir', inscription: "M'inscrire", avis: 'Donner mon avis' };
 
-type Vu = Partial<Record<Genre, number>>;
+// Dernière invitation de chaque genre, et premier passage de l'appareil (pour l'ancienneté).
+type Vu = Partial<Record<Genre | 'premier', number>>;
 
 // Une seule invitation par visite (ouverture de l'appli ou de la page).
 let dejaInvite = false;
@@ -50,7 +64,12 @@ let dejaInvite = false;
 async function lire(): Promise<Vu> {
   try {
     const saved = JSON.parse((await AsyncStorage.getItem(KEY)) ?? '{}');
-    return { pourboire: Number(saved.pourboire) || 0, inscription: Number(saved.inscription) || 0 };
+    return {
+      pourboire: Number(saved.pourboire) || 0,
+      inscription: Number(saved.inscription) || 0,
+      avis: Number(saved.avis) || 0,
+      premier: Number(saved.premier) || 0,
+    };
   } catch {
     return {};
   }
@@ -70,16 +89,24 @@ export async function inviter(input: {
     if (pourboire) possibles.push('pourboire');
     if (!membre) possibles.push('inscription');
   } else {
+    // L'avis passe devant l'inscription : il ne vient qu'une fois, et sinon un invité qui revient chaque
+    // jour n'entendrait parler que d'inscription.
+    if (envoyes >= APRES.avis) possibles.push('avis');
     if (!membre && envoyes >= APRES.inscription) possibles.push('inscription');
     if (pourboire && envoyes >= APRES.pourboire) possibles.push('pourboire');
   }
   if (!possibles.length) return null;
   const vu = await lire();
   const now = Date.now();
-  const genre = possibles.find((g) => now - (vu[g] ?? 0) >= ECART[g]);
+  // Premier passage : noté dès la première invitation possible (les appareils déjà là partent d'aujourd'hui).
+  const premier = vu.premier || now;
+  if (!vu.premier) AsyncStorage.setItem(KEY, JSON.stringify({ ...vu, premier })).catch(() => undefined);
+  const genre = possibles.find((g) =>
+    g === 'avis' ? !vu.avis && now - premier >= AVIS_APRES : now - (vu[g] ?? 0) >= ECART[g],
+  );
   if (!genre || dejaInvite) return null;
   dejaInvite = true;
-  AsyncStorage.setItem(KEY, JSON.stringify({ ...vu, [genre]: now })).catch(() => undefined);
+  AsyncStorage.setItem(KEY, JSON.stringify({ ...vu, premier, [genre]: now })).catch(() => undefined);
   const textes = TEXTES[genre][moment];
   return { genre, texte: textes[Math.floor(Math.random() * textes.length)], bouton: BOUTONS[genre] };
 }
