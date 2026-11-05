@@ -134,6 +134,7 @@ async function apple() {
     // Nom et description en français.
     const locs = (await api(`/v2/inAppPurchases/${iap.id}/inAppPurchaseLocalizations`)).data;
     const fr = locs.find((l) => l.attributes.locale === 'fr-FR');
+    for (const l of locs) dire(`  localisation ${l.attributes.locale} : ${l.attributes.state ?? '?'}`);
     if (!fr) {
       await agir('localisation fr-FR', () =>
         api('/v1/inAppPurchaseLocalizations', {
@@ -275,6 +276,9 @@ async function appleAbonnements(api) {
       }),
     );
   }
+
+  // Pour comprendre un MISSING_METADATA : l'état des noms du groupe (Apple les vérifie aussi).
+  for (const l of locsGroupe) dire(`  nom du groupe ${l.attributes.locale} : ${l.attributes.state ?? '?'}`);
 
   const existants = (await api(`/v1/subscriptionGroups/${groupe.id}/subscriptions?limit=50`)).data;
   for (const a of ABONNEMENTS) {
