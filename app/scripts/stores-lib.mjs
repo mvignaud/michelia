@@ -1,7 +1,8 @@
-// Outils communs aux tâches qui parlent aux boutiques (boutiques.mjs, fiches.mjs) :
+// Outils communs aux tâches qui parlent aux boutiques (boutiques.mjs, fiches.mjs, examen.mjs) :
 // requêtes HTTP, jetons App Store Connect et Google Play, mode essai / application.
 // Les clés viennent des variables d'environnement (secrets GitHub) et ne sont jamais affichées.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 export const APPLE_APP_ID = '6828365649';
 export const PACKAGE = 'beer.michel.app';
@@ -166,3 +167,33 @@ export async function googleToken() {
   });
   return access_token;
 }
+
+// Envoi d'un fichier à App Store Connect (captures) par le protocole d'Apple : réservation, morceaux envoyés
+// là où Apple le dit, puis validation avec la somme MD5 du fichier. type : appScreenshots,
+// inAppPurchaseAppStoreReviewScreenshots… ; relation : le lien vers le parent ({ relation: { type, id } }).
+export async function envoyerFichierApple(api, type, relation, fichier) {
+  const octets = fs.readFileSync(fichier);
+  const fileName = fichier.split('/').pop();
+  const [[cle, parent]] = Object.entries(relation);
+  const reserve = (
+    await api(`/v1/${type}`, {
+      method: 'POST',
+      body: { data: { type, attributes: { fileName, fileSize: octets.length }, relationships: { [cle]: { data: parent } } } },
+    })
+  ).data;
+  for (const op of reserve.attributes.uploadOperations) {
+    const res = await fetch(op.url, {
+      method: op.method,
+      headers: Object.fromEntries((op.requestHeaders ?? []).map((h) => [h.name, h.value])),
+      body: octets.subarray(op.offset, op.offset + op.length),
+    });
+    if (!res.ok) throw new Error(`envoi de ${fileName} refusé (${res.status})`);
+  }
+  await api(`/v1/${type}/${reserve.id}`, {
+    method: 'PATCH',
+    body: { data: { type, id: reserve.id, attributes: { uploaded: true, sourceFileChecksum: md5(octets) } } },
+  });
+  return reserve.id;
+}
+
+export const md5 = (octets) => crypto.createHash('md5').update(octets).digest('hex');

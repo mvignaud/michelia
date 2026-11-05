@@ -9,12 +9,12 @@
 // quand il diffère du numéro des notes (par défaut, le même).
 //
 // Clés : mêmes variables que boutiques.mjs (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, PLAY_SERVICE_ACCOUNT_JSON).
-// Les captures App Store restent à la main (App Store Connect) : leur envoi par l'API est lourd et elles changent rarement.
+// Captures : celles de app/store/apple (fiche.json > apple.captures) et app/store/google, faites par store/captures.mjs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPLE_APP_ID, PACKAGE, appleApi, dire, googleToken, http, mode } from './stores-lib.mjs';
+import { APPLE_APP_ID, PACKAGE, appleApi, dire, envoyerFichierApple, googleToken, http, md5, mode } from './stores-lib.mjs';
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 const STORE = path.join(ICI, '..', 'store');
@@ -49,6 +49,39 @@ const noms = (o, actuel) =>
 // ---------- App Store Connect ----------
 // États où Apple laisse modifier la fiche d'une version.
 const MODIFIABLE = ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY'];
+
+// Captures d'une version (une série par taille d'écran) : remplacées seulement si elles diffèrent du dossier.
+async function capturesApple(api, loc, titre) {
+  const sets = (await api(`/v1/appStoreVersionLocalizations/${loc.id}/appScreenshotSets?limit=50`)).data;
+  for (const [affichage, fichiers] of Object.entries(FICHE.apple.captures ?? {})) {
+    const chemins = fichiers.map((n) => path.join(STORE, 'apple', n));
+    let set = sets.find((s) => s.attributes.screenshotDisplayType === affichage);
+    const actuelles = set ? (await api(`/v1/appScreenshotSets/${set.id}/appScreenshots?limit=10`)).data : [];
+    const pareil =
+      actuelles.length === chemins.length &&
+      chemins.every((c, i) => actuelles[i]?.attributes?.sourceFileChecksum === md5(fs.readFileSync(c)));
+    if (pareil) {
+      dire(`${titre} : captures ${affichage} à jour`);
+      continue;
+    }
+    await agir(`${titre.slice(2)} : captures ${affichage} (${fichiers.length}, remplace ${actuelles.length})`, async () => {
+      set ??= (
+        await api('/v1/appScreenshotSets', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'appScreenshotSets',
+              attributes: { screenshotDisplayType: affichage },
+              relationships: { appStoreVersionLocalization: { data: { type: 'appStoreVersionLocalizations', id: loc.id } } },
+            },
+          },
+        })
+      ).data;
+      for (const a of actuelles) await api(`/v1/appScreenshots/${a.id}`, { method: 'DELETE' });
+      for (const c of chemins) await envoyerFichierApple(api, 'appScreenshots', { appScreenshotSet: { type: 'appScreenshotSets', id: set.id } }, c);
+    });
+  }
+}
 
 async function apple() {
   dire('Apple (App Store Connect)');
@@ -88,6 +121,7 @@ async function apple() {
       dire(`${titre} : pas de langue ${LANGUE}`);
       continue;
     }
+    if (modifiable) await capturesApple(api, loc, titre);
     // La toute première version n'a pas de « Nouveautés » : Apple refuse le champ.
     const premiere = versions.length === 1;
     const voulu = modifiable

@@ -42,7 +42,13 @@ Les notes peuvent partir toutes seules : **GitHub > Actions > « Fiches des stor
 - **App Store Connect** > MichelIA > nouvelle version (+ en haut à gauche, le même numéro de version que celui passé au script, par ex. 1.0.1) > « Nouveautés de cette version » : coller les notes Apple. Choisir le build, puis « Ajouter pour vérification ».
 - **Play Console** > MichelIA > Tests ou Production > Créer une version > choisir le build envoyé par EAS > « Notes de version » : coller le bloc Google, balises `<fr-FR>` comprises.
 
+Ou sans console : **GitHub > Actions > « Examen des stores »** avec le numéro de build (essai d'abord, puis « appliquer »). La tâche (`app/scripts/examen.mjs`) rattache le build à la version Apple, vérifie captures, contact de vérification, classification et catégorie, joint les achats intégrés prêts, envoie à l'examen Apple (publication dès l'accord), et passe le build Android de sa piste de test à la production. Ce qui manque côté consoles est listé à la fin.
+
 Cocher la checklist du fichier `builds/<n>.md` au fil de l'eau.
+
+## Captures des stores
+
+`node store/captures.mjs` (depuis `app/`, avec Playwright installé sur la machine) refait les captures « à la Michel » à partir des écrans bruts de `app/store/ecrans/` : iPhone 6,9" (1320 × 2868) et iPad 13" (2064 × 2752) dans `app/store/apple/`, Android (1080 × 1920) dans `app/store/google/`. Les phrases de Michel sont en haut du script. « Fiches des stores » les envoie ensuite aux deux stores (liste Apple dans `fiche.json` > `apple.captures`).
 
 ## Secrets GitHub des tâches automatiques
 

@@ -1,5 +1,5 @@
 {
-  "_lisezmoi": "Textes des fiches App Store et Google Play (français). Modifier ici puis lancer GitHub > Actions > « Fiches des stores ». Les images sont dans apple/ et google/.",
+  "_lisezmoi": "Textes des fiches App Store et Google Play (français). Modifier ici puis lancer GitHub > Actions > « Fiches des stores ». Les captures sont dans apple/ et google/ (refaites par store/captures.mjs à partir de store/ecrans/).",
   "apple": {
     "nom": "Michel IA",
     "sous_titre": "Le papi du Gers dans ta poche",
@@ -8,7 +8,22 @@
     "mots_cles": "ia,assistant,chat,gers,sud-ouest,papi,humour,gascon,questions,recette,occitan,intelligence",
     "url_assistance": "https://michel.beer",
     "url_marketing": "https://michel.beer",
-    "url_confidentialite": "https://michel.beer/confidentialite.html"
+    "url_confidentialite": "https://michel.beer/confidentialite.html",
+    "captures": {
+      "APP_IPHONE_67": [
+        "iphone69-1-accueil.png",
+        "iphone69-2-garbure.png",
+        "iphone69-3-voisin.png",
+        "iphone69-4-inflation.png",
+        "iphone69-5-michelia-plus.png"
+      ],
+      "APP_IPAD_PRO_3GEN_129": [
+        "ipad13-1-accueil.png",
+        "ipad13-2-garbure.png",
+        "ipad13-3-voisin.png",
+        "ipad13-4-inflation.png"
+      ]
+    }
   },
   "google": {
     "nom": "Michel IA",
