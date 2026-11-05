@@ -55,3 +55,8 @@
 /appli.json
   Cache-Control: no-cache
   Access-Control-Allow-Origin: *
+
+# Visuels des publications Facebook / Instagram (lus par Metricool) : pas dans les moteurs de recherche.
+/reseaux/*
+  X-Robots-Tag: noindex
+  Cache-Control: public, max-age=86400
