@@ -215,11 +215,12 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
     }
   }
 
-  // 4 bis. Nouvelle carte ou nouveau mandat choisis par l'abonné sur le site : E-KO prélève dessus.
+  // 4 bis. Nouvelle carte ou nouveau mandat choisis par l'abonné sur le site : E-KO prélève dessus
+  // (abonnements en cours ou impayés : un résilié ne sera plus prélevé par E-KO).
   // Retenté à chaque passage ; un changement plus récent, arrivé entre-temps, repart au suivant.
   const { data: changes } = await admin.from("abonnements")
     .select("id, moyen, stancer_carte, stancer_client, stancer_sepa, eko_abonnement, eko_moyen_change_le")
-    .in("statut", ["actif", "impaye", "resilie"]).not("eko_abonnement", "is", null).not("eko_moyen_change_le", "is", null).limit(limite);
+    .in("statut", ["actif", "impaye"]).not("eko_abonnement", "is", null).not("eko_moyen_change_le", "is", null).limit(limite);
   for (const a of changes ?? []) {
     const moyen: MoyenAbonnement | null = a.moyen === "sepa"
       ? (a.stancer_sepa ? { provider: "stancer_sepa", sepa_id: a.stancer_sepa } : null)
@@ -229,7 +230,13 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
       await changerMoyenEko(a.eko_abonnement!, moyen);
       await admin.from("abonnements").update({ eko_moyen_change_le: null }).eq("id", a.id).eq("eko_moyen_change_le", a.eko_moyen_change_le);
     } catch (e) {
-      console.error("MichelIA+ E-KO : ALERTE nouveau moyen de paiement non transmis, retenté au prochain passage", a.id, messageDe(e));
+      // Refus sur le fond : noté une fois, pas retenté (à reprendre à la main dans E-KO).
+      if (e instanceof EkoError && e.status === 422) {
+        console.error("MichelIA+ E-KO : ALERTE nouveau moyen de paiement refusé par E-KO, à poser à la main", a.id, messageDe(e));
+        await admin.from("abonnements").update({ eko_moyen_change_le: null }).eq("id", a.id).eq("eko_moyen_change_le", a.eko_moyen_change_le);
+      } else {
+        console.error("MichelIA+ E-KO : ALERTE nouveau moyen de paiement non transmis, retenté au prochain passage", a.id, messageDe(e));
+      }
     }
   }
 
