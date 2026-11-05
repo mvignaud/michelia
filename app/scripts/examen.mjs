@@ -18,8 +18,9 @@ if (!build) {
   process.exit(1);
 }
 const LANGUE = 'fr-FR';
-// États où la version peut encore être modifiée et envoyée.
-const MODIFIABLE = ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY'];
+// États où la version peut encore être modifiée et envoyée (READY_FOR_REVIEW : déjà dans une soumission
+// pas encore envoyée, par exemple après un envoi interrompu : on la reprend).
+const MODIFIABLE = ['PREPARE_FOR_SUBMISSION', 'READY_FOR_REVIEW', 'DEVELOPER_REJECTED', 'REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY'];
 
 // Ce qui manque et que seul Mathieu peut faire : listé à la fin, et l'envoi Apple n'est pas tenté.
 const manques = [];
