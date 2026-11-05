@@ -13,6 +13,7 @@ import { APPLE_APP_ID, PACKAGE, appleApi, dire, googleToken, http, mode } from '
 const { valeur, agir, lancer, etat } = mode();
 const build = valeur('--build');
 const buildAndroid = valeur('--build-android') ?? build;
+const PISTE_GOOGLE = valeur('--piste-google') ?? 'production'; // production, ou alpha (test fermé)
 if (!build) {
   dire('Il faut --build <numéro> (le build à publier, voir « État Expo »).');
   process.exit(1);
@@ -199,14 +200,16 @@ async function google() {
   const api = (p, opts) => http(`${base}${p}`, { token, ...opts });
   const e = `/${(await api('', { method: 'POST', body: {} })).id}`;
   try {
-    const prod = await api(`${e}/tracks/production`).catch((err) => (err.status === 404 ? { track: 'production', releases: [] } : Promise.reject(err)));
-    if (prod.releases?.some((r) => r.status === 'completed' && r.versionCodes?.includes(String(buildAndroid)))) {
-      dire(`- build ${buildAndroid} déjà en production`);
+    const cible = PISTE_GOOGLE;
+    const nomPiste = cible === 'production' ? 'production' : `test fermé (${cible})`;
+    const actuelle = await api(`${e}/tracks/${cible}`).catch((err) => (err.status === 404 ? { track: cible, releases: [] } : Promise.reject(err)));
+    if (actuelle.releases?.some((r) => r.status === 'completed' && r.versionCodes?.includes(String(buildAndroid)))) {
+      dire(`- build ${buildAndroid} déjà en ${nomPiste}`);
       return;
     }
     // La version du build sur une piste de test (avec ses notes), recopiée telle quelle.
     let source = null;
-    for (const piste of ['internal', 'alpha', 'beta']) {
+    for (const piste of ['internal', 'alpha', 'beta'].filter((x) => x !== cible)) {
       const t = await api(`${e}/tracks/${piste}`).catch(() => null);
       const r = t?.releases?.find((x) => x.versionCodes?.includes(String(buildAndroid)));
       if (r) {
@@ -216,17 +219,24 @@ async function google() {
     }
     if (!source) return manque(`build Android ${buildAndroid} absent des pistes de test Google`);
     dire(`- build ${buildAndroid} trouvé en ${source.piste} (« ${source.r.name ?? ''} »)`);
-    const release = { name: source.r.name, versionCodes: source.r.versionCodes, releaseNotes: source.r.releaseNotes, status: 'completed' };
-    await agir(`production : build ${buildAndroid}, déploiement complet`, async () => {
-      await api(`${e}/tracks/production`, { method: 'PUT', body: { track: 'production', releases: [release] } });
+    const release = (status) => ({ name: source.r.name, versionCodes: source.r.versionCodes, releaseNotes: source.r.releaseNotes, status });
+    const poser = (status) => api(`${e}/tracks/${cible}`, { method: 'PUT', body: { track: cible, releases: [release(status)] } });
+    await agir(`${nomPiste} : build ${buildAndroid}, déploiement complet`, async () => {
+      // Appli jamais publiée (« draft app ») : Google n'accepte qu'un brouillon, que Mathieu lance dans la console.
+      const brouillon = await poser('completed').then(
+        () => false,
+        (err) => (/draft app/i.test(err.message) ? poser('draft').then(() => true) : Promise.reject(err)),
+      );
       // Selon l'état du compte, Google veut que l'envoi en examen se fasse dans la console.
       await http(`${base}${e}:commit`, { method: 'POST', token }).catch((err) =>
         /changesNotSentForReview/.test(err.message)
           ? http(`${base}${e}:commit?changesNotSentForReview=true`, { method: 'POST', token }).then(() =>
-              manque('Google : version enregistrée en production, à envoyer en examen dans la Play Console (« Vue d’ensemble des publications »)'),
+              manque(`Google : version enregistrée en ${nomPiste}, à envoyer en examen dans la Play Console (« Vue d’ensemble des publications »)`),
             )
           : Promise.reject(err),
       );
+      if (brouillon)
+        manque(`Google : appli encore en brouillon, version ${nomPiste} posée en brouillon : la lancer dans la Play Console (« Examiner la version » puis « Lancer le déploiement »)`);
     });
   } finally {
     // Sans application (ou après une erreur), la modification est abandonnée ; après un commit, elle n'existe plus.

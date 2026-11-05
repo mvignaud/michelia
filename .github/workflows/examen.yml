@@ -23,6 +23,10 @@ on:
         description: "Stores (apple,google), vide = les deux"
         type: string
         default: ""
+      piste_google:
+        description: "Piste Google visée : production, ou alpha (test fermé)"
+        type: string
+        default: "production"
 
 permissions:
   contents: read
@@ -53,4 +57,5 @@ jobs:
           BUILD: ${{ inputs.build }}
           BUILD_ANDROID: ${{ inputs.build_android }}
           SEULEMENT: ${{ inputs.seulement }}
-        run: node scripts/examen.mjs $APPLIQUER --build "$BUILD" ${BUILD_ANDROID:+--build-android "$BUILD_ANDROID"} ${SEULEMENT:+--seulement "$SEULEMENT"}
+          PISTE_GOOGLE: ${{ inputs.piste_google || 'production' }}
+        run: node scripts/examen.mjs $APPLIQUER --build "$BUILD" ${BUILD_ANDROID:+--build-android "$BUILD_ANDROID"} ${SEULEMENT:+--seulement "$SEULEMENT"} --piste-google "$PISTE_GOOGLE"
