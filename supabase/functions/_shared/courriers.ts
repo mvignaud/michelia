@@ -2,13 +2,11 @@
 // (bienvenue, renouvellement à venir, résiliation) et prélèvement SEPA (mandat, préavis, rejet).
 // Chaque modèle rend un sujet, un texte brut et un HTML aux couleurs de la lettre de Michel.
 // Le ton reste celui de Michel, mais les mentions qui comptent (montants, dates, références) sont
-// toujours écrites en clair. Envoi par Postal avec envoyerCourrier().
+// toujours écrites en clair. Envoi par SMTP2GO (Postal en secours) avec envoyerCourrier().
 
-const POSTAL_API_URL = (Deno.env.get("POSTAL_API_URL") ?? "").replace(/\/+$/, "");
-const POSTAL_API_KEY = Deno.env.get("POSTAL_API_KEY") ?? "";
-const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@michel.beer>";
-// Les réponses des gens arrivent dans la boîte de contact (l'expéditeur, lui, ne lit rien).
-const MAIL_REPLY_TO = Deno.env.get("MAIL_REPLY_TO") ?? "Michel (MichelIA) <contact@michel.beer>";
+import { envoyerMail, MAIL_REPLY_TO, type PieceJointe } from "./envoi.ts";
+export type { PieceJointe } from "./envoi.ts";
+
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 // Adresse d'invitation automatique de Trustpilot (copie cachée « BCC », Trustpilot Business >
 // Invitations automatiques). Vide : pas d'invitation. Trustpilot lit l'e-mail du destinataire dans le
@@ -194,37 +192,9 @@ export const prelevementRejete = (p: { prenom?: string | null; montantCents: num
 
 // --- Envoi ------------------------------------------------------------------------------
 
-export type PieceJointe = { nom: string; type: string; base64: string };
-
-// Envoie un courrier ; false si Postal n'est pas configuré ou refuse (l'appelant journalise).
+// Envoie un courrier ; false si l'envoi n'est pas configuré ou refusé (l'appelant journalise).
 // replyTo remplace la boîte de contact quand la réponse doit aller ailleurs (alertes de Mathieu).
 // bcc : copies cachées (l'adresse d'invitation Trustpilot, sur le premier reçu d'un pourboire).
-export async function envoyerCourrier(to: string, c: Courrier, tag: string, pieces: PieceJointe[] = [], replyTo = MAIL_REPLY_TO, bcc: string[] = []): Promise<boolean> {
-  if (!POSTAL_API_URL || !POSTAL_API_KEY) return false;
-  try {
-    const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {
-      method: "POST",
-      headers: { "X-Server-API-Key": POSTAL_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: [to],
-        ...(bcc.length ? { bcc } : {}),
-        from: MAIL_FROM,
-        reply_to: replyTo,
-        subject: c.sujet,
-        plain_body: c.texte,
-        html_body: c.html,
-        tag,
-        attachments: pieces.map((p) => ({ name: p.nom, content_type: p.type, data: p.base64 })),
-      }),
-    });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || result?.status !== "success") {
-      console.error("Postal refuse le courrier", tag, response.status, JSON.stringify(result?.data ?? result));
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("Postal injoignable :", e);
-    return false;
-  }
+export function envoyerCourrier(to: string, c: Courrier, tag: string, pieces: PieceJointe[] = [], replyTo = MAIL_REPLY_TO, bcc: string[] = []): Promise<boolean> {
+  return envoyerMail({ to, sujet: c.sujet, texte: c.texte, html: c.html, tag, pieces, replyTo, bcc });
 }

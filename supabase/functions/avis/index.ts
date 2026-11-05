@@ -4,7 +4,7 @@
 // - Appelée chaque matin par pg_cron (migration 20261105020000_avis_trustpilot.sql).
 // - Coupée tant que app_config.avis_email_actif ne vaut pas 'true'.
 // - Chaque inscrit est réservé (profiles.avis_invite_at) avant l'envoi : deux appels simultanés
-//   n'écrivent jamais deux fois ; un envoi refusé par Postal libère la réservation pour le lendemain.
+//   n'écrivent jamais deux fois ; un envoi refusé libère la réservation pour le lendemain.
 // Déployée sans vérification du JWT : l'appeler en trop n'écrit à personne de plus.
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { demandeAvis, envoyerCourrier, TRUSTPILOT_BCC } from "../_shared/courriers.ts";

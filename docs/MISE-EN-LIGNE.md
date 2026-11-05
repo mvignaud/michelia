@@ -62,14 +62,16 @@ Exécuter d'abord la migration `20261029050000_comptes.sql` (profils, suppressio
 
 Les secrets Google et Facebook restent dans Supabase, jamais dans ce dépôt.
 
-## E-mails (Postal)
+## E-mails (SMTP2GO, Postal en secours)
 
-Les e-mails de compte partent par le serveur Postal, avec les modèles de `supabase/templates/`.
+Tous les e-mails de Michel partent par SMTP2GO : ceux du compte (Supabase Auth, en SMTP, avec les modèles de `supabase/templates/`) et ceux des Edge Functions (reçus, avoirs, avis, alertes, lettre, annonces, mandats SEPA), par l'API, via `supabase/functions/_shared/envoi.ts`. Postal (serveur d'E-KO) reste branché en secours : il prend le relais si SMTP2GO refuse un courrier, et sert seul tant que `SMTP2GO_API_KEY` n'est pas posé. Raison du changement (5/11/2026) : avec les IP partagées de Postal et un domaine neuf, Gmail rangeait Michel dans les spams malgré SPF, DKIM et DMARC en ordre.
 
-1. Dans Postal, ajouter le domaine `michel.beer` et créer un identifiant SMTP.
-2. Dans Cloudflare (DNS de michel.beer), ajouter les enregistrements donnés par Postal : DKIM, return-path et SPF. Il ne doit rester qu'un seul enregistrement SPF : ajouter l'`include` de Postal à celui de la messagerie OVH.
-3. Dans Supabase, Authentication > Emails > SMTP Settings : hôte, port, identifiant et mot de passe Postal, expéditeur `noreply@michel.beer`, nom `Michel (MichelIA)`. Le mot de passe se saisit seulement là.
-4. Dans Authentication > Emails > Templates, coller chaque modèle avec son objet :
+1. Dans SMTP2GO, **Sending > Verified Senders > Add a sender domain** : `michel.beer`. SMTP2GO donne trois CNAME (DKIM `s…._domainkey`, retour `em…`, suivi `link`) à ajouter dans Cloudflare (DNS de michel.beer), **nuage gris** (DNS only), puis « Verify ». Ajouter aussi `include:spf.smtp2go.com` dans l'unique enregistrement SPF (à côté de ceux d'OVH et de Postal). Désactiver le suivi des clics et des ouvertures (Settings > Tracking) : les liens réécrits nuisent à la délivrabilité et aux liens de paiement.
+2. **Sending > API Keys > Add API Key** (droit « Emails » seulement), puis dans Supabase **Edge Functions > Secrets** : `SMTP2GO_API_KEY`. Les fonctions le lisent au prochain appel, sans redéploiement.
+3. **Sending > SMTP Users > Add SMTP User**, puis dans Supabase, Authentication > Emails > SMTP Settings : hôte `mail.smtp2go.com`, port `2525` (ou `587`), identifiant et mot de passe de cet utilisateur SMTP, expéditeur `noreply@michel.beer`, nom `Michel (MichelIA)`. Le mot de passe se saisit seulement là.
+4. Forfait gratuit : 1 000 e-mails par mois et 200 par jour. Une lettre ou une annonce à tous les inscrits compte un e-mail par personne : passer au forfait payant avant de dépasser.
+
+5. Dans Authentication > Emails > Templates, coller chaque modèle avec son objet :
 
    | Modèle Supabase | Fichier | Objet |
    | --- | --- | --- |
@@ -146,9 +148,9 @@ Statistiques, membres et leurs usages, export des comptes et annonces. Il s'ouvr
 
    Pour retirer quelqu'un : `delete from public.admins where user_id = '…';`.
 3. **Edge Functions > Deploy a new function** : nom `annonces`, coller `supabase/functions/annonces/index.ts`, puis dans ses réglages **décocher « Enforce JWT verification »** (le désabonnement en un clic des messageries arrive sans connexion ; le droit d'administrateur est vérifié dans la fonction).
-4. **Postal** (serveur de michel.beer) : **Credentials > Add** de type **API**, puis dans Supabase **Edge Functions > Secrets** :
-   - `POSTAL_API_URL` : adresse de l'interface Postal (celle où l'on se connecte, sans `/api`) ;
-   - `POSTAL_API_KEY` : la clé de l'identifiant API ;
+4. **Envoi des e-mails** (voir « E-mails » plus haut), dans Supabase **Edge Functions > Secrets** :
+   - `SMTP2GO_API_KEY` : la clé API SMTP2GO ;
+   - en secours, `POSTAL_API_URL` (adresse de l'interface Postal, sans `/api`) et `POSTAL_API_KEY` (identifiant API Postal) ;
    - `UNSUBSCRIBE_SECRET` : une longue chaîne au hasard (`openssl rand -hex 32`), qui signe les liens de désabonnement. Ne plus la changer ensuite, sinon les anciens liens ne marchent plus ;
    - facultatif : `MAIL_FROM` (par défaut `Michel (MichelIA) <noreply@michel.beer>`) et `SITE_URL` (par défaut `https://michel.beer`).
 

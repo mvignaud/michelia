@@ -27,7 +27,7 @@ async function config(key: string): Promise<string | null> {
 async function marquer(ids: number[], ok: boolean) {
   if (!ids.length) return;
   await admin.from("alertes")
-    .update(ok ? { envoyee_at: new Date().toISOString(), erreur: null } : { reservee_at: null, erreur: "refusé par Postal" })
+    .update(ok ? { envoyee_at: new Date().toISOString(), erreur: null } : { reservee_at: null, erreur: "refusé par l'envoi d'e-mails" })
     .in("id", ids);
 }
 
