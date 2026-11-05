@@ -1,8 +1,8 @@
 // Fonction « dicton-story » : l'image (1080 × 1920, PNG) du dicton du jour de Michel, pour la story
 // Instagram / Facebook. Une tâche du matin programme la story dans Metricool avec l'adresse
 // …/functions/v1/dicton-story?d=AAAA-MM-JJ ; Metricool télécharge l'image une fois, à la programmation.
-// - ?d=AAAA-MM-JJ : le dicton de ce jour-là (404 s'il n'est pas encore écrit).
-// - Sans paramètre : le dernier dicton écrit.
+// - ?d=AAAA-MM-JJ : le dicton de ce jour-là (404 tant qu'il n'est pas envoyé en notification).
+// - Sans paramètre : le dernier dicton envoyé.
 // Déployée sans vérification du JWT : elle ne montre que le texte déjà envoyé à tout le monde
 // en notification, et n'écrit rien.
 import satori from "npm:satori@0.18.3";
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
   const d = new URL(req.url).searchParams.get("d");
   if (d !== null && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return json(400, { error: "d=AAAA-MM-JJ" });
 
-  let requete = admin.from("daily_sayings").select("day, kind, text").not("text", "is", null);
+  let requete = admin.from("daily_sayings").select("day, kind, text").eq("status", "envoye").not("text", "is", null);
   requete = d ? requete.eq("day", d) : requete.order("day", { ascending: false });
   const { data, error } = await requete.limit(1).maybeSingle();
   if (error) {
