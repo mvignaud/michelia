@@ -71,7 +71,7 @@ const LEGAL_LINKS = [
   { label: 'Confidentialité', path: '/confidentialite.html' },
   { label: 'Conditions', path: '/conditions.html' },
   // Les réseaux de Michel : adresses complètes, ouvertes telles quelles.
-  { label: 'Facebook', path: 'https://www.facebook.com/1467116286476992' },
+  { label: 'Facebook', path: 'https://www.facebook.com/michel.beer.32' },
   { label: 'Instagram', path: 'https://www.instagram.com/michel.beer.32/' },
   // Sur le web, la page /comptoir (Stripe). Dans les applis, le comptoir par achat intégré s'ouvre par-dessus le chat.
   ...(Platform.OS === 'web' ? [{ label: 'Le comptoir', path: '/comptoir' }] : []),
