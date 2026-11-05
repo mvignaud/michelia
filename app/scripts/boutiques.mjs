@@ -284,6 +284,7 @@ async function appleAbonnements(api) {
   for (const a of ABONNEMENTS) {
     let sub = existants.find((x) => x.attributes.productId === a.id);
     dire(`- ${a.id}${sub ? ` (${sub.attributes.state})` : ' (nouveau)'}`);
+    if (sub?.attributes.state === 'MISSING_METADATA') dire(`  attributs : ${JSON.stringify(sub.attributes)}`);
     if (!sub) {
       await agir('créer l’abonnement', async () => {
         sub = (
