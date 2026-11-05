@@ -425,7 +425,13 @@ async function confirmerChangement(qui: Membre, paiementId: unknown, origin: str
   }
   const { data: pris } = await admin.from("abonnement_changements").update({ statut: "fait" }).eq("id", chg.id).eq("statut", "en_cours").select("id");
   if (!pris?.length) return reply(200, { etat: "change" }, origin);
-  await basculer(chg.abonnement_id, { moyen: "carte", stancer_carte: jeton, derniers_chiffres: chiffres });
+  if (await basculer(chg.abonnement_id, { moyen: "carte", stancer_carte: jeton, derniers_chiffres: chiffres })) {
+    // Passé du prélèvement à la carte : le mandat de l'abonnement ne sert plus.
+    await admin.from("mandats_sepa").update({ revoque_le: new Date().toISOString() }).eq("abonnement_id", chg.abonnement_id).is("revoque_le", null);
+  }
+  // L'autorisation de 0,50 € est levée tout de suite (sinon la banque la libère d'elle-même sous quelques jours).
+  const annule = await stancer("PATCH", `/v1/checkout/${paiementId}`, { status: "canceled" });
+  if (!annule.ok) console.error("MichelIA+ : autorisation de vérification non annulée (la banque la libérera)", paiementId, annule.status, safeError(annule.data));
   return reply(200, { etat: "change" }, origin);
 }
 
