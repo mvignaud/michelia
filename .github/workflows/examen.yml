@@ -27,6 +27,11 @@ on:
 permissions:
   contents: read
 
+# Une seule à la fois : deux envois en parallèle créeraient deux soumissions Apple.
+concurrency:
+  group: examen-stores
+  cancel-in-progress: false
+
 jobs:
   examen:
     runs-on: ubuntu-latest

@@ -4,7 +4,7 @@
 // Sorties : apple/iphone69-*.png (1320 × 2868, iPhone 6,9"), apple/ipad13-*.png (2064 × 2752, iPad 13"),
 // google/android-*.png (1080 × 1920). Ensuite : tâche GitHub « Fiches des stores » (les envoie aux deux stores).
 //
-//   node store/captures.mjs        (depuis app/ ; il faut Playwright et Chromium sur la machine)
+//   NODE_PATH=$(npm root -g) node store/captures.mjs   (depuis app/, avec npm i -g playwright et Chromium)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

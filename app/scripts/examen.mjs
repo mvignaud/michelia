@@ -99,8 +99,9 @@ async function apple() {
   else dire(`  contact de vérification : ${a.contactFirstName} ${a.contactLastName}`);
   const NOTES =
     "MichelIA fonctionne sans compte : il suffit d'écrire une question en bas de l'écran. La connexion (Apple, Google, Facebook, e-mail, téléphone) sert seulement à retrouver ses conversations, et la suppression du compte se trouve dans Compte > Supprimer mon compte. Les réponses viennent d'un modèle d'IA (Anthropic Claude) qui joue un personnage humoristique du Sud-Ouest de la France. Les pourboires (« Un pourboire ? ») et l'abonnement MichelIA+ (lien « MichelIA+ » sous le chat) sont des achats intégrés Apple.";
-  if (detail && !a.notes)
-    await agir('notes pour la vérification', () =>
+  // Pas de compte de démo : l'appli marche sans compte.
+  if (detail && (!a.notes || a.demoAccountRequired))
+    await agir('notes pour la vérification (sans compte de démo)', () =>
       api(`/v1/appStoreReviewDetails/${detail.id}`, {
         method: 'PATCH',
         body: { data: { type: 'appStoreReviewDetails', id: detail.id, attributes: { notes: NOTES, demoAccountRequired: false } } },
@@ -119,8 +120,10 @@ async function apple() {
   if (etat.erreurs > erreursAvant) return dire('  → envoi à l’examen Apple non tenté : un réglage de la version a échoué (voir ci-dessus).');
 
   // Achats intégrés prêts (pourboires, MichelIA+) : envoyés avec la version, sinon Apple les ignore.
-  const iaps = (await api(`/v1/apps/${APPLE_APP_ID}/inAppPurchasesV2?limit=50`).catch(() => ({ data: [] }))).data;
-  const groupes = (await api(`/v1/apps/${APPLE_APP_ID}/subscriptionGroups?include=subscriptions&limit=10`).catch(() => ({ included: [] }))).included ?? [];
+  // Une lecture ratée n'est pas « aucun produit » : elle bloque l'envoi, pour ne pas publier sans eux.
+  const lire = (p, vide) => api(p).catch((err) => (manque(`lecture des achats intégrés impossible (${err.message})`), vide));
+  const iaps = (await lire(`/v1/apps/${APPLE_APP_ID}/inAppPurchasesV2?limit=50`, { data: [] })).data;
+  const groupes = (await lire(`/v1/apps/${APPLE_APP_ID}/subscriptionGroups?include=subscriptions&limit=10`, { included: [] })).included ?? [];
   const produits = [
     ...iaps.map((p) => ({ type: 'inAppPurchaseSubmissions', rel: 'inAppPurchaseV2', relType: 'inAppPurchases', p })),
     ...groupes.filter((g) => g.type === 'subscriptions').map((p) => ({ type: 'subscriptionSubmissions', rel: 'subscription', relType: 'subscriptions', p })),

@@ -48,7 +48,7 @@ Cocher la checklist du fichier `builds/<n>.md` au fil de l'eau.
 
 ## Captures des stores
 
-`node store/captures.mjs` (depuis `app/`, avec Playwright installé sur la machine) refait les captures « à la Michel » à partir des écrans bruts de `app/store/ecrans/` : iPhone 6,9" (1320 × 2868) et iPad 13" (2064 × 2752) dans `app/store/apple/`, Android (1080 × 1920) dans `app/store/google/`. Les phrases de Michel sont en haut du script. « Fiches des stores » les envoie ensuite aux deux stores (liste Apple dans `fiche.json` > `apple.captures`).
+`NODE_PATH=$(npm root -g) node store/captures.mjs` (depuis `app/`, avec `npm i -g playwright`) refait les captures « à la Michel » à partir des écrans bruts de `app/store/ecrans/` : iPhone 6,9" (1320 × 2868) et iPad 13" (2064 × 2752) dans `app/store/apple/`, Android (1080 × 1920) dans `app/store/google/`. Les phrases de Michel sont en haut du script. « Fiches des stores » les envoie ensuite aux deux stores (liste Apple dans `fiche.json` > `apple.captures`).
 
 ## Secrets GitHub des tâches automatiques
 
