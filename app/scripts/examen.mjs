@@ -222,18 +222,26 @@ async function google() {
     const release = (status) => ({ name: source.r.name, versionCodes: source.r.versionCodes, releaseNotes: source.r.releaseNotes, status });
     const poser = (status) => api(`${e}/tracks/${cible}`, { method: 'PUT', body: { track: cible, releases: [release(status)] } });
     await agir(`${nomPiste} : build ${buildAndroid}, déploiement complet`, async () => {
-      // Appli jamais publiée (« draft app ») : Google n'accepte qu'un brouillon, que Mathieu lance dans la console.
-      const brouillon = await poser('completed').then(
-        () => false,
-        (err) => (/draft app/i.test(err.message) ? poser('draft').then(() => true) : Promise.reject(err)),
-      );
       // Selon l'état du compte, Google veut que l'envoi en examen se fasse dans la console.
-      await http(`${base}${e}:commit`, { method: 'POST', token }).catch((err) =>
-        /changesNotSentForReview/.test(err.message)
-          ? http(`${base}${e}:commit?changesNotSentForReview=true`, { method: 'POST', token }).then(() =>
-              manque(`Google : version enregistrée en ${nomPiste}, à envoyer en examen dans la Play Console (« Vue d’ensemble des publications »)`),
-            )
-          : Promise.reject(err),
+      const valider = () =>
+        http(`${base}${e}:commit`, { method: 'POST', token }).catch((err) =>
+          /changesNotSentForReview/.test(err.message)
+            ? http(`${base}${e}:commit?changesNotSentForReview=true`, { method: 'POST', token }).then(() =>
+                manque(`Google : version enregistrée en ${nomPiste}, à envoyer en examen dans la Play Console (« Vue d’ensemble des publications »)`),
+              )
+            : Promise.reject(err),
+        );
+      // Appli jamais publiée (« draft app ») : Google n'accepte qu'un brouillon (refusé au commit), que Mathieu
+      // lance dans la console.
+      await poser('completed');
+      const brouillon = await valider().then(
+        () => false,
+        async (err) => {
+          if (!/draft app/i.test(err.message)) throw err;
+          await poser('draft');
+          await valider();
+          return true;
+        },
       );
       if (brouillon)
         manque(`Google : appli encore en brouillon, version ${nomPiste} posée en brouillon : la lancer dans la Play Console (« Examiner la version » puis « Lancer le déploiement »)`);
