@@ -182,7 +182,8 @@ export type PieceJointe = { nom: string; type: string; base64: string };
 
 // Envoie un courrier ; false si Postal n'est pas configuré ou refuse (l'appelant journalise).
 // replyTo remplace la boîte de contact quand la réponse doit aller ailleurs (alertes de Mathieu).
-export async function envoyerCourrier(to: string, c: Courrier, tag: string, pieces: PieceJointe[] = [], replyTo = MAIL_REPLY_TO): Promise<boolean> {
+// bcc : copies cachées (l'adresse d'invitation Trustpilot, sur le premier reçu d'un pourboire).
+export async function envoyerCourrier(to: string, c: Courrier, tag: string, pieces: PieceJointe[] = [], replyTo = MAIL_REPLY_TO, bcc: string[] = []): Promise<boolean> {
   if (!POSTAL_API_URL || !POSTAL_API_KEY) return false;
   try {
     const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {
@@ -190,6 +191,7 @@ export async function envoyerCourrier(to: string, c: Courrier, tag: string, piec
       headers: { "X-Server-API-Key": POSTAL_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({
         to: [to],
+        ...(bcc.length ? { bcc } : {}),
         from: MAIL_FROM,
         reply_to: replyTo,
         subject: c.sujet,

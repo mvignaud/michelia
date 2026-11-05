@@ -193,7 +193,7 @@ Deno.serve(async () => {
           moyen: "Carte bancaire",
           transaction: l.paiement_carte ?? l.paiement_id,
           tauxTva: TVA_POURBOIRE,
-        });
+        }, true);
       } catch (e) {
         console.error(`Pourboire ${l.id} : reçu impossible à préparer`, e instanceof Error ? e.message : e);
       }

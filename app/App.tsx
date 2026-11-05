@@ -73,6 +73,8 @@ const LEGAL_LINKS = [
   // Les réseaux de Michel : adresses complètes, ouvertes telles quelles.
   { label: 'Facebook', path: 'https://www.facebook.com/michel.beer.32' },
   { label: 'Instagram', path: 'https://www.instagram.com/michel.beer.32/' },
+  // Les avis sur Michel : page Trustpilot publique, un simple lien (aucun script ni donnée envoyés à Trustpilot).
+  { label: 'Donne ton avis', path: 'https://fr.trustpilot.com/review/michel.beer' },
   // Sur le web, la page /comptoir (Stripe). Dans les applis, le comptoir par achat intégré s'ouvre par-dessus le chat.
   ...(Platform.OS === 'web' ? [{ label: 'Le comptoir', path: '/comptoir' }] : []),
 ];

@@ -79,3 +79,13 @@ Avec les clés de **test** (`sk_test_`/`rk_test_` dans le secret, `pk_test_` dan
 - Les invitations de Michel (`app/src/invitations.ts`) : après une note de 4 ou 5 étoiles, ou au fil de la causette (4 messages pour l’inscription, 12 pour le pourboire), une carte propose de s’inscrire (visiteurs non connectés) ou de passer au comptoir. Une seule par visite, le même sujet au plus une fois par jour (inscription) ou tous les 3 jours (pourboire). Dans les applis, le pourboire n’est proposé que si l’achat intégré est ouvert (`comptoir_appli_actif` et clé de la boutique), jamais de lien vers le web.
 - Back-office > Tableau de bord : « Coût par utilisateur actif (30 j) » et « Pourboires du mois ».
 - La jauge « la note du mois » compare le coût Claude du mois (converti avec `usd_eur`, à ajuster) aux pourboires reçus.
+
+## Avis Trustpilot après un pourboire
+
+Le premier reçu d'un pourboire web (fonction `facturer`) part aussi en copie cachée à l'adresse d'invitation automatique de Trustpilot, qui invite le client à donner son avis. Les reçus redemandés depuis « Mes reçus » (fonction `recu`) n'y vont pas.
+
+1. Trustpilot Business > Collecter des avis > Invitations automatiques > méthode « BCC » : copier l'adresse fournie (…@invite.trustpilot.com).
+2. Supabase > Edge Functions > Secrets : `TRUSTPILOT_BCC` = cette adresse. Vide ou absent : pas d'invitation.
+3. Redéployer `facturer` (et `recu`, qui partage `_shared/recu.ts`).
+
+La page Confidentialité le mentionne (section « Ton avis sur Trustpilot »).

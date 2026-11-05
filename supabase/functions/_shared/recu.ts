@@ -5,6 +5,10 @@ import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
 import { envoyerCourrier, paiementRecu, remboursement } from "./courriers.ts";
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
+// Adresse d'invitation automatique de Trustpilot (copie cachée « BCC », Trustpilot Business >
+// Invitations automatiques). Vide : pas d'invitation. Trustpilot lit l'e-mail du client dans le
+// courrier et l'invite à donner son avis (une fois par période, réglée chez Trustpilot).
+const TRUSTPILOT_BCC = (Deno.env.get("TRUSTPILOT_BCC") ?? "").trim();
 
 export const TAUX_TVA = 0.2;
 // Un pourboire est un don sans contrepartie : pas de TVA (consigne de Mathieu, 1/11/2026).
@@ -150,11 +154,13 @@ function base64(bytes: Uint8Array): string {
 }
 
 // Envoie le reçu en pièce jointe ; false si Postal n'est pas configuré ou refuse (l'appelant journalise).
-export async function envoyerRecu(r: Recu): Promise<boolean> {
+// inviterAvis : le premier envoi après un paiement (pas un reçu redemandé depuis le compte) part aussi
+// en copie cachée à Trustpilot, qui invite le client à donner son avis.
+export async function envoyerRecu(r: Recu, inviterAvis = false): Promise<boolean> {
   const courrier = paiementRecu({ prenom: r.prenom, montantCents: r.montantTtcCents, libelle: r.libelle, numero: r.numero, facture: r.facture });
   return envoyerCourrier(r.email, courrier, "recu", [
     { nom: `recu-michel-${r.numero}.pdf`, type: "application/pdf", base64: base64(await pdfRecu(r)) },
-  ]);
+  ], undefined, inviterAvis && TRUSTPILOT_BCC ? [TRUSTPILOT_BCC] : []);
 }
 
 // Envoie l'e-mail de remboursement avec l'avoir en pièce jointe ; false si Postal refuse.
