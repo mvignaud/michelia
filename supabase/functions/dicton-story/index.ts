@@ -63,7 +63,16 @@ Deno.serve(async (req) => {
       height: HAUTEUR,
       fonts: await polices,
     });
-    const png = new Resvg(svg).render().asPng();
+    // resvg-wasm ne rend pas sa mémoire tout seul : on libère après chaque image.
+    const resvg = new Resvg(svg);
+    const rendu = resvg.render();
+    let png: Uint8Array;
+    try {
+      png = rendu.asPng();
+    } finally {
+      rendu.free();
+      resvg.free();
+    }
     return new Response(req.method === "HEAD" ? null : png, {
       headers: {
         "Content-Type": "image/png",
