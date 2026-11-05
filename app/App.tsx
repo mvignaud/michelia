@@ -52,6 +52,7 @@ import { makeCard, type Card } from './src/shareCardModel';
 import { ShareSheet } from './src/ShareSheet';
 import { supabase } from './src/supabase';
 import { colors, serif } from './src/theme';
+import STORES from './store/liens.json';
 
 function welcome(name?: string) {
   return name
@@ -75,6 +76,11 @@ const LEGAL_LINKS = [
   { label: 'Instagram', path: 'https://www.instagram.com/michel.beer.32/' },
   // Les avis sur Michel : page Trustpilot publique, un simple lien (aucun script ni donnée envoyés à Trustpilot).
   { label: 'Donne ton avis', path: 'https://fr.trustpilot.com/review/michel.beer' },
+  // Sur le web et le bureau, les applis mobiles une fois en rayon (store/liens.json). Pas dans les applis :
+  // Apple refuse qu'une appli iPhone renvoie vers Google Play.
+  ...(Platform.OS === 'web'
+    ? [STORES.apple, STORES.google].filter((s) => s.publie).map((s) => ({ label: s.nom, path: s.lien }))
+    : []),
   // Sur le web, la page /comptoir (Stripe). Dans les applis, le comptoir par achat intégré s'ouvre par-dessus le chat.
   ...(Platform.OS === 'web' ? [{ label: 'Le comptoir', path: '/comptoir' }] : []),
 ];
