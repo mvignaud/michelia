@@ -121,6 +121,23 @@ Le mandat se signe chez Michel (`_shared/mandat.ts`), plus sur la page Stancer :
 - À faire : copie du mandat dans E-KO (fil des factures, à partir de `mandats_sepa` et du PDF) ; changer d'IBAN
   depuis l'espace compte.
 
+## Changer de carte ou de compte
+
+Sur `/la-cotisation`, « Changer de carte ou de compte » (abonnement du site en cours, impayé ou résilié).
+Migration `20261105010000_changer_moyen.sql`.
+
+- Carte : `{changer: {moyen: "carte", carte, captcha}}` crée un paiement v1 de 0,50 € avec `capture: false`,
+  `tokenize: true` et 3D Secure (ligne `abonnement_changements`). Après le 3D Secure, `{confirmer_changement:
+  paym_…}` demande l'autorisation (`PATCH status: "authorize"`), jamais la capture : rien n'est débité.
+  Une fois `authorized`, l'abonnement passe sur le jeton `card_…`.
+- Compte : `{changer: {moyen: "sepa", iban, titulaire, telephone, captcha}}` envoie le code SMS (ligne
+  `mandats_sepa_codes` avec `changement = true`), puis `{signer: …}` signe le nouveau mandat comme à la
+  souscription, sans prélèvement ; l'ancien mandat de l'abonnement reçoit `revoque_le`.
+- Dans les deux cas : `moyen`, `stancer_carte` ou `stancer_sepa`, `derniers_chiffres` mis à jour ; un impayé
+  est retenté au prochain passage du cron (`prochain_essai` vidé). Abonnement prélevé par E-KO :
+  `eko_moyen_change_le` est posé, et le cron envoie le nouveau moyen à E-KO (`PUT
+  /subscriptions/{code}/payment-method`, étape 4 bis de `synchroniserEko`).
+
 ## E-KO : contrat, factures et prélèvements
 
 Depuis le 2/11/2026 (module Abonnements d'E-KO, réponse d'E-KO du 1/11 :

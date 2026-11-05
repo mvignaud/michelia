@@ -120,6 +120,9 @@ function Page() {
   const [hauteur, setHauteur] = useState(480);
   const [bienvenue, setBienvenue] = useState(false);
   const [resiliation, setResiliation] = useState(false);
+  // Changer de carte ou de compte, sur une cotisation déjà prise sur le site.
+  const [changement, setChangement] = useState(false);
+  const [change, setChange] = useState(false);
 
   const recharger = async () => {
     const { data: auth } = await supabase.auth.getSession();
@@ -149,12 +152,17 @@ function Page() {
       if (stopped) return;
       clearTimeout(timer);
       try {
-        const { data: result } = await supabase.functions.invoke('michelia-plus', { body: { confirmer: paiement } });
+        const { data: result } = await supabase.functions.invoke('michelia-plus', {
+          body: changement ? { confirmer_changement: paiement } : { confirmer: paiement },
+        });
         if (stopped) return;
         if (result?.etat === 'paye') return bienvenu();
+        if (result?.etat === 'change') return changeFait();
         if (result?.etat === 'refuse') {
           setRefus(
-            paiement.startsWith('pi_')
+            changement
+              ? "La banque n'a pas validé cette carte. Rien n'a changé : essaies-en une autre."
+              : paiement.startsWith('pi_')
               ? "Le mandat n'est pas signé, rien n'est prélevé. Tu peux réessayer, ou payer par carte."
               : moyen === 'sepa'
                 ? "Le premier prélèvement n'est pas passé, rien n'est pris. Tu peux réessayer, ou payer par carte."
@@ -187,7 +195,7 @@ function Page() {
       clearTimeout(timer);
       window.removeEventListener('message', onMessage);
     };
-  }, [paiement]);
+  }, [paiement]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const oublierSepa = () => {
     try {
@@ -203,6 +211,19 @@ function Page() {
     setPaiement(undefined);
     setRefus(null);
     setBienvenue(true);
+    recharger().catch(() => {});
+  };
+
+  // Nouvelle carte ou nouveau compte enregistrés : les prochaines échéances partent dessus.
+  const changeFait = () => {
+    setSecure(undefined);
+    setPaiement(undefined);
+    setRefus(null);
+    setIban('');
+    setCode('');
+    setCodeEnvoye(null);
+    setChangement(false);
+    setChange(true);
     recharger().catch(() => {});
   };
 
@@ -224,7 +245,9 @@ function Page() {
     try {
       const captcha = await getCaptchaToken();
       const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
-        body: { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha },
+        body: changement
+          ? { changer: { moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha } }
+          : { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha },
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
@@ -286,6 +309,7 @@ function Page() {
         oublierMandat();
         return bienvenu();
       }
+      if (result?.etat === 'change') return changeFait();
       if (result?.etat === 'refuse') {
         oublierMandat();
         return setRefus(
@@ -310,13 +334,13 @@ function Page() {
     if (sending) return;
     const carte = carteSaisie(numero, expiration, cvc);
     if (!carte) return setRefus('Vérifie le numéro de carte, la date (MM/AA) et le code au dos.');
-    if (!accepte) return setRefus("Coche la case des conditions, c'est la loi, con.");
+    if (!accepte && !changement) return setRefus("Coche la case des conditions, c'est la loi, con.");
     setSending(true);
     setRefus(null);
     try {
       const captcha = await getCaptchaToken();
       const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
-        body: { souscrire: formule, carte, captcha },
+        body: changement ? { changer: { moyen: 'carte', carte, captcha } } : { souscrire: formule, carte, captcha },
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
@@ -324,6 +348,7 @@ function Page() {
       if (statut === 409) return recharger();
       if (error) throw error;
       if (result?.etat === 'paye') return bienvenu();
+      if (result?.etat === 'change') return changeFait();
       if (result?.etat === 'authentification' && pageSecure(result.url) && typeof result.paiement === 'string') {
         setPaiement(result.paiement);
         return setSecure(result.url);
@@ -372,7 +397,8 @@ function Page() {
     }
   };
 
-  const prix = formule === 'mois' ? offre?.mois_cents : offre?.an_cents;
+  const prix = changement && abonnement ? abonnement.prix_cents : formule === 'mois' ? offre?.mois_cents : offre?.an_cents;
+  const rythme = (changement && abonnement ? abonnement.formule : formule) === 'mois' ? 'chaque mois' : 'chaque année';
   const retourSepa = !!paiement?.startsWith('pi_');
   const essai = new URLSearchParams(window.location.search).has('essai');
 
@@ -432,12 +458,26 @@ function Page() {
                 Prise dans l'appli : elle se gère dans {abonnement.source === 'apple' ? "l'App Store" : 'Google Play'}.
               </Text>
             )}
-            {abonnement.source === 'web' && abonnement.statut !== 'resilie' && !resiliation && (
+            {change && <Text style={styles.text}>C'est noté : les prochaines échéances partent sur ce moyen de paiement.</Text>}
+            {abonnement.source === 'web' && !changement && !resiliation && (
+              <Pressable
+                onPress={() => {
+                  setChangement(true);
+                  setChange(false);
+                  setMoyen(abonnement.moyen ?? 'carte');
+                  setRefus(null);
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.changed}>Changer de carte ou de compte</Text>
+              </Pressable>
+            )}
+            {abonnement.source === 'web' && abonnement.statut !== 'resilie' && !resiliation && !changement && (
               <Pressable onPress={() => setResiliation(true)} accessibilityRole="button">
                 <Text style={styles.changed}>Résilier</Text>
               </Pressable>
             )}
-            {refus && <Text style={styles.refus}>{refus}</Text>}
+            {refus && !changement && <Text style={styles.refus}>{refus}</Text>}
             {resiliation && (
               <>
                 <Text style={styles.text}>
@@ -467,8 +507,10 @@ function Page() {
           </View>
         )}
 
-        {offre && abonnement === null && (offre.actif || essai) && membre && !bienvenue && (
+        {offre && ((abonnement === null && (offre.actif || essai) && membre && !bienvenue) || (abonnement && changement)) && (
           <View style={styles.card}>
+            {changement && <Text style={styles.cardTitle}>Nouveau moyen de paiement</Text>}
+            {!changement && (
             <View style={styles.row}>
               {(['mois', 'an'] as const).map((f) => {
                 const p = f === 'mois' ? offre.mois_cents : offre.an_cents;
@@ -489,6 +531,7 @@ function Page() {
                 );
               })}
             </View>
+            )}
             {!secure && !paiement && (
               <View style={styles.row}>
                 {(['carte', 'sepa'] as const).map((m) => (
@@ -537,8 +580,9 @@ function Page() {
                   }}
                 />
                 <Text style={styles.small}>
-                  Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Le premier prélèvement part tout de suite,
-                  puis à la même date {formule === 'mois' ? 'chaque mois' : 'chaque année'}.
+                  {changement
+                    ? `Je t'envoie un code par SMS : en le recopiant, tu signes le mandat sur ce compte. Rien n'est prélevé aujourd'hui ; les prochaines échéances partent dessus, à la même date ${rythme}.`
+                    : `Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Le premier prélèvement part tout de suite, puis à la même date ${rythme}.`}
                 </Text>
                 <Pressable onPress={() => setAccepte((a) => !a)} style={styles.row} accessibilityRole="checkbox" accessibilityState={{ checked: accepte }}>
                   <Text style={styles.case}>{accepte ? '☑' : '☐'}</Text>
@@ -547,8 +591,8 @@ function Page() {
                     <Text style={styles.link} onPress={() => window.open('/conditions.html', '_blank')}>
                       conditions
                     </Text>{' '}
-                    et je demande que MichelIA+ commence tout de suite : je renonce à mon délai de rétractation de 14 jours.
-                    J'autorise GOLDEN PRINT à prélever {prix ? euros(prix) : 'le prix affiché'} {formule === 'mois' ? 'chaque mois' : 'chaque année'} à
+                    {changement ? '' : 'et je demande que MichelIA+ commence tout de suite : je renonce à mon délai de rétractation de 14 jours. '}
+                    J'autorise GOLDEN PRINT à prélever {prix ? euros(prix) : 'le prix affiché'} {rythme} à
                     la date anniversaire : ce rappel vaut avis de prélèvement. Résiliable ici en deux clics.
                   </Text>
                 </Pressable>
@@ -578,6 +622,13 @@ function Page() {
             {!secure && !retourSepa && moyen === 'carte' && (
               <>
                 <ChampsCarte {...{ numero, setNumero, expiration, setExpiration, cvc, setCvc }} />
+                {changement && (
+                  <Text style={styles.small}>
+                    Ta banque valide la carte avec une autorisation de 0,50 € : rien n'est débité, elle disparaît d'elle-même.
+                    Les prochaines échéances partent sur cette carte.
+                  </Text>
+                )}
+                {!changement && (
                 <Pressable onPress={() => setAccepte((a) => !a)} style={styles.row} accessibilityRole="checkbox" accessibilityState={{ checked: accepte }}>
                   <Text style={styles.case}>{accepte ? '☑' : '☐'}</Text>
                   <Text style={[styles.small, styles.half]}>
@@ -586,9 +637,10 @@ function Page() {
                       conditions
                     </Text>{' '}
                     et je demande que MichelIA+ commence tout de suite : je renonce à mon délai de rétractation de 14 jours.
-                    Renouvelé {formule === 'mois' ? 'chaque mois' : 'chaque année'}, résiliable ici en deux clics.
+                    Renouvelé {rythme}, résiliable ici en deux clics.
                   </Text>
                 </Pressable>
+                )}
               </>
             )}
             {secure && <CadreBanque src={secure} hauteur={hauteur} />}
@@ -604,9 +656,27 @@ function Page() {
                   <ActivityIndicator color={colors.onAccent} />
                 ) : (
                   <Text style={styles.payerText}>
-                    {moyen === 'carte' ? `Cotiser ${prix ? euros(prix) : ''}` : codeEnvoye ? 'Signer le mandat' : 'Recevoir mon code'}
+                    {moyen === 'carte'
+                      ? changement
+                        ? 'Enregistrer cette carte'
+                        : `Cotiser ${prix ? euros(prix) : ''}`
+                      : codeEnvoye
+                        ? 'Signer le mandat'
+                        : 'Recevoir mon code'}
                   </Text>
                 )}
+              </Pressable>
+            )}
+            {changement && !secure && !paiement && (
+              <Pressable
+                onPress={() => {
+                  setChangement(false);
+                  oublierMandat();
+                  setRefus(null);
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.changed}>Laisser comme c'est</Text>
               </Pressable>
             )}
             <Text style={styles.small}>
