@@ -153,6 +153,10 @@ async function apple() {
   }
 
   if (manques.length) return dire('  → envoi à l’examen Apple non tenté : voir ce qui manque.');
+  // Un produit qu'Apple refuse de joindre (409, ex. premiers achats intégrés : à cocher dans la console sur la
+  // page de la version) : ne pas envoyer la version seule, l'écran MichelIA+ serait vide pour l'examinateur.
+  if (etat.erreurs > erreursAvant)
+    return dire('  → envoi à l’examen Apple non tenté : des achats intégrés n’ont pas pu être joints (voir ci-dessus).');
 
   // Envoi : une « soumission » ouverte (ou nouvelle), la version dedans, puis « soumettre ».
   await agir(`envoyer la version ${versionBuild ?? v.attributes.versionString} à l'examen Apple`, async () => {
