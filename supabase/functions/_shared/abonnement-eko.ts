@@ -7,7 +7,7 @@
 //   ratée, relances épuisées, résiliation.
 // Tant que michelia_plus_eko_actif ne vaut pas 'true', rien ne part : Michel prélève lui-même, comme avant.
 import { admin, isCardPaymentId } from "./stancer.ts";
-import { coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
+import { changerMoyenEko, coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
 
 const MAX_TENTATIVES = 5;
 const MAX_ESSAIS_EVENEMENT = 5;
@@ -212,6 +212,24 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
       bilan.repris++;
     } catch (e) {
       console.error("MichelIA+ E-KO : ALERTE reprise non transmise, retentée au prochain passage", a.id, messageDe(e));
+    }
+  }
+
+  // 4 bis. Nouvelle carte ou nouveau mandat choisis par l'abonné sur le site : E-KO prélève dessus.
+  // Retenté à chaque passage ; un changement plus récent, arrivé entre-temps, repart au suivant.
+  const { data: changes } = await admin.from("abonnements")
+    .select("id, moyen, stancer_carte, stancer_client, stancer_sepa, eko_abonnement, eko_moyen_change_le")
+    .in("statut", ["actif", "impaye", "resilie"]).not("eko_abonnement", "is", null).not("eko_moyen_change_le", "is", null).limit(limite);
+  for (const a of changes ?? []) {
+    const moyen: MoyenAbonnement | null = a.moyen === "sepa"
+      ? (a.stancer_sepa ? { provider: "stancer_sepa", sepa_id: a.stancer_sepa } : null)
+      : (a.stancer_carte ? { provider: "stancer_card", card_id: a.stancer_carte, ...(a.stancer_client ? { customer_id: a.stancer_client } : {}) } : null);
+    if (!moyen) continue;
+    try {
+      await changerMoyenEko(a.eko_abonnement!, moyen);
+      await admin.from("abonnements").update({ eko_moyen_change_le: null }).eq("id", a.id).eq("eko_moyen_change_le", a.eko_moyen_change_le);
+    } catch (e) {
+      console.error("MichelIA+ E-KO : ALERTE nouveau moyen de paiement non transmis, retenté au prochain passage", a.id, messageDe(e));
     }
   }
 

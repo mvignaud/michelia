@@ -11,8 +11,8 @@ export type Formule = "mois" | "an";
 
 // Statuts Stancer : l'argent arrive ; échec définitif ; 3D Secure raté.
 const PAID = ["to_capture", "capture_sent", "captured"];
-const FAILED = ["refused", "failed", "expired", "canceled", "cancelled", "unpaid"];
-const AUTH_FAILED = ["declined", "failed", "expired"];
+export const FAILED = ["refused", "failed", "expired", "canceled", "cancelled", "unpaid"];
+export const AUTH_FAILED = ["declined", "failed", "expired"];
 // Payment intent (premier prélèvement SEPA) : abandonné ou refusé ; mandat signé, prélèvement parti.
 const INTENT_FAILED = ["canceled", "cancelled", "unpaid"];
 const INTENT_PARTI = ["processing", "captured"];

@@ -212,6 +212,11 @@ export async function premiereFactureEko(code: string): Promise<{ factureId: num
   return { factureId: Number(c.invoice_id), factureCode: c.invoice_code != null ? String(c.invoice_code) : null, cycleId: c.id != null ? String(c.id) : null };
 }
 
+// Nouvelle carte ou nouveau mandat pour les prochaines périodes (changés par l'abonné sur le site).
+export async function changerMoyenEko(code: string, moyen: MoyenAbonnement): Promise<void> {
+  await eko("PUT", `/subscriptions/${encodeURIComponent(code)}/payment-method`, moyen);
+}
+
 // Résiliation : à la fin de la période payée (choix de l'abonné) ou tout de suite (relances épuisées).
 export async function resilierEko(code: string, finDePeriode: boolean, motif: string): Promise<void> {
   await eko("POST", `/subscriptions/${encodeURIComponent(code)}/cancel`, { at_period_end: finDePeriode, reason: motif });
