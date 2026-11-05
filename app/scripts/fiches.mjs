@@ -157,6 +157,19 @@ async function google() {
   const token = await googleToken();
   if (!token) return dire('  clé absente, ignoré.');
   const f = FICHE.google;
+
+  // « Sécurité des données » : le CSV de la Play Console (exporté puis rempli), envoyé tel quel. Google n'offre
+  // pas de lecture : on le renvoie à chaque application (sans effet s'il n'a pas changé).
+  const csv = path.join(ICI, '..', 'store', 'google', 'securite-donnees.csv');
+  if (fs.existsSync(csv))
+    await agir('sécurité des données (store/google/securite-donnees.csv)', () =>
+      http(`https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/dataSafety`, {
+        method: 'POST',
+        token,
+        body: { safetyLabels: fs.readFileSync(csv, 'utf8') },
+      }),
+    );
+
   const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE}/edits`;
   const upload = `https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/${PACKAGE}/edits`;
   const api = (p, opts) => http(`${base}${p}`, { token, ...opts });
