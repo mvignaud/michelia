@@ -64,6 +64,10 @@ verify_jwt = false
 # Appelée par pg_cron sans clé : elle ne prélève que les échéances dues, une seule fois chacune.
 verify_jwt = false
 
+[functions.avis]
+# Appelée par pg_cron sans clé : elle n'écrit qu'une fois à chaque inscrit, et seulement si avis_email_actif.
+verify_jwt = false
+
 [functions.alertes]
 # Appelée par pg_cron sans clé : elle n'écrit qu'à Mathieu (alertes_destinataire), une fois par alerte.
 verify_jwt = false

@@ -33,7 +33,7 @@ import { CookieBanner, type CookieBannerHandle } from './src/CookieBanner';
 import { Doleances } from './src/Doleances';
 import { InstallCard } from './src/InstallCard';
 import { InvitationCard } from './src/InvitationCard';
-import { inviter, type Invitation, type Moment } from './src/invitations';
+import { inviter, LIEN_AVIS, type Invitation, type Moment } from './src/invitations';
 import { NotifyCard } from './src/NotifyCard';
 import { forgetLoginGreeting, loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
@@ -366,7 +366,10 @@ function Chat() {
     const genre = invitation?.genre;
     setInvitation(null);
     if (genre === 'inscription') setAccount('signup');
-    else ouvrirComptoir();
+    else if (genre === 'avis') {
+      if (bureau) ouvrirDehors(LIEN_AVIS);
+      else Linking.openURL(LIEN_AVIS).catch(() => undefined);
+    } else ouvrirComptoir();
   }
 
   // Le comptoir : la page /comptoir sur le web, l'achat intégré dans les applis. Dans l'appli de bureau,

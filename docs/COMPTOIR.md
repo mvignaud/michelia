@@ -89,3 +89,8 @@ Le premier reçu d'un pourboire web (fonction `facturer`) part aussi en copie ca
 3. Redéployer `facturer` (et `recu`, qui partage `_shared/recu.ts`).
 
 La page Confidentialité le mentionne (section « Ton avis sur Trustpilot »).
+
+## Avis Trustpilot des utilisateurs gratuits
+
+- **Dans le chat** (`app/src/invitations.ts`, genre `avis`) : une seule fois par appareil, au fil de la causette (6 messages dans la visite), si l'appareil connaît Michel depuis 3 jours. Jamais après une bonne note : Trustpilot interdit de ne solliciter que les contents.
+- **Par e-mail aux inscrits** (fonction `avis`, migration `20261105020000_avis_trustpilot.sql`) : chaque matin à 9 h UTC, une fois par inscrit dont l'e-mail est confirmé et le compte a au moins `avis_email_jours` jours (3). Copie cachée vers `TRUSTPILOT_BCC`. Coupé tant que `avis_email_actif` ne vaut pas `'true'` ; le premier passage écrit aux inscrits déjà là, 100 par matin.
