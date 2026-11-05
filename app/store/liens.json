@@ -1,0 +1,5 @@
+{
+  "_lisez-moi": "Fiches des applis sur les stores. Passer « publie » à true quand le store a validé l'appli : les liens apparaissent alors sur l'accueil et sous le chat (web et bureau). Avant, ils mèneraient à « introuvable ».",
+  "apple": { "nom": "App Store", "publie": false, "lien": "https://apps.apple.com/fr/app/id6828365649" },
+  "google": { "nom": "Google Play", "publie": false, "lien": "https://play.google.com/store/apps/details?id=beer.michel.app" }
+}

@@ -23,13 +23,10 @@ const MARQUE = 'data-page="accueil"';
 // sortie bureau-vX.Y.Z publiée, sinon les liens michel.beer/telecharger/… mèneraient à une page vide.
 const BUREAU_PUBLIE = false;
 // Les installeurs gardent le même nom d'une version à l'autre : public/_redirects mène à la dernière.
-// Applis mobiles : passer à true quand le store a validé l'appli (avant, les liens mènent à « introuvable »).
-const APPLE_PUBLIE = false;
-const GOOGLE_PUBLIE = false;
-const STORES = [
-  ...(APPLE_PUBLIE ? [['App Store', 'https://apps.apple.com/fr/app/id6828365649']] : []),
-  ...(GOOGLE_PUBLIE ? [['Google Play', 'https://play.google.com/store/apps/details?id=beer.michel.app']] : []),
-];
+// Applis mobiles : liens dans store/liens.json, montrés seulement une fois le store validé (« publie »).
+const STORES = Object.values(JSON.parse(fs.readFileSync(new URL('../store/liens.json', import.meta.url), 'utf8')))
+  .filter((s) => s && s.publie)
+  .map((s) => [s.nom, s.lien]);
 const TELECHARGER = [
   ['Windows', '/telecharger/windows'],
   ['Mac', '/telecharger/mac'],
