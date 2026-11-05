@@ -1,5 +1,5 @@
 // Fonction « annonces » : envoi des annonces du back-office et désabonnement des nouvelles.
-// - POST d'un administrateur connecté : enregistre l'annonce, envoie les e-mails par Postal
+// - POST d'un administrateur connecté : enregistre l'annonce, envoie les e-mails par SMTP2GO (Postal en secours)
 //   (en tâche de fond) et réveille la fonction « push » si les notifications sont cochées.
 // - POST avec ?u=…&t=… (bouton « Se désabonner » des messageries, RFC 8058)
 //   ou { unsubscribe: "u.t" } (lien des e-mails, ouvert dans l'appli) : coupe les nouvelles.
@@ -7,6 +7,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { escapeHtml, sign } from "../_shared/envois.ts";
+import { envoiConfigure, envoyerMail } from "../_shared/envoi.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -17,15 +18,10 @@ type Message = { subject: string; body: string; audience: Audience };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const POSTAL_API_URL = (Deno.env.get("POSTAL_API_URL") ?? "").replace(/\/+$/, "");
-const POSTAL_API_KEY = Deno.env.get("POSTAL_API_KEY") ?? "";
-const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@michel.beer>";
-// Les réponses des gens arrivent dans la boîte de contact (l'expéditeur, lui, ne lit rien).
-const MAIL_REPLY_TO = Deno.env.get("MAIL_REPLY_TO") ?? "Michel (MichelIA) <contact@michel.beer>";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 const UNSUBSCRIBE_SECRET = Deno.env.get("UNSUBSCRIBE_SECRET") ?? "";
 
-// Envois simultanés vers Postal, et fréquence de mise à jour du compteur affiché.
+// Envois simultanés vers le fournisseur d'e-mails, et fréquence de mise à jour du compteur affiché.
 const PARALLEL = 8;
 const PROGRESS_EVERY = 50;
 
@@ -112,31 +108,14 @@ async function sendEmail(message: Message, to: Recipient): Promise<boolean> {
     personalize(message.body, to.first_name).trim() +
     `\n\n${SITE_URL}\n\n` +
     (unsubscribeUrl ? `Ne plus recevoir les nouvelles : ${unsubscribeUrl}` : "Message d'information sur le service MichelIA.");
-  try {
-    const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {
-      method: "POST",
-      headers: { "X-Server-API-Key": POSTAL_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: [to.email],
-        from: MAIL_FROM,
-        reply_to: MAIL_REPLY_TO,
-        subject: personalize(message.subject, to.first_name),
-        plain_body: plain,
-        html_body: htmlBody(message, to.first_name, unsubscribeUrl),
-        tag: message.audience === "news" ? "nouvelles" : "service",
-        headers,
-      }),
-    });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || result?.status !== "success") {
-      console.error("Postal refuse l'envoi :", response.status, JSON.stringify(result?.data ?? result));
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("Postal injoignable :", e);
-    return false;
-  }
+  return envoyerMail({
+    to: to.email,
+    sujet: personalize(message.subject, to.first_name),
+    texte: plain,
+    html: htmlBody(message, to.first_name, unsubscribeUrl),
+    tag: message.audience === "news" ? "nouvelles" : "service",
+    headers,
+  });
 }
 
 // Envoie l'annonce aux destinataires qui ne l'ont pas encore reçue (chaque envoi est noté
@@ -260,8 +239,8 @@ Deno.serve(async (req) => {
   if (typeof message === "string") return json(400, { error: message }, origin);
 
   const wantsEmail = message.channels.includes("email");
-  if (wantsEmail && (!POSTAL_API_URL || !POSTAL_API_KEY || !UNSUBSCRIBE_SECRET)) {
-    return json(500, { error: "Envoi d'e-mails pas configuré : secrets POSTAL_API_URL, POSTAL_API_KEY et UNSUBSCRIBE_SECRET." }, origin);
+  if (wantsEmail && (!envoiConfigure() || !UNSUBSCRIBE_SECRET)) {
+    return json(500, { error: "Envoi d'e-mails pas configuré : secret SMTP2GO_API_KEY (ou POSTAL_API_URL + POSTAL_API_KEY) et UNSUBSCRIBE_SECRET." }, origin);
   }
 
   // Test : l'e-mail part seulement à l'administrateur, rien n'est enregistré.
@@ -272,7 +251,7 @@ Deno.serve(async (req) => {
     const ok = await sendEmail(message, { user_id: user.id, email: user.email, first_name: profile?.first_name ?? null });
     return ok
       ? json(200, { test: true, email: user.email }, origin)
-      : json(502, { error: "Postal a refusé le test, voir les journaux de la fonction." }, origin);
+      : json(502, { error: "L'envoi du test a été refusé, voir les journaux de la fonction." }, origin);
   }
 
   // Double clic ou nouvel essai : la même annonce n'est pas renvoyée dans les dix minutes.

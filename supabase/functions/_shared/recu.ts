@@ -149,7 +149,7 @@ function base64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-// Envoie le reçu en pièce jointe ; false si Postal n'est pas configuré ou refuse (l'appelant journalise).
+// Envoie le reçu en pièce jointe ; false si l'envoi n'est pas configuré ou refusé (l'appelant journalise).
 // inviterAvis : le premier envoi après un paiement (pas un reçu redemandé depuis le compte) part aussi
 // en copie cachée à Trustpilot, qui invite le client à donner son avis.
 export async function envoyerRecu(r: Recu, inviterAvis = false): Promise<boolean> {
@@ -159,7 +159,7 @@ export async function envoyerRecu(r: Recu, inviterAvis = false): Promise<boolean
   ], undefined, inviterAvis && TRUSTPILOT_BCC ? [TRUSTPILOT_BCC] : []);
 }
 
-// Envoie l'e-mail de remboursement avec l'avoir en pièce jointe ; false si Postal refuse.
+// Envoie l'e-mail de remboursement avec l'avoir en pièce jointe ; false si l'envoi est refusé.
 export async function envoyerAvoir(a: Avoir): Promise<boolean> {
   const r = a.recu;
   const courrier = remboursement({ prenom: r.prenom, montantCents: a.montantCents, libelle: r.libelle, numero: r.numero, avoir: a.numero, date: a.date });

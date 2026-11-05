@@ -11,6 +11,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { escapeHtml, sign } from "../_shared/envois.ts";
+import { envoiConfigure, envoyerMail } from "../_shared/envoi.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -29,11 +30,6 @@ type Lettre = { numero: number; date: Date; subject: string; entrees: Entree[]; 
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const POSTAL_API_URL = (Deno.env.get("POSTAL_API_URL") ?? "").replace(/\/+$/, "");
-const POSTAL_API_KEY = Deno.env.get("POSTAL_API_KEY") ?? "";
-const MAIL_FROM = Deno.env.get("MAIL_FROM") ?? "Michel (MichelIA) <noreply@michel.beer>";
-// Les réponses des gens arrivent dans la boîte de contact (l'expéditeur, lui, ne lit rien).
-const MAIL_REPLY_TO = Deno.env.get("MAIL_REPLY_TO") ?? "Michel (MichelIA) <contact@michel.beer>";
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://michel.beer").replace(/\/+$/, "");
 const UNSUBSCRIBE_SECRET = Deno.env.get("UNSUBSCRIBE_SECRET") ?? "";
 
@@ -267,34 +263,17 @@ async function sendEmail(l: Lettre, to: Recipient): Promise<boolean> {
   const token = `${to.user_id}.${await sign(to.user_id)}`;
   const unsubscribeUrl = `${SITE_URL}/chat?desabonnement=${token}`;
   const [u, t] = token.split(".");
-  try {
-    const response = await fetch(`${POSTAL_API_URL}/api/v1/send/message`, {
-      method: "POST",
-      headers: { "X-Server-API-Key": POSTAL_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: [to.email],
-        from: MAIL_FROM,
-        reply_to: MAIL_REPLY_TO,
-        subject: l.subject,
-        plain_body: plainBody(l, to.first_name, unsubscribeUrl),
-        html_body: htmlBody(l, to.first_name, unsubscribeUrl),
-        tag: "lettre",
-        headers: {
-          "List-Unsubscribe": `<${SUPABASE_URL}/functions/v1/annonces?u=${u}&t=${t}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        },
-      }),
-    });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || result?.status !== "success") {
-      console.error("Postal refuse l'envoi :", response.status, JSON.stringify(result?.data ?? result));
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("Postal injoignable :", e);
-    return false;
-  }
+  return envoyerMail({
+    to: to.email,
+    sujet: l.subject,
+    texte: plainBody(l, to.first_name, unsubscribeUrl),
+    html: htmlBody(l, to.first_name, unsubscribeUrl),
+    tag: "lettre",
+    headers: {
+      "List-Unsubscribe": `<${SUPABASE_URL}/functions/v1/annonces?u=${u}&t=${t}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  });
 }
 
 // --- L'envoi ----------------------------------------------------------------------------
@@ -364,14 +343,14 @@ async function rebuild(row: { id: number; created_at: string; subject: string; e
   return { ...lettre, subject: row.subject, date: new Date(row.created_at) };
 }
 
-const configured = () => !!(POSTAL_API_URL && POSTAL_API_KEY && UNSUBSCRIBE_SECRET);
+const configured = () => envoiConfigure() && !!UNSUBSCRIBE_SECRET;
 
 async function tick(origin: string | null): Promise<Response> {
   const config = await loadConfig();
   if (config.lettre_enabled !== "true") return json(200, { skipped: "lettre_enabled" }, origin);
-  if (!configured()) return json(500, { error: "Secrets POSTAL_API_URL, POSTAL_API_KEY et UNSUBSCRIBE_SECRET manquants." }, origin);
+  if (!configured()) return json(500, { error: "Secrets d'envoi (SMTP2GO_API_KEY ou POSTAL_API_URL + POSTAL_API_KEY) et UNSUBSCRIBE_SECRET manquants." }, origin);
 
-  // Une lettre coupée en route, ou que Postal a refusée en partie : on la termine avant toute
+  // Une lettre coupée en route, ou que l'envoi a refusée en partie : on la termine avant toute
   // chose (ceux qui l'ont reçue sont sautés). Un échec est retenté chaque matin, jusqu’à RETRY_DAYS jours après la lettre.
   const staleBefore = new Date(Date.now() - STALE_MINUTES * 60000).toISOString();
   const retryAfter = new Date(Date.now() - RETRY_DAYS * 86400000).toISOString();
@@ -416,7 +395,7 @@ async function test(req: Request, origin: string | null): Promise<Response> {
   if (!user) return json(401, { error: "Connecte-toi d'abord." }, origin);
   const { data: admin } = await db.from("admins").select("user_id").eq("user_id", user.id).maybeSingle();
   if (!admin) return json(403, { error: "Réservé aux administrateurs." }, origin);
-  if (!configured()) return json(500, { error: "Secrets POSTAL_API_URL, POSTAL_API_KEY et UNSUBSCRIBE_SECRET manquants." }, origin);
+  if (!configured()) return json(500, { error: "Secrets d'envoi (SMTP2GO_API_KEY ou POSTAL_API_URL + POSTAL_API_KEY) et UNSUBSCRIBE_SECRET manquants." }, origin);
   if (!user.email) return json(400, { error: "Ton compte n'a pas d'e-mail pour recevoir le test." }, origin);
 
   const { entrees, premiere, numero } = await nouvelles();
@@ -430,7 +409,7 @@ async function test(req: Request, origin: string | null): Promise<Response> {
   });
   return ok
     ? json(200, { test: true, email: user.email, entrees: entrees.length }, origin)
-    : json(502, { error: "Postal a refusé le test, voir les journaux de la fonction." }, origin);
+    : json(502, { error: "L'envoi du test a été refusé, voir les journaux de la fonction." }, origin);
 }
 
 Deno.serve(async (req) => {

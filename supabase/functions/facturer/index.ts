@@ -110,7 +110,7 @@ Deno.serve(async () => {
   };
 
   // 1. Les factures d'abord, pour que les reçus qui suivent portent leur numéro. Chacune a son compteur
-  // d'essais : une panne d'E-KO n'arrête pas les reçus, une panne de Postal n'arrête pas la facturation.
+  // d'essais : une panne d'E-KO n'arrête pas les reçus, une panne d'envoi d'e-mails n'arrête pas la facturation.
   if (facturer) {
     const { data, error } = await pourboires()
       .is("facture_reglee_at", null)
@@ -201,7 +201,7 @@ Deno.serve(async () => {
         await admin.from("pourboires").update({ recu_envoye_at: new Date().toISOString() }).eq("id", l.id);
         envoyes++;
       } else {
-        const message = erreur(l, "reçu", l.devise === "eur" ? "reçu refusé par Postal" : `devise ${l.devise} non gérée`);
+        const message = erreur(l, "reçu", l.devise === "eur" ? "reçu refusé à l'envoi" : `devise ${l.devise} non gérée`);
         await admin.from("pourboires").update({ recu_reserve_at: null, recu_erreur: message, recu_tentatives: l.recu_tentatives + 1 }).eq("id", l.id);
       }
     }
@@ -265,7 +265,7 @@ Deno.serve(async () => {
         console.error(`Avoir ${a.numero} : e-mail de remboursement refusé`);
         await admin.from("avoirs").update({
           envoi_reserve_at: null,
-          envoi_erreur: "e-mail de remboursement refusé par Postal",
+          envoi_erreur: "e-mail de remboursement refusé à l'envoi",
           envoi_tentatives: a.envoi_tentatives + 1,
         }).eq("id", a.id);
       }
