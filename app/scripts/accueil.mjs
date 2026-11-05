@@ -56,7 +56,7 @@ const DONNEES = {
       logo: `${SITE}/icones/icone-512.png`,
       email: 'contact@michel.beer',
       address: { '@type': 'PostalAddress', addressLocality: 'Manciet', postalCode: '32370', addressRegion: 'Gers', addressCountry: 'FR' },
-      sameAs: ['https://github.com/mvignaud/michelia', 'https://www.facebook.com/1467116286476992', 'https://www.instagram.com/michel.beer.32/'],
+      sameAs: ['https://github.com/mvignaud/michelia', 'https://www.facebook.com/michel.beer.32', 'https://www.instagram.com/michel.beer.32/'],
     },
     {
       '@type': 'WebApplication',
