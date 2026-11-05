@@ -64,12 +64,26 @@ async function apple() {
   // Numéro de version et build attachés, copyright, publication dès l'accord.
   const attributs = {};
   if (versionBuild && v.attributes.versionString !== versionBuild) attributs.versionString = versionBuild;
-  if (v.attributes.releaseType !== 'AFTER_APPROVAL') attributs.releaseType = 'AFTER_APPROVAL';
   if (!v.attributes.copyright) attributs.copyright = `${new Date().getFullYear()} GOLDEN PRINT`;
   if (Object.keys(attributs).length)
     await agir(`version : ${Object.entries(attributs).map(([k, x]) => `${k} → ${x}`).join(', ')}`, () =>
       api(`/v1/appStoreVersions/${v.id}`, { method: 'PATCH', body: { data: { type: 'appStoreVersions', id: v.id, attributes: attributs } } }),
     );
+  // Publication dès l'accord : souhaitée, pas bloquante. Apple refuse parfois de la changer par l'API
+  // (409 « releaseType can not be modified ») ; elle se règle alors dans la console.
+  if (v.attributes.releaseType !== 'AFTER_APPROVAL') {
+    const avant = etat.erreurs;
+    await agir(`publication dès l'accord (${v.attributes.releaseType} → AFTER_APPROVAL)`, () =>
+      api(`/v1/appStoreVersions/${v.id}`, {
+        method: 'PATCH',
+        body: { data: { type: 'appStoreVersions', id: v.id, attributes: { releaseType: 'AFTER_APPROVAL' } } },
+      }),
+    );
+    if (etat.erreurs > avant) {
+      etat.erreurs = avant;
+      dire(`  (publication laissée sur ${v.attributes.releaseType} : à régler dans App Store Connect si besoin)`);
+    }
+  }
   const actuel = (await api(`/v1/appStoreVersions/${v.id}/relationships/build`)).data;
   if (actuel?.id === b.id) dire(`  build ${build} déjà rattaché`);
   else
@@ -139,6 +153,10 @@ async function apple() {
   }
 
   if (manques.length) return dire('  → envoi à l’examen Apple non tenté : voir ce qui manque.');
+  // Un produit qu'Apple refuse de joindre (409, ex. premiers achats intégrés : à cocher dans la console sur la
+  // page de la version) : ne pas envoyer la version seule, l'écran MichelIA+ serait vide pour l'examinateur.
+  if (etat.erreurs > erreursAvant)
+    return dire('  → envoi à l’examen Apple non tenté : des achats intégrés n’ont pas pu être joints (voir ci-dessus).');
 
   // Envoi : une « soumission » ouverte (ou nouvelle), la version dedans, puis « soumettre ».
   await agir(`envoyer la version ${versionBuild ?? v.attributes.versionString} à l'examen Apple`, async () => {
