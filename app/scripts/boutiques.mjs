@@ -365,10 +365,17 @@ async function appleAbonnements(api) {
         }),
       );
 
-    // Prix : le palier français, et ses équivalents belge et luxembourgeois ; seulement là où il n'y en a pas.
+    // Pays où l'abonnement est en vente : ceux de la disponibilité déjà posée (elle a pu être réglée dans la
+    // console sur plus de pays), sinon les nôtres. Un pays en vente sans prix laisse l'abonnement MISSING_METADATA.
+    const pays = dispo
+      ? (await api(`/v1/subscriptionAvailabilities/${dispo.id}/availableTerritories?limit=200`)).data.map((t) => t.id)
+      : Object.values(PAYS);
+    if (dispo) dire(`  en vente dans ${pays.length} pays`);
+
+    // Prix : le palier français, et ses équivalents dans les autres pays ; seulement là où il n'y en a pas.
     const prix = await api(`/v1/subscriptions/${sub.id}/prices?include=territory&limit=200`);
     const deja = new Set((prix.data ?? []).map((x) => x.relationships?.territory?.data?.id).filter(Boolean));
-    const manquants = Object.values(PAYS).filter((t) => !deja.has(t));
+    const manquants = pays.filter((t) => !deja.has(t));
     if (!manquants.length) {
       dire('  prix déjà posés');
       continue;
@@ -381,7 +388,7 @@ async function appleAbonnements(api) {
       continue;
     }
     const equivalents = (
-      await api(`/v1/subscriptionPricePoints/${point.id}/equalizations?filter[territory]=BEL,LUX&include=territory&limit=50`)
+      await api(`/v1/subscriptionPricePoints/${point.id}/equalizations?include=territory&limit=200`)
     ).data;
     const parPays = { FRA: point.id, ...Object.fromEntries(equivalents.map((x) => [x.relationships?.territory?.data?.id, x.id])) };
     for (const t of manquants) {
