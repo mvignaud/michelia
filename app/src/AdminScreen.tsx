@@ -45,7 +45,7 @@ const TABS: { id: Tab; label: string }[] = [
 const number = (n: number | null | undefined) => (n ?? 0).toLocaleString('fr-FR');
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 const shortDay = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
-// Coût Claude en dollars : quatre décimales sous le dollar, les montants sont minuscules.
+// Coût IA en dollars : quatre décimales sous le dollar, les montants sont minuscules.
 const dollars = (n: number | null | undefined) => {
   const value = Number(n ?? 0);
   const digits = value < 1 ? 4 : 2;
@@ -127,7 +127,7 @@ function StatsTab() {
         <Tile label="Réponses en cache" value={stats.cache_answers} hint={`${number(stats.cache_hits)} fois resservies`} />
         {costs && (
           <Tile
-            label="Coût Claude aujourd'hui"
+            label="Coût IA aujourd'hui"
             text={dollars(costs.cost_today)}
             hint={`${dollars(costs.cost_7d)} en 7 j · ${dollars(costs.cost_30d)} en 30 j`}
           />
@@ -144,7 +144,7 @@ function StatsTab() {
         <Bars days={stats.days} value={(d) => d.signups} />
       </Section>
       {costs && (
-        <Section title="Coût Claude par jour (indicatif)">
+        <Section title="Coût IA par jour (indicatif)">
           <Bars days={costs.days} value={(d) => d.cost} format={dollars} />
           <Text style={styles.small}>
             Estimation d'après les jetons de chaque réponse et les prix réglés dans app_config
@@ -167,7 +167,7 @@ function StatsTab() {
             order={perActive.tranches.map((t) => t.label)}
           />
           <Text style={styles.small}>
-            Actif : au moins une question sur les 30 derniers jours. Tranches de coût Claude par utilisateur, en dollars.
+            Actif : au moins une question sur les 30 derniers jours. Tranches de coût IA (Claude + Grok) par utilisateur, en dollars.
           </Text>
         </Section>
       )}
@@ -459,8 +459,8 @@ function MemberDetail({ user, onChanged }: { user: AdminUser; onChanged: (messag
     ["Questions aujourd'hui", number(user.messages_today)],
     ['Questions sur 90 j', number(user.messages_90d)],
     ['Messages dans sa conversation', number(user.conversation_messages)],
-    ['Coût Claude sur 7 j', dollars(user.cost_7d)],
-    ['Coût Claude sur 90 j', dollars(user.cost_90d)],
+    ['Coût IA sur 7 j', dollars(user.cost_7d)],
+    ['Coût IA sur 90 j', dollars(user.cost_90d)],
     ['Identifiant', user.id],
   ];
   return (
@@ -477,7 +477,7 @@ function MemberDetail({ user, onChanged }: { user: AdminUser; onChanged: (messag
       {days ? <Bars days={days} value={(d) => d.messages} /> : <ActivityIndicator color={colors.accent} />}
       {days && days.some((d) => d.cost > 0) && (
         <>
-          <Text style={[styles.factLabel, styles.detailChart]}>Coût Claude par jour (indicatif)</Text>
+          <Text style={[styles.factLabel, styles.detailChart]}>Coût IA par jour (indicatif)</Text>
           <Bars days={days} value={(d) => d.cost} format={dollars} />
         </>
       )}

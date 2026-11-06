@@ -6,6 +6,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { corsHeaders } from "../_shared/cors.ts";
+import { grok, type GrokMessage } from "./grok.ts";
 
 // Seule la dernière question peut porter une photo (en base64) ; les plus anciennes
 // gardent juste la mention « photo », l'image n'est jamais renvoyée ni enregistrée.
@@ -632,7 +633,11 @@ Deno.serve(async (req) => {
       ],
       messages: convo,
     });
-  let stream = ask(true);
+  // Ultra-hard d'un abonné MichelIA+ : Grok répond (sans photo ni outils), Claude reste en secours.
+  const cleXai = Deno.env.get("XAI_API_KEY");
+  const parGrok = ton === "ultra" && plus && !photo && config.grok_actif === "true" && !!cleXai;
+  const grokArret = new AbortController();
+  let stream: ReturnType<typeof ask> | undefined;
 
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -650,32 +655,71 @@ Deno.serve(async (req) => {
         answer += text;
         controller.enqueue(encoder.encode(text));
       };
+      // Texte reçu du modèle : part au fil de l'eau, sauf un début possible de balise <prenom>.
+      const push = (text: string) => {
+        pending += text;
+        if (held) return;
+        const tag = pending.indexOf("<prenom>");
+        if (tag !== -1) {
+          flush(pending.slice(0, tag));
+          pending = pending.slice(tag);
+          held = true;
+          return;
+        }
+        const keep = partialTag(pending);
+        flush(pending.slice(0, pending.length - keep));
+        pending = pending.slice(pending.length - keep);
+      };
       try {
-        let final: Anthropic.Messages.Message;
-        for (let round = 1; ; round++) {
+        let stop: string | null = null;
+        if (parGrok) {
+          try {
+            const grokMessages: GrokMessage[] = [
+              { role: "system", content: `${config.system_prompt}\n\n${context}` },
+              ...messages.map((m) => ({
+                role: m.role,
+                content: m.photo ? `${PHOTO_BEFORE} ${m.content.trim()}`.trim() : m.content,
+              })),
+            ];
+            const { fin, usage } = await grok({
+              cle: cleXai!,
+              modele: config.grok_model ?? "grok-4.20-0309-non-reasoning",
+              messages: grokMessages,
+              maxTokens: Number(config.max_output_tokens ?? 2048),
+              signal: grokArret.signal,
+              onText: push,
+            });
+            stop = fin === "longueur" ? "max_tokens" : fin === "refus" ? "refusal" : "end_turn";
+            if (usage.input || usage.output) {
+              keepAlive(
+                Promise.resolve(
+                  admin.rpc("record_grok_tokens", { p_user: userId, p_input: usage.input, p_output: usage.output }),
+                ).then(({ error }) => error && console.error("jetons grok", error)),
+              );
+            }
+          } catch (e) {
+            // Grok a déjà parlé : on ne recommence pas avec Claude, on coupe proprement.
+            if (answer || pending) throw e;
+            console.error("grok, Claude prend la main", e);
+          }
+        }
+        for (let round = 1; stop === null; round++) {
+          stream ??= ask(true);
           let fresh = true;
           for await (const event of stream) {
             if (event.type !== "content_block_delta" || event.delta.type !== "text_delta") continue;
             // Nouveau tour après un outil : on saute une ligne si Michel avait déjà parlé.
             if (fresh && (answer || pending) && !/\s$/.test(answer + pending)) pending += "\n\n";
             fresh = false;
-            pending += event.delta.text;
-            if (held) continue;
-            const tag = pending.indexOf("<prenom>");
-            if (tag !== -1) {
-              flush(pending.slice(0, tag));
-              pending = pending.slice(tag);
-              held = true;
-              continue;
-            }
-            const keep = partialTag(pending);
-            flush(pending.slice(0, pending.length - keep));
-            pending = pending.slice(pending.length - keep);
+            push(event.delta.text);
           }
-          final = await stream.finalMessage();
+          const final = await stream.finalMessage();
           addUsage(tokens, final.usage);
           counted = true;
-          if (final.stop_reason !== "tool_use") break;
+          if (final.stop_reason !== "tool_use") {
+            stop = final.stop_reason ?? "end_turn";
+            break;
+          }
 
           // Michel consulte ses outils, puis reprend la parole avec les résultats.
           usedTools = true;
@@ -689,9 +733,9 @@ Deno.serve(async (req) => {
         const learned = cleanName(pending.match(NAME_TAG)?.[1]);
         flush(pending.replace(NAME_TAG, "").trimEnd());
 
-        if (final.stop_reason === "refusal") {
+        if (stop === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
-        } else if (final.stop_reason === "max_tokens") {
+        } else if (stop === "max_tokens") {
           controller.enqueue(encoder.encode("…\n\nPétard, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
         } else {
           // Une réponse tirée de la météo ou de l'actu ne va pas dans le cache : elle périmerait.
@@ -702,11 +746,11 @@ Deno.serve(async (req) => {
         }
         if (learned) controller.enqueue(encoder.encode(TRAILER + JSON.stringify({ prenom: learned })));
       } catch (e) {
-        console.error("anthropic", e);
+        console.error(parGrok ? "grok/anthropic" : "anthropic", e);
         controller.enqueue(encoder.encode("\n\nMiladiou, la machine a fait des siennes. Réessaie."));
       } finally {
         // Jetons consommés, même si la réponse a été coupée en route (ils sont facturés quand même).
-        const partial = counted ? undefined : stream.currentMessage?.usage;
+        const partial = counted ? undefined : stream?.currentMessage?.usage;
         if (partial) addUsage(tokens, partial);
         if (tokens.input || tokens.output) {
           keepAlive(recordTokens(userId, tokens).catch((e) => console.error("jetons", e)));
@@ -724,7 +768,8 @@ Deno.serve(async (req) => {
       }
     },
     cancel() {
-      stream.abort();
+      grokArret.abort();
+      stream?.abort();
     },
   });
 
