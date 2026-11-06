@@ -348,8 +348,8 @@ function Chat() {
       const aEnvoyer = new Map(remote.aEnvoyer.map((d) => [d.id, d]));
       for (const locale of carnetRef.current) {
         const distante = parId.get(locale.id);
-        // Déjà passée par le compte mais plus dessus : effacée depuis un autre appareil.
-        if (!distante && locale.enLigne) continue;
+        // Déjà passée par le compte mais plus dessus : effacée depuis un autre appareil (si la liste a bien été lue).
+        if (!distante && locale.enLigne && remote.complet) continue;
         if (!distante || Date.parse(locale.maj) > Date.parse(distante.maj)) {
           parId.set(locale.id, locale);
           aEnvoyer.set(locale.id, locale);

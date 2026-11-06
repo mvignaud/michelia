@@ -121,7 +121,8 @@ export async function saveCarnet(carnet: Carnet): Promise<void> {
 export async function loadAccountCarnet(
   userId: string,
   locales: Discussion[],
-): Promise<{ name?: string; discussions: Discussion[]; aEnvoyer: Discussion[] } | null> {
+  // « complet » : la liste des causettes a bien été lue (sinon on ne sait pas lesquelles ont été effacées).
+): Promise<{ name?: string; discussions: Discussion[]; aEnvoyer: Discussion[]; complet: boolean } | null> {
   const [conv, liste] = await Promise.all([
     supabase.from('conversations').select('name, messages, updated_at').eq('user_id', userId).maybeSingle(),
     supabase
@@ -155,7 +156,7 @@ export async function loadAccountCarnet(
     if (place >= 0) discussions[place] = reprise;
     else discussions.unshift(reprise);
   }
-  return { name: conv.data?.name ?? undefined, discussions: ranger(discussions).gardees, aEnvoyer };
+  return { name: conv.data?.name ?? undefined, discussions: ranger(discussions).gardees, aEnvoyer, complet: !liste.error };
 }
 
 // Garde une causette sur le compte. « enCours » : c'est celle où l'on vient d'écrire, recopiée aussi
