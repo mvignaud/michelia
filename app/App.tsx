@@ -348,8 +348,12 @@ function Chat() {
         setSyncedFor(memberId);
         return;
       }
-      const parId = new Map(remote.discussions.filter((d) => !effacees.has(d.id)).map((d) => [d.id, d]));
-      const aEnvoyer = new Map(remote.aEnvoyer.filter((d) => !effacees.has(d.id)).map((d) => [d.id, d]));
+      // La plus récente effacée en attente : la copie dans conversations, c'est elle, on ne la reprend pas.
+      const copieEffacee = [...effacees.values()].some((plus) => plus);
+      const reprises = new Set(remote.aEnvoyer.map((d) => d.id));
+      const garder = (d: Discussion) => !effacees.has(d.id) && !(copieEffacee && reprises.has(d.id));
+      const parId = new Map(remote.discussions.filter(garder).map((d) => [d.id, d]));
+      const aEnvoyer = new Map(remote.aEnvoyer.filter(garder).map((d) => [d.id, d]));
       // Une causette jamais envoyée mais déjà sur le compte sous un autre identifiant (la même conversation
       // reprise des deux côtés lors du passage au carnet) : on la range sous l'identifiant du compte.
       const memes = new Map<string, string>();
