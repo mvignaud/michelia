@@ -584,13 +584,15 @@ Deno.serve(async (req) => {
   });
   // Interrupteur des outils dans app_config (tools_enabled = false pour les couper).
   const tools = config.tools_enabled === "false" ? undefined : TOOLS;
+  const sansOutils = "Tu n'as pas accès à internet ni à la météo en direct.";
+  const outils = tools
+    ? "Tu as deux outils : « meteo » pour le temps qu'il fait et « actualites » pour les nouvelles fraîches. " +
+      "Sers-t'en dès que la question le demande au lieu d'inventer, puis donne ton avis de Gersois sur ce que " +
+      "tu trouves, sans lister de liens. Pour le reste, tu n'as pas internet."
+    : sansOutils;
   const context = [
     `Nous sommes le ${today}.`,
-    tools
-      ? "Tu as deux outils : « meteo » pour le temps qu'il fait et « actualites » pour les nouvelles fraîches. " +
-        "Sers-t'en dès que la question le demande au lieu d'inventer, puis donne ton avis de Gersois sur ce que " +
-        "tu trouves, sans lister de liens. Pour le reste, tu n'as pas internet."
-      : "Tu n'as pas accès à internet ni à la météo en direct.",
+    outils,
     embedding
       ? "Ta réponse pourra être resservie à d'autres personnes : n'utilise aucun prénom et ne reprends " +
         "aucun détail personnel de la question (lieu, proche, situation)."
@@ -633,9 +635,11 @@ Deno.serve(async (req) => {
       ],
       messages: convo,
     });
-  // Ultra-hard d'un abonné MichelIA+ : Grok répond (sans photo ni outils), Claude reste en secours.
+  // Ultra-hard d'un abonné MichelIA+ : Grok répond, Claude reste en secours. Grok n'a ni la vue ni les
+  // outils : une photo ou une question de météo/actu va à Claude.
   const cleXai = Deno.env.get("XAI_API_KEY");
-  const parGrok = ton === "ultra" && plus && !photo && config.grok_actif === "true" && !!cleXai;
+  const parGrok = ton === "ultra" && plus && !photo && config.grok_actif === "true" && !!cleXai &&
+    !FRESH.test(messages[messages.length - 1].content);
   const grokArret = new AbortController();
   let stream: ReturnType<typeof ask> | undefined;
 
@@ -675,7 +679,7 @@ Deno.serve(async (req) => {
         if (parGrok) {
           try {
             const grokMessages: GrokMessage[] = [
-              { role: "system", content: `${config.system_prompt}\n\n${context}` },
+              { role: "system", content: `${config.system_prompt}\n\n${context.replace(outils, sansOutils)}` },
               ...messages.map((m) => ({
                 role: m.role,
                 content: m.photo ? `${PHOTO_BEFORE} ${m.content.trim()}`.trim() : m.content,

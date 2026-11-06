@@ -26,6 +26,8 @@ export async function grok(options: {
   const signal = AbortSignal.any([options.signal, attente.signal]);
   const usage: GrokUsage = { input: 0, output: 0 };
   let fin: GrokFin = "fin";
+  // Le flux doit se clore par une raison de fin ou [DONE] : sinon il a été coupé en route.
+  let termine = false;
   try {
     const res = await fetch(URL_XAI, {
       method: "POST",
@@ -52,6 +54,7 @@ export async function grok(options: {
       reste = lignes.pop() ?? "";
       for (const ligne of lignes) {
         const donnee = ligne.startsWith("data:") ? ligne.slice(5).trim() : "";
+        if (donnee === "[DONE]") termine = true;
         if (!donnee || donnee === "[DONE]") continue;
         const morceau = JSON.parse(donnee) as Morceau;
         if (morceau.usage) {
@@ -64,10 +67,12 @@ export async function grok(options: {
           clearTimeout(timer);
           options.onText(texte);
         }
+        if (choix?.finish_reason) termine = true;
         if (choix?.finish_reason === "length") fin = "longueur";
         else if (choix?.finish_reason === "content_filter") fin = "refus";
       }
     }
+    if (!termine) throw new Error("xAI : flux coupé avant la fin");
     return { fin, usage };
   } finally {
     clearTimeout(timer);
