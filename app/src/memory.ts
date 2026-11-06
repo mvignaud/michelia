@@ -124,6 +124,8 @@ export async function saveCarnet(carnet: Carnet): Promise<void> {
   }
 }
 
+const INVENTAIRE = 500;
+
 // Les causettes gardées sur le compte (null en cas de souci réseau). « aEnvoyer » : celles à recopier
 // dans la table discussions, c'est-à-dire la conversation écrite par une appli d'avant le carnet.
 // « locales » : les causettes de l'appareil, pour reconnaître cette conversation si elle y est déjà.
@@ -142,7 +144,9 @@ export async function loadAccountCarnet(
       .select('id, titre, messages, updated_at')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
-      .limit(MAX_DISCUSSIONS),
+      // Tout l'inventaire (le compte en garde au plus 100, plus après une fusion de comptes) : une causette
+      // absente de la liste doit vraiment avoir été effacée. Le surplus au-delà de 30 est retiré ensuite.
+      .limit(INVENTAIRE),
   ]);
   if (conv.error && liste.error) return null;
   const discussions: Discussion[] = (liste.data ?? [])
@@ -171,7 +175,7 @@ export async function loadAccountCarnet(
     if (place >= 0) discussions[place] = reprise;
     else discussions.unshift(reprise);
   }
-  return { name: conv.data?.name ?? undefined, discussions: ranger(discussions).gardees, aEnvoyer, complet: !liste.error };
+  return { name: conv.data?.name ?? undefined, discussions, aEnvoyer, complet: !liste.error && (liste.data?.length ?? 0) < INVENTAIRE };
 }
 
 // Garde une causette sur le compte. « enCours » : c'est celle où l'on vient d'écrire, recopiée aussi
