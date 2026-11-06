@@ -156,7 +156,10 @@ export async function loadAccountCarnet(
   if (!sansAncienne && ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
     const maj = new Date(majAncienne).toISOString();
     // La même causette, continuée par l'appli d'avant : tous ses messages ouvrent la conversation du compte.
-    const continuee = (d: Discussion) => prolonge(ancienne, d.messages);
+    // L'appli d'avant ne garde que les 40 derniers messages : le début de la causette a pu glisser hors
+    // de la fenêtre. On accepte alors un recouvrement d'au moins un échange (pas une simple question d'ouverture).
+    const continuee = (d: Discussion) =>
+      d.messages.some((_, o) => (o === 0 || d.messages.length - o >= 2) && prolonge(ancienne, d.messages.slice(o)));
     const suite = discussions.find(continuee) ?? locales.find(continuee);
     const reprise: Discussion = suite
       ? { ...suite, messages: ancienne, maj }
@@ -171,11 +174,23 @@ export async function loadAccountCarnet(
 
 // Garde une causette sur le compte. « enCours » : c'est celle où l'on vient d'écrire, recopiée aussi
 // dans la table conversations (avec le prénom), à la même heure.
-export async function saveAccountDiscussion(
-  userId: string,
-  d: Discussion,
-  enCours?: { name?: string },
-): Promise<void> {
+// Les envois et effacements d'une même causette passent l'un après l'autre, dans l'ordre demandé :
+// un effacement ne peut pas être doublé par un envoi parti juste avant lui.
+const files = new Map<string, Promise<unknown>>();
+function aLaFile<T>(id: string, travail: () => Promise<T>): Promise<T> {
+  const suivant = (files.get(id) ?? Promise.resolve()).catch(() => undefined).then(travail);
+  files.set(id, suivant);
+  suivant
+    .catch(() => undefined)
+    .then(() => files.get(id) === suivant && files.delete(id));
+  return suivant;
+}
+
+export function saveAccountDiscussion(userId: string, d: Discussion, enCours?: { name?: string }): Promise<void> {
+  return aLaFile(d.id, () => envoyerDiscussion(userId, d, enCours));
+}
+
+async function envoyerDiscussion(userId: string, d: Discussion, enCours?: { name?: string }): Promise<void> {
   const messages = aGarder(d.messages);
   const [{ error }] = await Promise.all([
     supabase
@@ -194,7 +209,11 @@ export async function saveAccountDiscussion(
 
 // Retire une causette du compte. Si c'était la plus récente, sa copie dans la table conversations
 // est vidée aussi : sinon elle reviendrait au prochain chargement comme une conversation d'avant le carnet.
-export async function deleteAccountDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
+export function deleteAccountDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
+  return aLaFile(id, () => effacerDiscussion(userId, id, plusRecente));
+}
+
+async function effacerDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
   const [effacee, copie] = await Promise.all([
     supabase.from('discussions').delete().eq('user_id', userId).eq('id', id),
     plusRecente ? supabase.from('conversations').update({ messages: [] }).eq('user_id', userId) : null,
