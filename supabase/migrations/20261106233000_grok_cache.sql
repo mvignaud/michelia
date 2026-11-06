@@ -95,6 +95,11 @@ declare
   b int;
 begin
   select value into p from public.app_config where key = 'system_prompt';
+  -- Base neuve : le prompt privé n'est pas encore posé, Grok prendra le prompt principal le moment venu.
+  if p is null then
+    raise notice 'Pas de system_prompt : grok_system_prompt non construit';
+    return;
+  end if;
   a := position('Ton répertoire (tu les racontes' in p);
   b := position('## La règle d''or' in p);
   if a = 0 or b <= a then raise exception 'Repère des blagues introuvable : rien n''a été modifié'; end if;
