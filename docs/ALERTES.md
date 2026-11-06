@@ -9,6 +9,7 @@ Michel prévient Mathieu par e-mail (à `contact@michel.beer`) de tout ce qui co
 | `inscription` / `depart` | Un vrai compte créé (jamais les sessions anonymes) / un compte supprimé. |
 | `pourboire` / `remboursement` | Un pourboire payé (site ou applis) / un remboursement constaté chez Stancer. |
 | `abonnement`, `renouvellement`, `impaye`, `reprise`, `resiliation`, `fin_abonnement` | La vie d'un abonnement MichelIA+, par le site (Stancer) comme par les applis (RevenueCat). |
+| `reseaux` | Déposée par la fonction `reseaux` : un commentaire Facebook ou Instagram que Michel laisse à Mathieu, ou le jeton Meta qui ne marche plus (une fois par jour au plus). Voir [REPONSES-RESEAUX.md](REPONSES-RESEAUX.md). |
 
 Les paiements d'essai ne déclenchent rien.
 
