@@ -41,12 +41,27 @@
 
   if (depuisLeChat) return compter();
 
+  // Retire les cookies _ga posés par le chat quand on retire son accord ici (comme clearAnalyticsCookies
+  // dans src/analytics.web.ts).
+  function effacerGa() {
+    var hote = location.hostname;
+    var domaines = ['', hote, '.' + hote, '.' + hote.split('.').slice(-2).join('.')];
+    document.cookie.split(';').forEach(function (c) {
+      var nom = c.split('=')[0].trim();
+      if (nom.indexOf('_ga') !== 0) return;
+      domaines.forEach(function (d) {
+        document.cookie = nom + '=; Max-Age=0; path=/' + (d ? '; domain=' + d : '');
+      });
+    });
+  }
+
   var bandeau = null;
   function choisir(oui) {
     try {
       localStorage.setItem(CLE, oui ? 'oui' : 'non');
     } catch (e) {}
     if (oui) compter();
+    else effacerGa();
     if (bandeau) bandeau.remove();
     bandeau = null;
   }
