@@ -195,11 +195,12 @@ export async function saveAccountDiscussion(
 // Retire une causette du compte. Si c'était la plus récente, sa copie dans la table conversations
 // est vidée aussi : sinon elle reviendrait au prochain chargement comme une conversation d'avant le carnet.
 export async function deleteAccountDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
-  const [{ error }] = await Promise.all([
+  const [effacee, copie] = await Promise.all([
     supabase.from('discussions').delete().eq('user_id', userId).eq('id', id),
-    plusRecente && supabase.from('conversations').update({ messages: [] }).eq('user_id', userId),
+    plusRecente ? supabase.from('conversations').update({ messages: [] }).eq('user_id', userId) : null,
   ]);
-  if (error) throw error;
+  if (effacee.error) throw effacee.error;
+  if (copie?.error) throw copie.error;
 }
 
 // Causettes effacées sur l'appareil mais pas encore sur le compte (hors ligne, ou compte encore en
