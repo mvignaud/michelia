@@ -31,6 +31,7 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 
 C'est épluché, c'est coupé, ça attend son tour.
 
+- **Les tons durs dans les applis** : le hard et l'ultra-hard, déjà sur le site, arriveront dans les applis de l'iPhone et d'Android quand Apple et Google auront validé une étiquette « réservé aux adultes ». Faut bien que je présente mes papiers.
 - **Quoi de neuf dans l'appli** : les nouveautés du carnet directement dans l'appli, pour que tu saches ce qui a changé sans aller sur le site.
 
 ## Au frais

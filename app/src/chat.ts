@@ -1,5 +1,6 @@
 import { fetch } from 'expo/fetch';
 import type { Photo } from './photo';
+import type { TonId } from './tons';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, getAccessToken } from './supabase';
 
 // « photo » : la question portait une photo. L'image elle-même (« image ») n'est envoyée
@@ -15,10 +16,12 @@ const SILENCE_MS = 60_000;
 // Envoie l'historique à la fonction « chat » et transmet la réponse au fil de l'eau.
 // Renvoie le prénom si la personne vient de le donner à Michel.
 // mode : identifiant du mode thématique choisi (voir modes.ts), ou rien.
+// ton : le ton de Michel (voir tons.ts) ; rien n'est envoyé pour « normal ».
 export async function askMichel(
   messages: ChatMessage[],
   name: string | undefined,
   mode: string | undefined,
+  ton: TonId | undefined,
   onText: (chunk: string) => void,
   signal?: AbortSignal,
 ): Promise<{ name?: string }> {
@@ -32,7 +35,7 @@ export async function askMichel(
   };
   wait();
   try {
-    return await read(token, messages, name, mode, onText, controller.signal, wait);
+    return await read(token, messages, name, mode, ton, onText, controller.signal, wait);
   } catch (e) {
     if (controller.signal.aborted && !signal?.aborted) throw new Error('Michel s’est endormi sur sa chaise. Réessaie, con.');
     throw e;
@@ -46,6 +49,7 @@ async function read(
   messages: ChatMessage[],
   name: string | undefined,
   mode: string | undefined,
+  ton: TonId | undefined,
   onText: (chunk: string) => void,
   signal: AbortSignal,
   alive: () => void,
@@ -66,6 +70,7 @@ async function read(
       })),
       name,
       mode,
+      ...(ton && ton !== 'normal' && { ton }),
     }),
     signal,
   });
