@@ -342,7 +342,7 @@ function Chat() {
     Promise.all([loadAccountCarnet(memberId, carnetRef.current), lireEffacees(memberId)]).then(([remote, effacees]) => {
       if (cancelled) return;
       // Effacées ici avant d'avoir pu l'être sur le compte : on réessaie, et on ne les reprend pas.
-      effacees.forEach((id) => effacerDuCompte(memberId, id, false).catch(() => undefined));
+      effacees.forEach((plusRecente, id) => effacerDuCompte(memberId, id, plusRecente).catch(() => undefined));
       if (!remote) {
         // Souci réseau : on garde l'appareil, et on enverra la causette en cours à la prochaine réponse.
         setSyncedFor(memberId);
