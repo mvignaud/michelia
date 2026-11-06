@@ -2,6 +2,7 @@
 date: 2026-11-07
 titre: Plusieurs causettes, rangées dans un carnet
 type: nouveau
+pr: 172
 plateformes: web, ios, android
 store: Plusieurs causettes avec Michel, rangées dans un carnet
 ---
