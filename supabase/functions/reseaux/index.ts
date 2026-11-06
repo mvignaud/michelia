@@ -74,6 +74,10 @@ class GraphErreur extends Error {
   get jetonCasse() {
     return this.code === 190 || this.code === 10 || (this.code !== null && this.code >= 200 && this.code < 300);
   }
+  // 4, 17, 32, 613 : trop d'appels, Meta demande d'attendre ; 368 : blocage temporaire pour abus.
+  get tropDAppels() {
+    return this.code === 4 || this.code === 17 || this.code === 32 || this.code === 613 || this.code === 368;
+  }
 }
 
 let preuve: string | null = null;
@@ -86,20 +90,39 @@ async function appsecretProof(): Promise<string | null> {
   return preuve;
 }
 
+async function appeler<T>(url: string, etiquette: string, init?: RequestInit): Promise<T> {
+  const reponse = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
+  const corps = await reponse.json().catch(() => ({}));
+  if (!reponse.ok || corps?.error) {
+    const e = corps?.error ?? {};
+    throw new GraphErreur(`${etiquette} : ${e.message ?? reponse.status}`, typeof e.code === "number" ? e.code : null);
+  }
+  return corps as T;
+}
+
 async function graph<T>(version: string, chemin: string, params: Record<string, string> = {}, methode: "GET" | "POST" = "GET"): Promise<T> {
   const tous = new URLSearchParams({ ...params, access_token: PAGE_TOKEN });
   const p = await appsecretProof();
   if (p) tous.set("appsecret_proof", p);
   const url = `https://graph.facebook.com/${version}/${chemin}`;
-  const reponse = methode === "GET"
-    ? await fetch(`${url}?${tous}`, { signal: AbortSignal.timeout(15000) })
-    : await fetch(url, { method: "POST", body: tous, signal: AbortSignal.timeout(15000) });
-  const corps = await reponse.json().catch(() => ({}));
-  if (!reponse.ok || corps?.error) {
-    const e = corps?.error ?? {};
-    throw new GraphErreur(`${chemin} : ${e.message ?? reponse.status}`, typeof e.code === "number" ? e.code : null);
+  return methode === "GET"
+    ? await appeler<T>(`${url}?${tous}`, chemin)
+    : await appeler<T>(url, chemin, { method: "POST", body: tous });
+}
+
+// Une liste de l'API Graph, page après page (l'adresse « next » porte déjà le jeton et la preuve),
+// tant que continuer() le permet et au plus PAGES_MAX pages : un trop-plein attend le passage suivant.
+type Liste<T> = { data: T[]; paging?: { next?: string } };
+const PAGES_MAX = 5;
+async function toutes<T>(premiere: Liste<T> | undefined, continuer: (dernier: T) => boolean = () => true): Promise<T[]> {
+  const tout = [...(premiere?.data ?? [])];
+  let suite = premiere?.paging?.next;
+  for (let n = 1; suite && n < PAGES_MAX && tout.length && continuer(tout[tout.length - 1]); n++) {
+    const page = await appeler<Liste<T>>(suite, "page suivante");
+    tout.push(...page.data);
+    suite = page.paging?.next;
   }
-  return corps as T;
+  return tout;
 }
 
 type Page = { id: string; name: string; instagram_business_account?: { id: string; username?: string } };
@@ -110,7 +133,7 @@ type FbCommentaire = {
   from?: { id: string; name?: string };
   comments?: { data: { from?: { id: string } }[] };
 };
-type FbPublication = { id: string; message?: string; comments?: { data: FbCommentaire[] } };
+type FbPublication = { id: string; message?: string; comments?: Liste<FbCommentaire> };
 type IgCommentaire = {
   id: string;
   text?: string;
@@ -119,41 +142,58 @@ type IgCommentaire = {
   from?: { id: string; username?: string };
   replies?: { data: { username?: string }[] };
 };
-type IgMedia = { id: string; caption?: string; timestamp: string; comments?: { data: IgCommentaire[] } };
+type IgMedia = { id: string; caption?: string; timestamp: string; comments?: Liste<IgCommentaire> };
+
+// Une publication ancienne peut recevoir un commentaire neuf : on remonte 30 jours de plus que la fenêtre.
+const RECUL_PUBLICATIONS = 30 * 86400_000;
 
 async function commentairesFacebook(version: string, page: Page, depuis: Date): Promise<Commentaire[]> {
-  const { data } = await graph<{ data: FbPublication[] }>(version, "me/posts", {
+  const premiere = await graph<Liste<FbPublication>>(version, "me/posts", {
     fields:
       "id,message,comments.filter(toplevel).order(reverse_chronological).limit(25)" +
       "{id,message,created_time,from{id,name},comments.limit(25){from{id}}}",
-    since: String(Math.floor(depuis.getTime() / 1000) - 30 * 86400), // une publication ancienne peut recevoir un commentaire neuf
+    since: String(Math.floor((depuis.getTime() - RECUL_PUBLICATIONS) / 1000)),
     limit: "15",
   });
-  return data.flatMap((pub) =>
-    (pub.comments?.data ?? []).map((c) => ({
-      reseau: "facebook" as const,
-      id: c.id,
-      publication_id: pub.id,
-      publication: pub.message ?? "",
-      auteur_id: c.from?.id ?? null,
-      auteur: c.from?.name ?? null,
-      texte: c.message ?? "",
-      date: c.created_time,
-      dejaRepondu: (c.comments?.data ?? []).some((r) => r.from?.id === page.id),
-    })).filter((c) => c.auteur_id !== page.id)
-  );
+  const publications = await toutes(premiere);
+  const resultat: Commentaire[] = [];
+  for (const pub of publications) {
+    // Du plus récent au plus ancien : on s'arrête dès qu'on sort de la fenêtre.
+    const commentaires = await toutes(pub.comments, (c) => Date.parse(c.created_time) >= depuis.getTime());
+    for (const c of commentaires) {
+      if (c.from?.id === page.id) continue;
+      resultat.push({
+        reseau: "facebook",
+        id: c.id,
+        publication_id: pub.id,
+        publication: pub.message ?? "",
+        auteur_id: c.from?.id ?? null,
+        auteur: c.from?.name ?? null,
+        texte: c.message ?? "",
+        date: c.created_time,
+        dejaRepondu: (c.comments?.data ?? []).some((r) => r.from?.id === page.id),
+      });
+    }
+  }
+  return resultat;
 }
 
-async function commentairesInstagram(version: string, ig: { id: string; username?: string }): Promise<Commentaire[]> {
-  const { data } = await graph<{ data: IgMedia[] }>(version, `${ig.id}/media`, {
+async function commentairesInstagram(version: string, ig: { id: string; username?: string }, depuis: Date): Promise<Commentaire[]> {
+  const premiere = await graph<Liste<IgMedia>>(version, `${ig.id}/media`, {
     fields: "id,caption,timestamp,comments.limit(25){id,text,timestamp,username,from{id,username},replies.limit(25){username}}",
     limit: "15",
   });
-  return data.flatMap((media) =>
-    (media.comments?.data ?? []).map((c) => {
+  // Les médias arrivent du plus récent au plus ancien.
+  const medias = (await toutes(premiere, (m) => Date.parse(m.timestamp) >= depuis.getTime() - RECUL_PUBLICATIONS))
+    .filter((m) => Date.parse(m.timestamp) >= depuis.getTime() - RECUL_PUBLICATIONS);
+  const resultat: Commentaire[] = [];
+  for (const media of medias) {
+    // L'ordre des commentaires Instagram n'est pas garanti : on lit toutes les pages (dans la limite de PAGES_MAX).
+    for (const c of await toutes(media.comments)) {
       const pseudo = c.from?.username ?? c.username ?? null;
-      return {
-        reseau: "instagram" as const,
+      if (ig.username && pseudo === ig.username) continue;
+      resultat.push({
+        reseau: "instagram",
         id: c.id,
         publication_id: media.id,
         publication: media.caption ?? "",
@@ -162,9 +202,10 @@ async function commentairesInstagram(version: string, ig: { id: string; username
         texte: c.text ?? "",
         date: c.timestamp,
         dejaRepondu: !!ig.username && (c.replies?.data ?? []).some((r) => r.username === ig.username),
-      };
-    }).filter((c) => !ig.username || c.auteur !== ig.username)
-  );
+      });
+    }
+  }
+  return resultat;
 }
 
 async function publier(version: string, c: Commentaire, texte: string): Promise<string | null> {
@@ -261,7 +302,7 @@ Deno.serve(async (req) => {
     const lectures: Promise<Commentaire[]>[] = [];
     if (config.reseaux_facebook !== "false") lectures.push(commentairesFacebook(version, page, depuis));
     if (config.reseaux_instagram !== "false" && page.instagram_business_account) {
-      lectures.push(commentairesInstagram(version, page.instagram_business_account));
+      lectures.push(commentairesInstagram(version, page.instagram_business_account, depuis));
     }
     for (const r of await Promise.allSettled(lectures)) {
       if (r.status === "fulfilled") commentaires.push(...r.value);
@@ -347,12 +388,17 @@ Deno.serve(async (req) => {
       bilan.repondu++;
     } catch (e) {
       const message = String((e as Error).message);
-      await finir(c.id, { statut: "echec", reponse: verdict.texte, raison: borne(message, 500) });
-      bilan.echec++;
-      if (e instanceof GraphErreur && e.jetonCasse) {
-        await alerteJeton(message);
+      // Refus net et passager de Meta (jeton, permission, trop d'appels) : rien n'est parti, la réservation
+      // est rendue et le commentaire sera repris au passage suivant. Un délai dépassé ou une autre erreur
+      // reste en « echec » : la réponse est peut-être partie, mieux vaut ne pas la doubler.
+      if (e instanceof GraphErreur && (e.jetonCasse || e.tropDAppels)) {
+        await admin.from("reponses_reseaux").delete().eq("commentaire_id", c.id);
+        erreurs.push(message);
+        if (e.jetonCasse) await alerteJeton(message);
         break;
       }
+      await finir(c.id, { statut: "echec", reponse: verdict.texte, raison: borne(message, 500) });
+      bilan.echec++;
     }
   }
   return json(200, { actif: true, nouveaux: nouveaux.length, ...bilan, erreurs });
