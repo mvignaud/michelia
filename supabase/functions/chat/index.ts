@@ -679,7 +679,11 @@ Deno.serve(async (req) => {
         if (parGrok) {
           try {
             const grokMessages: GrokMessage[] = [
-              { role: "system", content: `${config.system_prompt}\n\n${context.replace(outils, sansOutils)}` },
+              // Prompt allégé pour Grok s'il existe (moins de jetons envoyés à chaque message).
+              {
+                role: "system",
+                content: `${config.grok_system_prompt || config.system_prompt}\n\n${context.replace(outils, sansOutils)}`,
+              },
               ...messages.map((m) => ({
                 role: m.role,
                 content: m.photo ? `${PHOTO_BEFORE} ${m.content.trim()}`.trim() : m.content,
@@ -687,6 +691,7 @@ Deno.serve(async (req) => {
             ];
             const { fin, usage } = await grok({
               cle: cleXai!,
+              conversation: "michel-ultra",
               modele: config.grok_model ?? "grok-4.20-0309-non-reasoning",
               messages: grokMessages,
               maxTokens: Number(config.max_output_tokens ?? 2048),
@@ -694,10 +699,15 @@ Deno.serve(async (req) => {
               onText: push,
             });
             stop = fin === "longueur" ? "max_tokens" : fin === "refus" ? "refusal" : "end_turn";
-            if (usage.input || usage.output) {
+            if (usage.input || usage.cache || usage.output) {
               keepAlive(
                 Promise.resolve(
-                  admin.rpc("record_grok_tokens", { p_user: userId, p_input: usage.input, p_output: usage.output }),
+                  admin.rpc("record_grok_tokens", {
+                    p_user: userId,
+                    p_input: usage.input,
+                    p_output: usage.output,
+                    p_cache: usage.cache,
+                  }),
                 ).then(({ error }) => error && console.error("jetons grok", error)),
               );
             }
