@@ -16,6 +16,13 @@
   var page = new URL(location.href);
   page.searchParams.delete('desabonnement');
   var donnees = { hash: '401f72596d730636ed282be2806c90e9', u: page.href, bw: innerWidth, bh: innerHeight };
-  if (document.referrer) donnees.ref = document.referrer;
+  // D'où l'on vient, sans les paramètres : l'adresse précédente peut porter le jeton de désabonnement
+  // (lien d'e-mail /?desabonnement=… renvoyé vers /chat, même site, donc referrer complet).
+  if (document.referrer) {
+    try {
+      var ref = new URL(document.referrer);
+      donnees.ref = ref.origin + ref.pathname;
+    } catch (e) {}
+  }
   new Image().src = 'https://tracker.metricool.com/c3po.jpg?' + new URLSearchParams(donnees);
 })();
