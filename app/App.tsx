@@ -138,6 +138,8 @@ function Chat() {
   const [attached, setAttached] = useState<Photo>();
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState<string>();
+  const nameRef = useRef(name);
+  nameRef.current = name;
   const [mode, setMode] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -301,7 +303,7 @@ function Chat() {
     const { gardees, tombees } = ranger(discussions);
     carnetRef.current = gardees;
     setCarnet(gardees);
-    saveCarnet({ name, courante: ouverte, discussions: gardees });
+    saveCarnet({ name: nameRef.current, courante: ouverte, discussions: gardees });
     if (memberId && syncedFor === memberId) {
       tombees.forEach((d) => deleteAccountDiscussion(memberId, d, false).catch(() => undefined));
     }
@@ -313,6 +315,24 @@ function Chat() {
   const [syncedFor, setSyncedFor] = useState<string>();
   const bubblesRef = useRef(bubbles);
   bubblesRef.current = bubbles;
+  const couranteRef = useRef(courante);
+  couranteRef.current = courante;
+
+  // Envoie une causette au compte ; une fois arrivée, elle est notée « en ligne » : si elle disparaît
+  // un jour du compte, c'est qu'elle a été effacée depuis un autre appareil.
+  function envoyer(userId: string, d: Discussion, enCours?: { name?: string }) {
+    saveAccountDiscussion(userId, d, enCours)
+      .then(() => {
+        const liste = carnetRef.current;
+        const ici = liste.find((x) => x.id === d.id);
+        if (!ici || ici.enLigne) return;
+        const next = liste.map((x) => (x.id === d.id ? { ...x, enLigne: true } : x));
+        carnetRef.current = next;
+        setCarnet(next);
+        saveCarnet({ name: nameRef.current, courante: couranteRef.current, discussions: next });
+      })
+      .catch(() => undefined);
+  }
   useEffect(() => {
     setSyncedFor(undefined);
     if (!memberId || !loaded) return;
@@ -328,22 +348,43 @@ function Chat() {
       const aEnvoyer = new Map(remote.aEnvoyer.map((d) => [d.id, d]));
       for (const locale of carnetRef.current) {
         const distante = parId.get(locale.id);
+        // Déjà passée par le compte mais plus dessus : effacée depuis un autre appareil.
+        if (!distante && locale.enLigne) continue;
         if (!distante || Date.parse(locale.maj) > Date.parse(distante.maj)) {
           parId.set(locale.id, locale);
           aEnvoyer.set(locale.id, locale);
         }
       }
+      const avant = carnetRef.current;
       const { gardees } = ranger([...parId.values()]);
-      carnetRef.current = gardees;
-      setCarnet(gardees);
-      const gardeesIds = new Set(gardees.map((d) => d.id));
+      majCarnet(gardees, couranteRef.current);
       aEnvoyer.forEach((d) => {
-        if (gardeesIds.has(d.id)) saveAccountDiscussion(memberId, d).catch(() => undefined);
+        if (gardees.some((g) => g.id === d.id)) envoyer(memberId, d);
       });
       if (remote.name) setName((current) => current ?? remote.name);
-      if (!bubblesRef.current.some((b) => !b.local) && gardees[0]) {
-        setCourante(gardees[0].id);
-        setBubbles((current) => [...gardees[0].messages.map((m) => ({ ...m, id: newId() })), ...current]);
+
+      // La causette à l'écran : on la remet à la version gagnante, en gardant les échanges pas encore rangés.
+      const enCours = bubblesRef.current.filter((b) => !b.local);
+      const id = couranteRef.current;
+      const ancienne = avant.find((d) => d.id === id);
+      const gagnante = gardees.find((d) => d.id === id);
+      if (!enCours.length) {
+        if (gardees[0]) {
+          setCourante(gardees[0].id);
+          setBubbles((current) => [...gardees[0].messages.map((m) => ({ ...m, id: newId() })), ...current]);
+        }
+      } else if (ancienne && !gagnante) {
+        // Effacée ailleurs : on repart d'une causette neuve, avec les échanges pas encore rangés.
+        const pasRangees = new Set(enCours.slice(ancienne.messages.length).map((b) => b.id));
+        setCourante(nouvelId());
+        setBubbles((current) => current.filter((b) => b.local || pasRangees.has(b.id)));
+      } else if (ancienne && gagnante && gagnante !== ancienne && !aEnvoyer.has(id)) {
+        // Plus récente sur le compte : on l'affiche, suivie de ce qui n'était pas encore rangé ici.
+        const rangees = new Set(enCours.slice(0, ancienne.messages.length).map((b) => b.id));
+        setBubbles((current) => [
+          ...gagnante.messages.map((m) => ({ ...m, id: newId() })),
+          ...current.filter((b) => !rangees.has(b.id)),
+        ]);
       }
       setSyncedFor(memberId);
     });
@@ -365,9 +406,15 @@ function Chat() {
       return;
     }
     const maintenant = new Date().toISOString();
-    const d: Discussion = { id: courante, titre: avant?.titre ?? titreDe(messages), messages, maj: maintenant };
+    const d: Discussion = {
+      id: courante,
+      titre: avant?.titre ?? titreDe(messages),
+      messages,
+      maj: maintenant,
+      ...(avant?.enLigne && { enLigne: true }),
+    };
     majCarnet([d, ...carnetRef.current.filter((x) => x.id !== courante)]);
-    if (memberId && syncedFor === memberId) saveAccountDiscussion(memberId, d, { name }).catch(() => undefined);
+    if (memberId && syncedFor === memberId) envoyer(memberId, d, { name });
     // majCarnet lit courante, name, memberId et syncedFor : déjà dans la liste.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bubbles, name, busy, loaded, memberId, syncedFor, courante]);

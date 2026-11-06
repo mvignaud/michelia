@@ -6,7 +6,9 @@ import { supabase } from './supabase';
 // (la plus récente en haut). Toujours sur l'appareil ; pour les membres, aussi sur le compte :
 // table discussions, une ligne par causette. La causette où l'on vient d'écrire est en plus recopiée
 // dans la table conversations (une ligne par compte), que lisent le back-office et les applis d'avant le carnet.
-export type Discussion = { id: string; titre: string; messages: ChatMessage[]; maj: string };
+// « enLigne » : la causette est déjà arrivée sur le compte. Si elle n'y est plus au chargement suivant,
+// c'est qu'elle a été effacée depuis un autre appareil, et l'appareil l'oublie aussi.
+export type Discussion = { id: string; titre: string; messages: ChatMessage[]; maj: string; enLigne?: boolean };
 export type Carnet = { name?: string; courante?: string; discussions: Discussion[] };
 
 const KEY = 'michelia:carnet:v1';
@@ -59,6 +61,7 @@ function discussion(raw: unknown): Discussion | null {
     titre: typeof d.titre === 'string' && d.titre.trim() ? d.titre : titreDe(messages),
     messages,
     maj: new Date(temps(maj)).toISOString(),
+    ...(d.enLigne === true && { enLigne: true }),
   };
 }
 
@@ -129,7 +132,10 @@ export async function loadAccountCarnet(
       .limit(MAX_DISCUSSIONS),
   ]);
   if (conv.error && liste.error) return null;
-  const discussions = (liste.data ?? []).map(discussion).filter((d): d is Discussion => !!d);
+  const discussions: Discussion[] = (liste.data ?? [])
+    .map(discussion)
+    .filter((d): d is Discussion => !!d)
+    .map((d) => ({ ...d, enLigne: true }));
   const aEnvoyer: Discussion[] = [];
 
   // La conversation du compte n'est plus récente que les causettes que si une appli d'avant le carnet
@@ -141,7 +147,7 @@ export async function loadAccountCarnet(
     const debut = ancienne[0];
     const memeDebut = (d: Discussion) => d.messages[0]?.role === debut.role && d.messages[0]?.content === debut.content;
     const suite = discussions.find(memeDebut) ?? locales.find(memeDebut);
-    const reprise = suite
+    const reprise: Discussion = suite
       ? { ...suite, messages: ancienne, maj }
       : { id: nouvelId(), titre: titreDe(ancienne), messages: ancienne, maj };
     aEnvoyer.push(reprise);
@@ -160,7 +166,7 @@ export async function saveAccountDiscussion(
   enCours?: { name?: string },
 ): Promise<void> {
   const messages = aGarder(d.messages);
-  await Promise.all([
+  const [{ error }] = await Promise.all([
     supabase
       .from('discussions')
       .upsert({ id: d.id, user_id: userId, titre: d.titre.slice(0, 80), messages, updated_at: d.maj }),
@@ -172,6 +178,7 @@ export async function saveAccountDiscussion(
         updated_at: d.maj,
       }),
   ]);
+  if (error) throw error;
 }
 
 // Retire une causette du compte. Si c'était la plus récente, sa copie dans la table conversations
