@@ -1,4 +1,4 @@
-// Mesure d'audience Google Analytics, chargée seulement après un « J'accepte ».
+// Mesure d'audience Google Analytics et compteur Metricool, chargés seulement après un « J'accepte ».
 // Jamais dans l'appli de bureau : pas de bandeau cookies, rien ne part chez Google.
 import { bureau } from './bureau';
 
@@ -31,6 +31,11 @@ export function startAnalytics() {
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
   document.head.appendChild(script);
+  // Compteur de visites Metricool, même accord (public/metricool.js, partagé avec les pages statiques).
+  const metricool = document.createElement('script');
+  metricool.src = '/metricool.js';
+  metricool.setAttribute('data-accord', 'oui');
+  document.head.appendChild(metricool);
 }
 
 // Retire les cookies _ga déjà posés quand on retire son accord.

@@ -7,7 +7,7 @@
 // Applis iOS et Android : rien ne change, elles n'ouvrent jamais la racine du site.
 import fs from 'node:fs';
 import path from 'node:path';
-import { dateLongue, echapper, enLigne, jsonLd, lireCaMijote, lireNouveautes, metaPage, PIED, SITE, TYPES } from './nouveautes-lib.mjs';
+import { dateLongue, echapper, enLigne, jsonLd, lireCaMijote, lireNouveautes, MESURE, metaPage, PIED, SITE, TYPES } from './nouveautes-lib.mjs';
 
 // Les dernières nouveautés montrées sous « Où en est Michel ».
 const SERVIS = 4;
@@ -200,6 +200,7 @@ ${metaPage({ chemin: '/', titre: TITRE_PARTAGE, description: DESCRIPTION })}
 <meta name="apple-mobile-web-app-title" content="Michel">
 ${jsonLd(DONNEES)}
 <style>${CSS}</style>
+${MESURE}
 </head>
 <body>
 <header><div class="bord">

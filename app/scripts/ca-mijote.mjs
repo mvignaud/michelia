@@ -4,7 +4,7 @@
 // « Tout juste servi » reprend toute seule les dernières entrées de app/nouveautes/ : la page bouge à chaque nouveauté.
 import fs from 'node:fs';
 import path from 'node:path';
-import { CASSEROLES, CSS_VERSION, dateLongue, enLigne, lireCaMijote, lireNouveautes, metaPage, PIED, TETE, TYPES, versHtml } from './nouveautes-lib.mjs';
+import { CASSEROLES, CSS_VERSION, dateLongue, enLigne, lireCaMijote, lireNouveautes, MESURE, metaPage, PIED, TETE, TYPES, versHtml } from './nouveautes-lib.mjs';
 
 // Les dernières nouveautés reprises en bas de page, sous « Tout juste servi ».
 const SERVIS = 5;
@@ -21,6 +21,7 @@ function page({ maj, sections }, servis) {
 ${metaPage({ chemin: '/ca-mijote', titre: "Ça mijote chez Michel : ce qu'on prépare pour MichelIA", description: "Ce qui mijote chez Michel, le papi du Gers coincé dans la machine : ce qu'on prépare pour le site et les applis MichelIA." })}
 <link rel="stylesheet" href="/legal.css?v=${CSS_VERSION}">
 <style>.etiquettes .type-attente { background: #8a9bb0; color: #fff; } .vide { color: var(--gris); font-style: italic; }</style>
+${MESURE}
 </head>
 <body>
 ${TETE}
