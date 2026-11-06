@@ -36,8 +36,8 @@ export const CookieBanner = forwardRef<CookieBannerHandle>(function CookieBanner
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.card} accessibilityRole="alert">
         <Text style={styles.text}>
-          Dis, une petite chose : Michel aimerait compter les visites avec Google Analytics, pour savoir
-          si on vient le voir. Pas de pub, et tes questions ne partent pas chez Google.
+          Dis, une petite chose : Michel aimerait compter les visites avec Google Analytics et Metricool, pour
+          savoir si on vient le voir. Pas de pub, et tes questions ne partent ni chez l'un ni chez l'autre.
         </Text>
         <View style={styles.buttons}>
           <Pressable onPress={() => choose(false)} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>

@@ -162,6 +162,9 @@ export const jsonLd = (donnees) =>
   `<script type="application/ld+json">${JSON.stringify(donnees).replace(/</g, '\\u003c')}</script>`;
 
 // En-tête commun aux pages générées : le logo MichelIA, comme sur les pages légales.
+// Compteur de visites Metricool (public/metricool.js), seulement après le « J'accepte » du bandeau du chat.
+export const MESURE = '<script src="/metricool.js" defer></script>';
+
 export const TETE = `<header><div><a class="logo" href="/"><img src="/logo.svg" alt="MichelIA" width="118" height="40"></a><a href="/chat">Parler à Michel</a></div></header>`;
 
 // Pied de page commun aux pages générées.
