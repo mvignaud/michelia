@@ -48,6 +48,7 @@ import {
   loadCarnet,
   nettoyer,
   nouvelId,
+  prolonge,
   ranger,
   saveAccountDiscussion,
   saveCarnet,
@@ -349,14 +350,32 @@ function Chat() {
       }
       const parId = new Map(remote.discussions.filter((d) => !effacees.has(d.id)).map((d) => [d.id, d]));
       const aEnvoyer = new Map(remote.aEnvoyer.filter((d) => !effacees.has(d.id)).map((d) => [d.id, d]));
+      // Une causette jamais envoyée mais déjà sur le compte sous un autre identifiant (la même conversation
+      // reprise des deux côtés lors du passage au carnet) : on la range sous l'identifiant du compte.
+      const memes = new Map<string, string>();
       for (const locale of carnetRef.current) {
+        if (locale.enLigne || parId.has(locale.id)) continue;
+        const jumelle = [...parId.values()].find(
+          (d) => !memes.has(d.id) && (prolonge(locale.messages, d.messages) || prolonge(d.messages, locale.messages)),
+        );
+        if (jumelle) memes.set(locale.id, jumelle.id);
+      }
+      for (const brute of carnetRef.current) {
+        const autreId = memes.get(brute.id);
+        const locale = autreId ? { ...brute, id: autreId, enLigne: true } : brute;
         const distante = parId.get(locale.id);
         // Déjà passée par le compte mais plus dessus : effacée depuis un autre appareil (si la liste a bien été lue).
         if (!distante && locale.enLigne && remote.complet) continue;
+        if (distante && autreId && !prolonge(locale.messages, distante.messages)) continue;
         if (!distante || Date.parse(locale.maj) > Date.parse(distante.maj)) {
           parId.set(locale.id, locale);
           aEnvoyer.set(locale.id, locale);
         }
+      }
+      const ouverteId = memes.get(couranteRef.current);
+      if (ouverteId) {
+        couranteRef.current = ouverteId;
+        setCourante(ouverteId);
       }
       const avant = carnetRef.current;
       // Au-delà de 30, les plus anciennes quittent le carnet, et le compte aussi.
@@ -371,7 +390,7 @@ function Chat() {
       // La causette à l'écran : on la remet à la version gagnante, en gardant les échanges pas encore rangés.
       const enCours = bubblesRef.current.filter((b) => !b.local);
       const id = couranteRef.current;
-      const ancienne = avant.find((d) => d.id === id);
+      const ancienne = avant.find((d) => d.id === id) ?? avant.find((d) => memes.get(d.id) === id);
       const gagnante = gardees.find((d) => d.id === id);
       if (!enCours.length) {
         if (gardees[0]) {

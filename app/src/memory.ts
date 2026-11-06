@@ -31,6 +31,15 @@ export function nettoyer(raw: unknown): ChatMessage[] {
 
 const aGarder = (messages: ChatMessage[]) => nettoyer(messages).slice(-MAX_SAVED);
 
+// « suite » prolonge « debut » : tous les messages de debut ouvrent suite, dans l'ordre.
+export function prolonge(suite: ChatMessage[], debut: ChatMessage[]): boolean {
+  return (
+    debut.length > 0 &&
+    debut.length <= suite.length &&
+    debut.every((m, i) => suite[i].role === m.role && suite[i].content === m.content)
+  );
+}
+
 // Le titre d'une causette : le début de la première question.
 export function titreDe(messages: ChatMessage[]): string {
   const question = messages.find((m) => m.role === 'user' && m.content.trim());
@@ -146,9 +155,7 @@ export async function loadAccountCarnet(
   if (ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
     const maj = new Date(majAncienne).toISOString();
     // La même causette, continuée par l'appli d'avant : tous ses messages ouvrent la conversation du compte.
-    const continuee = (d: Discussion) =>
-      d.messages.length <= ancienne.length &&
-      d.messages.every((m, i) => ancienne[i].role === m.role && ancienne[i].content === m.content);
+    const continuee = (d: Discussion) => prolonge(ancienne, d.messages);
     const suite = discussions.find(continuee) ?? locales.find(continuee);
     const reprise: Discussion = suite
       ? { ...suite, messages: ancienne, maj }
