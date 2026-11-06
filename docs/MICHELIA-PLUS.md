@@ -160,6 +160,8 @@ mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `
   3. résiliation demandée par l'abonné : `/cancel` avec `at_period_end` (`eko_resilie_le`) ; déjà
      arrivé au bout chez Michel (`expire`) sans résiliation transmise : `/cancel` immédiat ;
   4. reprise avant la fin de période : `PATCH auto_renew: true`, vérifié par une relecture.
+  4 ter. code promo arrivé au bout (voir « Codes promo ») : `PATCH unit_price_override_ht: null`, puis
+     `prix_cents` reprend le prix normal chez Michel.
   5. compte supprimé (la cascade emporte l'abonnement) : un déclencheur garde avant la suppression le code
      E-KO dans `eko_resiliations`, puis `/cancel` immédiat (`transmise_le`), retenté à chaque passage.
   Un refus sur le fond (422) ou 5 essais ratés : `abonnements.eko_erreur`, ALERTE dans les journaux ;
@@ -187,3 +189,32 @@ mandat signé par SMS) et ses e-mails ; E-KO n'écrit jamais au client. Code : `
 - Pas encore : reçus Michel des échéances suivantes et e-mails d'impayé (les webhooks en donnent la
   matière), frais de rejet (clause à ajouter aux conditions avant de les activer), avoir E-KO sur le
   remboursement d'une échéance.
+
+## Codes promo
+
+Sur le site seulement (les applis suivent les prix d'Apple et de Google). Migration
+`20261107010000_codes_promo.sql`.
+
+- Créés dans le back-office, onglet « Codes promo » (administrateurs) : code (3 à 30 lettres, chiffres,
+  tirets), remise de 1 à 95 %, formule visée (mois, an ou les deux), nombre d'échéances remisées (vide :
+  tant que dure l'abonnement), compte réservé (par son e-mail), nombre d'utilisations, date de fin, note.
+  Un code se coupe et se réactive ; les abonnés qui l'ont déjà gardent leur remise. Table `codes_promo`,
+  RPC `admin_codes_promo`, `admin_code_promo_creer`, `admin_code_promo_actif` (journal `admin_audit`).
+- Page `/la-cotisation` : « J'ai un code promo », ou lien tout prêt `michel.beer/la-cotisation?code=GERS-20`.
+  `code_promo_verifier` (membres) rend les prix remisés ; le code part avec `{souscrire, …, code_promo}`.
+- `michelia-plus` crée l'abonnement en attente puis appelle `code_promo_appliquer` (rôle service, sous
+  verrou) : places comptées, une fois par compte, formule, dates. L'abonnement garde `prix_cents` = prix
+  remisé, `prix_plein_cents` = prix normal, `remise_pct`, `remise_periodes`, `code_promo_id`. Refusé :
+  l'abonnement en attente est supprimé, rien n'est prélevé, la page dit pourquoi.
+- Une utilisation (`codes_promo_utilisations`) compte tant que l'abonnement vit, ou s'il a payé au moins
+  une échéance ; une souscription abandonnée ou refusée rend la place.
+- Prix remisé (`prix_remise`) : arrondi vers le bas à un multiple de 6 centimes, pour que le hors taxes
+  (TVA 20 %) tombe juste au centime chez E-KO et que sa facture égale le paiement Stancer ; jamais sous
+  0,54 €. Ex. 3,99 € -20 % = 3,18 € ; 39 € -20 % = 31,20 €.
+- Échéances : une fois payées `remise_periodes` échéances, `michelia-plus-echeances` remet le prix normal
+  avant de prélever (`finirRemise` : `prix_cents` = prix normal, `prix_plein_cents` vidé). Chez E-KO, la
+  souscription part avec `unit_price_override_ht` (prix remisé hors taxes) et l'étape 4 ter le retire.
+- SMS et mandat SEPA annoncent « 3,18 € par mois les 3 premiers mois, puis 3,99 € » ; « Ta cotisation »
+  montre la remise et les échéances remisées qui restent (`mon_abonnement`).
+- Comptabilité : la facture E-KO et le paiement Stancer portent le prix remisé (TVA 20 % sur ce prix).
+  Les pourboires ne prennent pas de code (un pourboire remisé n'a pas de sens).

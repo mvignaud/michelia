@@ -37,6 +37,26 @@ export async function prixDe(formule: Formule): Promise<number | null> {
   }
 }
 
+// Code promo (table codes_promo) : prix_cents est le prix remisé tant que dure la remise,
+// prix_plein_cents le prix normal (vidé quand la remise s'arrête). Une fois payées les remise_periodes
+// échéances remisées, le prix normal revient (écrit une seule fois, conditionné au prix lu).
+export type Remise = { id: number; prix_cents: number; prix_plein_cents: number | null; remise_periodes: number | null };
+
+export async function remiseFinie(a: Remise): Promise<boolean> {
+  if (!a.prix_plein_cents || a.prix_cents >= a.prix_plein_cents || !a.remise_periodes) return false;
+  const { count, error } = await admin.from("abonnement_echeances").select("id", { count: "exact", head: true })
+    .eq("abonnement_id", a.id).eq("statut", "paye");
+  if (error) throw new Error(`échéances illisibles : ${error.message}`);
+  return (count ?? 0) >= a.remise_periodes;
+}
+
+export async function finirRemise(a: Remise): Promise<number> {
+  const { error } = await admin.from("abonnements").update({ prix_cents: a.prix_plein_cents, prix_plein_cents: null, updated_at: new Date().toISOString() })
+    .eq("id", a.id).eq("prix_cents", a.prix_cents);
+  if (error) throw new Error(`prix normal non repris : ${error.message}`);
+  return a.prix_plein_cents ?? a.prix_cents;
+}
+
 // Fin d'une période : un mois ou un an plus tard, en restant sur le dernier jour du mois s'il le faut
 // (un abonnement pris le 31 janvier repasse le 28 février, puis le 31 mars).
 export function finDePeriode(debut: Date, formule: Formule, jourAncre = debut.getUTCDate()): Date {

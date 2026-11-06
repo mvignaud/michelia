@@ -4,6 +4,8 @@
 // session Supabase. Le prix vient toujours de app_config (michelia_plus_prix), jamais du navigateur.
 // {souscrire: "mois" | "an", carte, captcha} : premier paiement par l'API v1 de Stancer, carte enregistrée
 // chez Stancer pour les échéances suivantes ; renvoie payé, refusé, ou l'adresse du 3D Secure de la banque.
+// {souscrire, …, code_promo} : code promo facultatif (table codes_promo), posé sur l'abonnement avant le
+// premier paiement (code_promo_appliquer) : le prix remisé vaut pour ses premières échéances.
 // {souscrire: "mois" | "an", moyen: "sepa", iban, titulaire, telephone, captcha} : Michel envoie un code
 // par SMS ; {signer: {code, iban, titulaire}} : signe le mandat SEPA, l'enregistre chez Stancer et lance
 // le premier prélèvement. L'IBAN traverse la fonction, il n'est jamais gardé (seulement ses 4 derniers).
@@ -126,7 +128,7 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
     .limit(1);
   if (vivant?.length) return reply(409, { error: "Déjà abonné" }, origin);
   if (!(await captchaOk(body?.captcha, qui.ip))) return reply(403, { error: "Vérification anti-robot échouée" }, origin);
-  const prix = await prixDe(formule);
+  let prix = await prixDe(formule);
   if (!prix) return reply(500, { error: "Prix illisible" }, origin);
 
   // Un abonnement en attente par essai de souscription ; deux cartes au plus par essai. Un seul en
@@ -146,6 +148,9 @@ async function souscrire(req: Request, qui: Membre, formule: Formule, body: any,
     console.error("MichelIA+ : abonnement non créé", error?.message);
     return reply(500, { error: "Abonnement indisponible" }, origin);
   }
+  const promo = await appliquerCode(abonnement.id, body?.code_promo);
+  if ("refus" in promo) return reply(400, { error: "Code promo refusé", champ: "code_promo", raison: promo.refus }, origin);
+  if (promo.prix) prix = promo.prix;
   const place = await reserver(qui, `abo:${abonnement.id}`);
   if (place !== "ok") return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
 
@@ -227,7 +232,7 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
     .limit(1);
   if (vivant?.length) return reply(409, { error: "Déjà abonné" }, origin);
   if (!(await captchaOk(body?.captcha, qui.ip))) return reply(403, { error: "Vérification anti-robot échouée" }, origin);
-  const prix = await prixDe(formule);
+  let prix = await prixDe(formule);
   if (!prix) return reply(500, { error: "Prix illisible" }, origin);
 
   // Une signature en cours dans un autre onglet (code déjà accepté) : on ne la remplace pas.
@@ -254,6 +259,9 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
     console.error("MichelIA+ : abonnement non créé", error?.message);
     return reply(500, { error: "Abonnement indisponible" }, origin);
   }
+  const promo = await appliquerCode(abonnement.id, body?.code_promo);
+  if ("refus" in promo) return reply(400, { error: "Code promo refusé", champ: "code_promo", raison: promo.refus }, origin);
+  if (promo.prix) prix = promo.prix;
   // Chaque SMS compte comme un essai de paiement (plafonds par compte, par adresse IP et global).
   const place = await reserver(qui, `abo:${abonnement.id}`, "paiement");
   if (place !== "ok") {
@@ -261,7 +269,7 @@ async function souscrireSepa(qui: Membre, formule: Formule, body: any, origin: s
     return reply(place === "erreur" ? 500 : 429, { error: "Trop d'essais" }, origin);
   }
 
-  const envoi = await envoyerCode(qui, abonnement.id, { iban, titulaire, telephone }, `MichelIA+, ${eurosTexte(prix)} ${formule === "mois" ? "par mois" : "par an"}`, false);
+  const envoi = await envoyerCode(qui, abonnement.id, { iban, titulaire, telephone }, `MichelIA+, ${prixParPeriode(formule, prix, promo.plein, promo.periodes)}`, false);
   if (envoi !== "ok") {
     await echecSur(abonnement.id);
     return envoi === "sms" ? reply(502, { error: "SMS non envoyé", champ: "telephone" }, origin) : reply(500, { error: "Prélèvement indisponible" }, origin);
@@ -459,7 +467,7 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
   if (!/^\d{6}$/.test(code) || !iban || !titulaire) return reply(400, { error: "Code invalide" }, origin);
   const { data: attente } = await admin
     .from("mandats_sepa_codes")
-    .select("id, abonnement_id, sel, code_empreinte, iban_empreinte, titulaire, telephone_masque, essais, expire_le, changement, abonnements!inner(statut, source, formule, prix_cents, essai, stancer_client)")
+    .select("id, abonnement_id, sel, code_empreinte, iban_empreinte, titulaire, telephone_masque, essais, expire_le, changement, abonnements!inner(statut, source, formule, prix_cents, prix_plein_cents, remise_periodes, essai, stancer_client)")
     .eq("user_id", qui.id)
     .is("utilise_le", null)
     .order("created_at", { ascending: false })
@@ -494,7 +502,7 @@ async function signerMandat(req: Request, qui: Membre, signature: any, origin: s
   const prix = ab.prix_cents as number;
   const signeLe = new Date();
   const rum = nouvelleRum(abonnementId);
-  const libelleMandat = `${libelle(formule)}, ${eurosTexte(prix)} ${formule === "mois" ? "par mois" : "par an"}, prélevé à la date anniversaire de l'abonnement.`;
+  const libelleMandat = `${libelle(formule)}, ${prixParPeriode(formule, prix, ab.prix_plein_cents, ab.remise_periodes)}, prélevé à la date anniversaire de l'abonnement.`;
   const pdf = await pdfMandat({
     rum,
     titulaire,
@@ -582,6 +590,16 @@ async function rangerMandat(
 
 const eurosTexte = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
 
+// « 3,18 € par mois les 3 premiers mois, puis 3,99 € » : le prix annoncé dans le SMS et le mandat, remise comprise.
+function prixParPeriode(formule: Formule, prix: number, plein?: number | null, periodes?: number | null): string {
+  const base = `${eurosTexte(prix)} ${formule === "mois" ? "par mois" : "par an"}`;
+  if (!plein || plein <= prix || !periodes) return base;
+  const duree = formule === "mois"
+    ? (periodes === 1 ? "le premier mois" : `les ${periodes} premiers mois`)
+    : (periodes === 1 ? "la première année" : `les ${periodes} premières années`);
+  return `${base} ${duree}, puis ${eurosTexte(plein)}`;
+}
+
 // Résiliation en un geste : plus de renouvellement, le droit court jusqu'à la fin de la période payée.
 // Seulement pour un abonnement pris sur le site (ceux des applis se résilient dans la boutique).
 async function resilier(qui: Membre, origin: string | null): Promise<Response> {
@@ -617,6 +635,25 @@ async function reprendre(qui: Membre, origin: string | null): Promise<Response> 
     .select("fin_periode");
   if (!data?.length) return reply(409, { error: "Rien à reprendre : souscris à nouveau" }, origin);
   return reply(200, { etat: "actif", fin_periode: data[0].fin_periode }, origin);
+}
+
+// Code promo tapé à la souscription : posé sur l'abonnement encore en attente, sous verrou en base
+// (places comptées, une fois par compte). Refusé : la souscription s'arrête là, sans rien prélever.
+type Promo = { prix?: number; plein?: number; periodes?: number | null };
+async function appliquerCode(abonnementId: number, code: unknown): Promise<Promo | { refus: string }> {
+  const texte = typeof code === "string" ? code.trim().toUpperCase() : "";
+  if (!texte) return {};
+  let refus = "inconnu";
+  if (/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(texte)) {
+    const { data, error } = await admin.rpc("code_promo_appliquer", { p_code: texte, p_abonnement: abonnementId });
+    if (error) console.error("MichelIA+ : code promo illisible", error.message);
+    if (!error && data?.valide === true && Number.isInteger(data.prix_cents) && data.prix_cents > 0) {
+      return { prix: data.prix_cents, plein: data.prix_plein_cents, periodes: Number.isInteger(data.periodes) ? data.periodes : null };
+    }
+    refus = error ? "erreur" : typeof data?.raison === "string" ? data.raison : "inconnu";
+  }
+  await admin.from("abonnements").delete().eq("id", abonnementId).eq("statut", "en_attente").is("stancer_sepa", null);
+  return { refus };
 }
 
 async function estAdmin(userId: string): Promise<boolean> {

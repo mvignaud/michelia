@@ -11,7 +11,7 @@
 // Et même rejouée, elle ne prélève qu'une fois par période : l'identifiant unique envoyé à Stancer
 // dépend de l'abonnement, de la période et du nombre d'échecs, et Stancer refuse un doublon.
 import { admin, stancer, stancerConfigured } from "../_shared/stancer.ts";
-import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, type Formule, libelle, menageEnAttente, relireSepa, reprendrePremiersSepa, safeError } from "../_shared/abonnement.ts";
+import { abandonnerSepa, confirmerEcheance, confirmerSepa, echecSur, finDePeriode, finirRemise, type Formule, libelle, menageEnAttente, relireSepa, remiseFinie, reprendrePremiersSepa, safeError } from "../_shared/abonnement.ts";
 import { reprendreEvenements, synchroniserEko } from "../_shared/abonnement-eko.ts";
 
 const PAR_PASSAGE = 20;
@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   // Échéances dues : carte enregistrée ou mandat signé, période finie, pas d'essai prévu plus tard.
   const { data: dus, error } = await admin
     .from("abonnements")
-    .select("id, formule, moyen, prix_cents, fin_periode, stancer_carte, stancer_sepa, stancer_client, prochain_essai, echecs, essai")
+    .select("id, formule, moyen, prix_cents, prix_plein_cents, remise_periodes, fin_periode, stancer_carte, stancer_sepa, stancer_client, prochain_essai, echecs, essai")
     .eq("source", "web")
     .in("moyen", ["carte", "sepa"])
     .in("statut", ["actif", "impaye"])
@@ -97,12 +97,21 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    // Code promo : ses échéances remisées sont payées, le prix normal revient pour celle-ci.
+    let prix = a.prix_cents;
+    try {
+      if (await remiseFinie(a)) prix = await finirRemise(a);
+    } catch (e) {
+      console.error("MichelIA+ : fin de remise illisible, échéance reportée", a.id, e instanceof Error ? e.message : e);
+      continue;
+    }
+
     const { data: numero } = await admin.rpc("prochain_numero_recu");
     const numeroRecu = typeof numero === "string" && numero.length <= 36 ? numero : null;
     // Même période, même nombre d'échecs : même identifiant, donc jamais deux prélèvements.
     const uniqueId = `abo_${a.id}.${debut.toISOString().slice(0, 10).replaceAll("-", "")}.${a.echecs ?? 0}`;
     const res = await stancer("POST", "/v1/checkout/", {
-      amount: a.prix_cents,
+      amount: prix,
       currency: "eur",
       description: libelle(a.formule as Formule),
       unique_id: uniqueId,
@@ -122,7 +131,7 @@ Deno.serve(async (req) => {
         await admin.from("abonnement_echeances").upsert({
           abonnement_id: a.id,
           paiement_id: existant,
-          montant_cents: a.prix_cents,
+          montant_cents: prix,
           periode_debut: debut.toISOString(),
           periode_fin: fin.toISOString(),
           numero_recu: typeof vu?.order_id === "string" && vu.order_id.length <= 36 ? vu.order_id : null,
@@ -146,7 +155,7 @@ Deno.serve(async (req) => {
     const { error: noteErr } = await admin.from("abonnement_echeances").insert({
       abonnement_id: a.id,
       paiement_id: paymentId,
-      montant_cents: a.prix_cents,
+      montant_cents: prix,
       periode_debut: debut.toISOString(),
       periode_fin: fin.toISOString(),
       numero_recu: numeroRecu,

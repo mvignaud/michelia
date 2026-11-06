@@ -163,12 +163,14 @@ export type MoyenAbonnement =
 // Souscription : la première période est facturée tout de suite (bill_now), sans envoi ni prélèvement ;
 // Michel y enregistre le premier paiement, déjà encaissé. Les suivantes, E-KO les facture et les prélève.
 // Rejouable : la clé suit l'abonnement Michel. Rend le code SUB-… et la première facture.
+// prixRemiseHt : prix hors taxes d'un code promo (remplace celui du plan jusqu'à prixNormalEko).
 export async function souscrireEko(s: {
-  abonnementId: number; tierCode: string; planCode: string; moyen: MoyenAbonnement;
+  abonnementId: number; tierCode: string; planCode: string; moyen: MoyenAbonnement; prixRemiseHt?: number;
 }): Promise<{ code: string; factureId: number | null; factureCode: string | null; cycleId: string | null }> {
   const r = await eko("POST", "/subscriptions", {
     tier_code: s.tierCode,
     plan_code: s.planCode,
+    ...(s.prixRemiseHt ? { unit_price_override_ht: s.prixRemiseHt } : {}),
     bill_now: true,
     payment_method: s.moyen,
     customer_notifications: false,
@@ -210,6 +212,11 @@ export async function premiereFactureEko(code: string): Promise<{ factureId: num
   const c = cycles[0];
   if (!c) return null;
   return { factureId: Number(c.invoice_id), factureCode: c.invoice_code != null ? String(c.invoice_code) : null, cycleId: c.id != null ? String(c.id) : null };
+}
+
+// Fin de la remise d'un code promo : les prochaines périodes reprennent le prix du plan.
+export async function prixNormalEko(code: string): Promise<void> {
+  await eko("PATCH", `/subscriptions/${encodeURIComponent(code)}`, { unit_price_override_ht: null });
 }
 
 // Nouvelle carte ou nouveau mandat pour les prochaines périodes (changés par l'abonné sur le site).

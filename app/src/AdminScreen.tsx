@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import {
   PAGE_SIZE,
+  createCodePromo,
   deleteUser,
+  listCodesPromo,
   exportMembers,
   listBroadcasts,
   listUsers,
@@ -22,10 +24,12 @@ import {
   mergeUsers,
   resumeBroadcast,
   sendBroadcast,
+  setCodePromoActif,
   testLettre,
   userUsage,
   type AdminUser,
   type Broadcast,
+  type CodePromo,
   type CostPerActive,
   type Costs,
   type Stats,
@@ -34,12 +38,13 @@ import {
 } from './admin';
 import { SWITCH_COLORS, colors, serif } from './theme';
 
-type Tab = 'stats' | 'members' | 'message';
+type Tab = 'stats' | 'members' | 'message' | 'promo';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'stats', label: 'Tableau de bord' },
   { id: 'members', label: 'Membres' },
   { id: 'message', label: 'Annonce' },
+  { id: 'promo', label: 'Codes promo' },
 ];
 
 const number = (n: number | null | undefined) => (n ?? 0).toLocaleString('fr-FR');
@@ -84,6 +89,7 @@ export function AdminScreen({ onClose }: { onClose: () => void }) {
       {tab === 'stats' && <StatsTab />}
       {tab === 'members' && <MembersTab />}
       {tab === 'message' && <MessageTab />}
+      {tab === 'promo' && <PromoTab />}
     </View>
   );
 }
@@ -643,6 +649,168 @@ function Chip({ label, active, onPress, disabled }: { label: string; active: boo
   );
 }
 
+// Codes promo de MichelIA+ sur le site : création et liste. Le code se tape sur /la-cotisation, ou
+// arrive tout prêt par un lien michel.beer/la-cotisation?code=… Les applis (Apple, Google) n'en ont pas.
+function PromoTab() {
+  const [codes, setCodes] = useState<CodePromo[]>();
+  const [code, setCode] = useState('');
+  const [remise, setRemise] = useState('20');
+  const [formule, setFormule] = useState<'mois' | 'an' | null>(null);
+  const [periodes, setPeriodes] = useState('');
+  const [email, setEmail] = useState('');
+  const [max, setMax] = useState('');
+  const [fin, setFin] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+
+  const refresh = useCallback(() => {
+    listCodesPromo().then(setCodes).catch((e) => setError(e instanceof Error ? e.message : 'Liste illisible.'));
+  }, []);
+  useEffect(refresh, [refresh]);
+
+  const entier = (t: string) => (t.trim() ? Number.parseInt(t, 10) : null);
+  // Date de fin au format JJ/MM/AAAA, valable jusqu'au soir (23:59, heure de Paris à peu près).
+  const finIso = () => {
+    const m = fin.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 23, 59, 59).toISOString() : null;
+  };
+
+  async function creer() {
+    setError(undefined);
+    setNotice(undefined);
+    const pct = entier(remise);
+    const n = entier(periodes);
+    const plafond = entier(max);
+    if (!/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(code)) return setError('Code : 3 à 30 lettres, chiffres ou tirets.');
+    if (!pct || pct < 1 || pct > 95) return setError('Remise : de 1 à 95 %.');
+    if (periodes.trim() && (!n || n < 1)) return setError("Nombre d'échéances : vide (toujours) ou 1 et plus.");
+    if (max.trim() && (!plafond || plafond < 1)) return setError("Nombre d'utilisations : vide (sans limite) ou 1 et plus.");
+    if (fin.trim() && !finIso()) return setError('Date de fin : JJ/MM/AAAA.');
+    setBusy(true);
+    try {
+      await createCodePromo({
+        code,
+        remise_pct: pct,
+        formule,
+        periodes: n,
+        email: email.trim() || null,
+        utilisations_max: plafond,
+        fin: finIso(),
+        note: note.trim() || null,
+      });
+      setNotice(`Code ${code} créé. Lien direct : michel.beer/la-cotisation?code=${code}`);
+      setCode('');
+      setEmail('');
+      setNote('');
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Création ratée.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function basculer(c: CodePromo) {
+    setError(undefined);
+    try {
+      await setCodePromoActif(c.id, !c.actif);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Changement raté.');
+    }
+  }
+
+  return (
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Section title="Nouveau code">
+        <View style={styles.card}>
+          <TextInput
+            value={code}
+            onChangeText={(t) => setCode(t.replace(/[^A-Za-z0-9-]/g, '').toUpperCase().slice(0, 30))}
+            placeholder="CODE (ex. GERS-20)"
+            placeholderTextColor={colors.tertiary}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            style={styles.subject}
+          />
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Remise (%)</Text>
+            <TextInput value={remise} onChangeText={(t) => setRemise(t.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <Text style={styles.small}>Formule</Text>
+          <View style={styles.filters}>
+            <Chip label="Les deux" active={formule === null} onPress={() => setFormule(null)} />
+            <Chip label="Au mois" active={formule === 'mois'} onPress={() => setFormule('mois')} />
+            <Chip label="À l'année" active={formule === 'an'} onPress={() => setFormule('an')} />
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Échéances remisées</Text>
+            <TextInput value={periodes} onChangeText={(t) => setPeriodes(t.replace(/\D/g, '').slice(0, 3))} placeholder="toutes" placeholderTextColor={colors.tertiary} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Utilisations max</Text>
+            <TextInput value={max} onChangeText={(t) => setMax(t.replace(/\D/g, '').slice(0, 6))} placeholder="sans limite" placeholderTextColor={colors.tertiary} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Valable jusqu'au</Text>
+            <TextInput value={fin} onChangeText={(t) => setFin(t.slice(0, 10))} placeholder="JJ/MM/AAAA" placeholderTextColor={colors.tertiary} style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Réservé au compte (e-mail, facultatif)"
+            placeholderTextColor={colors.tertiary}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            style={styles.subject}
+          />
+          <TextInput value={note} onChangeText={(t) => setNote(t.slice(0, 200))} placeholder="Note (pour toi)" placeholderTextColor={colors.tertiary} style={styles.subject} />
+          <Text style={styles.small}>
+            Un code sert une fois par compte, sur MichelIA+ pris sur le site. Prix remisé arrondi au centime qui tombe juste en hors taxes (multiple de 6 centimes), jamais sous 0,54 €.
+          </Text>
+          <Pressable onPress={creer} disabled={busy} style={({ pressed }) => [styles.primary, (pressed || busy) && styles.pressed]} accessibilityRole="button">
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>Créer le code</Text>}
+          </Pressable>
+          {error && <Text style={styles.error}>{error}</Text>}
+          {notice && <Text style={styles.notice}>{notice}</Text>}
+        </View>
+      </Section>
+      <Section title="Codes">
+        <View style={styles.card}>
+          {!codes && <ActivityIndicator color={colors.accent} />}
+          {codes?.length === 0 && <Text style={styles.small}>Aucun code pour l'instant.</Text>}
+          {codes?.map((c) => (
+            <View key={c.id} style={[styles.history, styles.memberBorder]}>
+              <View style={styles.row}>
+                <Text style={[styles.memberName, !c.actif && styles.promoCoupe]}>
+                  {c.code} · -{c.remise_pct} %
+                </Text>
+                <Pressable onPress={() => basculer(c)} accessibilityRole="button">
+                  <Text style={styles.resume}>{c.actif ? 'Couper' : 'Réactiver'}</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.small}>
+                {c.formule === 'mois' ? 'Au mois' : c.formule === 'an' ? "À l'année" : 'Mois et année'}
+                {' · '}
+                {c.periodes ? `${c.periodes} échéance${c.periodes > 1 ? 's' : ''} remisée${c.periodes > 1 ? 's' : ''}` : 'toujours remisé'}
+                {' · '}
+                {number(c.utilisations)}
+                {c.utilisations_max ? ` / ${number(c.utilisations_max)}` : ''} utilisation{c.utilisations > 1 ? 's' : ''}
+                {c.fin ? ` · jusqu'au ${date(c.fin)}` : ''}
+                {c.email ? ` · réservé à ${c.email}` : ''}
+                {!c.actif ? ' · coupé' : ''}
+              </Text>
+              {c.note && <Text style={styles.small}>{c.note}</Text>}
+            </View>
+          ))}
+        </View>
+      </Section>
+    </ScrollView>
+  );
+}
+
 const STATUS: Record<string, string> = {
   envoi: 'en cours',
   envoye: 'envoyé',
@@ -999,4 +1167,6 @@ const styles = StyleSheet.create({
   strong: { color: colors.text, fontWeight: '600' },
   dangerOutline: { borderColor: colors.failed },
   dangerText: { color: colors.failed },
+  promoNombre: { minWidth: 110, textAlign: 'right' },
+  promoCoupe: { color: colors.tertiary, textDecorationLine: 'line-through' },
 });
