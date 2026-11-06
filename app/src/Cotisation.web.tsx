@@ -30,7 +30,30 @@ type Abonnement = {
   prix_cents: number;
   fin_periode: string | null;
   derniers_chiffres: string | null;
+  // Code promo en cours : prix normal, et échéances remisées qui restent (null : toutes).
+  remise_pct?: number | null;
+  prix_plein_cents?: number | null;
+  remise_restante?: number | null;
 };
+// Code promo vérifié par code_promo_verifier : prix remisés des formules qu'il vise.
+type Promo = { code: string; remise_pct: number; formule: 'mois' | 'an' | null; periodes: number | null; mois_cents: number | null; an_cents: number | null };
+
+const REFUS_PROMO: Record<string, string> = {
+  inconnu: "Connais pas ce code. Vérifie l'orthographe, con.",
+  perime: "Ce code n'est plus bon (ou pas encore).",
+  deja: 'Tu as déjà profité de ce code.',
+  epuise: 'Trop tard, ce code a déjà tout servi.',
+  formule: "Ce code ne marche pas sur cette formule.",
+  compte: 'Connecte-toi pour utiliser un code promo.',
+  moyen: 'Avec ce code, il me faut une carte ou un compte pour la suite.',
+};
+// « les 3 premiers mois », « la première année », ou rien si la remise dure tout l'abonnement.
+export const dureeRemise = (formule: 'mois' | 'an', periodes: number | null | undefined) =>
+  !periodes
+    ? ''
+    : formule === 'mois'
+      ? periodes === 1 ? 'le premier mois' : `les ${periodes} premiers mois`
+      : periodes === 1 ? 'la première année' : `les ${periodes} premières années`;
 
 // Ancien parcours : le premier prélèvement SEPA parti sur la page Stancer, relu au retour (onglet seulement).
 const CLE_SEPA = 'michelia-plus-sepa';
@@ -123,6 +146,11 @@ function Page() {
   // Changer de carte ou de compte, sur une cotisation déjà prise sur le site.
   const [changement, setChangement] = useState(false);
   const [change, setChange] = useState(false);
+  // Code promo : tapé (ou venu de l'adresse, ?code=…), puis vérifié.
+  const [codePromo, setCodePromo] = useState(() => (new URLSearchParams(window.location.search).get('code') ?? '').slice(0, 30));
+  const [promoOuvert, setPromoOuvert] = useState(() => new URLSearchParams(window.location.search).has('code'));
+  const [promo, setPromo] = useState<Promo | null>(null);
+  const [promoRefus, setPromoRefus] = useState<string | null>(null);
 
   const recharger = async () => {
     const { data: auth } = await supabase.auth.getSession();
@@ -233,6 +261,35 @@ function Page() {
     setCodeEnvoye(null);
   };
 
+  const verifierCode = async (texte = codePromo) => {
+    const saisi = texte.trim().toUpperCase();
+    setPromoRefus(null);
+    if (!saisi) return setPromo(null);
+    try {
+      const { data, error } = await supabase.rpc('code_promo_verifier', { p_code: saisi });
+      if (error) throw error;
+      if (!data?.valide) {
+        setPromo(null);
+        return setPromoRefus(REFUS_PROMO[data?.raison] ?? REFUS_PROMO.inconnu);
+      }
+      const p = data as Promo;
+      setPromo(p);
+      if (p.formule) setFormule(p.formule);
+    } catch (e) {
+      console.error('MichelIA+ : code promo illisible', e);
+      setPromoRefus('Je ne peux pas vérifier le code pour l’instant, réessaie dans un moment.');
+    }
+  };
+
+  // Code venu de l'adresse : vérifié dès que l'on sait que la personne a un compte.
+  useEffect(() => {
+    if (membre && codePromo && !promo && !promoRefus) verifierCode().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membre]);
+
+  // Le code part avec la souscription seulement s'il vise la formule choisie.
+  const avecCode = promo && (!promo.formule || promo.formule === formule) ? { code_promo: promo.code } : {};
+
   // Prélèvement, étape 1 : Michel vérifie l'IBAN et envoie le code de signature par SMS.
   const demanderCode = async () => {
     if (sending) return;
@@ -247,7 +304,7 @@ function Page() {
       const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
         body: changement
           ? { changer: { moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha } }
-          : { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha },
+          : { souscrire: formule, moyen: 'sepa', iban, titulaire, telephone: fullPhone(pays, mobile), captcha, ...avecCode },
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
@@ -259,6 +316,7 @@ function Page() {
       }
       if (statut === 400 || statut === 502) {
         const champ = await champEnErreur(error);
+        if (champ === 'code_promo') return refusPromo(error);
         if (champ === 'iban') return setRefus("Cet IBAN ne passe pas. Vérifie-le sur ton RIB (zone SEPA seulement).");
         if (champ === 'titulaire') return setRefus('Mets le nom du titulaire du compte, comme sur ton RIB.');
         if (champ === 'telephone') return setRefus("Je n'arrive pas à envoyer de SMS à ce numéro. Vérifie-le, ou paie par carte.");
@@ -330,6 +388,39 @@ function Page() {
     }
   };
 
+  // Code refusé au moment de payer (épuisé entre-temps…) : rien n'est prélevé, on l'enlève.
+  const refusPromo = async (error: unknown) => {
+    const raison = (await corpsErreur(error))?.raison;
+    setPromo(null);
+    setPromoRefus(REFUS_PROMO[typeof raison === 'string' ? raison : ''] ?? REFUS_PROMO.inconnu);
+    setRefus("Rien n'est prélevé : le code promo ne passe plus. Retire-le ou essaie-en un autre.");
+  };
+
+  // Code à 100 % pour toujours : MichelIA+ part tout de suite, sans carte ni compte.
+  const activerOffert = async () => {
+    if (sending || !promo) return;
+    if (!accepte) return setRefus("Coche la case des conditions, c'est la loi, con.");
+    setSending(true);
+    setRefus(null);
+    try {
+      const captcha = await getCaptchaToken();
+      const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
+        body: { souscrire: formule, moyen: 'offert', captcha, ...avecCode },
+      });
+      const statut = (error as { context?: { status?: number } } | null)?.context?.status;
+      if (statut === 400 && (await champEnErreur(error)) === 'code_promo') return refusPromo(error);
+      if (statut === 409) return recharger();
+      if (error) throw error;
+      if (result?.etat === 'paye') return bienvenu();
+      setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
+    } catch (e) {
+      console.error('MichelIA+ : activation offerte impossible', e);
+      setRefus('Ça a coincé à la caisse, réessaie dans un moment.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const souscrire = async () => {
     if (sending) return;
     const carte = carteSaisie(numero, expiration, cvc);
@@ -340,10 +431,11 @@ function Page() {
     try {
       const captcha = await getCaptchaToken();
       const { data: result, error } = await supabase.functions.invoke('michelia-plus', {
-        body: changement ? { changer: { moyen: 'carte', carte, captcha } } : { souscrire: formule, carte, captcha },
+        body: changement ? { changer: { moyen: 'carte', carte, captcha } } : { souscrire: formule, carte, captcha, ...avecCode },
       });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 429) return setRefus("Trop d'essais d'un coup. Reviens dans une heure, je bouge pas.");
+      if (statut === 400 && (await champEnErreur(error)) === 'code_promo') return refusPromo(error);
       if (statut === 400) return setRefus('Vérifie le numéro de carte, la date (MM/AA) et le code au dos.');
       if (statut === 409) return recharger();
       if (error) throw error;
@@ -397,7 +489,20 @@ function Page() {
     }
   };
 
-  const prix = changement && abonnement ? abonnement.prix_cents : formule === 'mois' ? offre?.mois_cents : offre?.an_cents;
+  // Prix d'une formule, code promo compris s'il la vise.
+  const prixDe = (f: 'mois' | 'an') => {
+    const remise = f === 'mois' ? promo?.mois_cents : promo?.an_cents;
+    return remise ?? (f === 'mois' ? offre?.mois_cents : offre?.an_cents);
+  };
+  const remiseSur = (f: 'mois' | 'an') => (f === 'mois' ? promo?.mois_cents : promo?.an_cents) != null;
+  const prix = changement && abonnement ? abonnement.prix_cents : prixDe(formule);
+  const prixNormal = formule === 'mois' ? offre?.mois_cents : offre?.an_cents;
+  // Code à 100 % : rien à payer aujourd'hui. Pour toujours : ni carte ni compte.
+  const gratuit = !changement && prix === 0;
+  const offertPourDeBon = gratuit && !promo?.periodes;
+  const suiteRemise = !changement && remiseSur(formule) && promo?.periodes && prixNormal
+    ? ` ${dureeRemise(formule, promo.periodes)}, puis ${euros(prixNormal)}`
+    : '';
   const rythme = (changement && abonnement ? abonnement.formule : formule) === 'mois' ? 'chaque mois' : 'chaque année';
   const retourSepa = !!paiement?.startsWith('pi_');
   const essai = new URLSearchParams(window.location.search).has('essai');
@@ -424,14 +529,24 @@ function Page() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Ta cotisation</Text>
             <Text style={styles.text}>
-              MichelIA+ {abonnement.formule === 'mois' ? 'au mois' : "à l'année"}, {euros(abonnement.prix_cents)}
+              MichelIA+ {abonnement.formule === 'mois' ? 'au mois' : "à l'année"}, {abonnement.prix_cents === 0 ? 'offert' : euros(abonnement.prix_cents)}
               {abonnement.moyen === 'carte' && abonnement.derniers_chiffres ? `, carte •••• ${abonnement.derniers_chiffres}` : ''}
               {abonnement.moyen === 'sepa' ? `, prélèvement${abonnement.derniers_chiffres ? ` sur le compte •••• ${abonnement.derniers_chiffres}` : ''}` : ''}.
             </Text>
+            {!!abonnement.remise_pct && !!abonnement.prix_plein_cents && (
+              <Text style={styles.small}>
+                Code promo : -{abonnement.remise_pct} %
+                {abonnement.remise_restante == null
+                  ? ', tant que tu restes.'
+                  : abonnement.remise_restante > 0
+                    ? `, encore ${abonnement.remise_restante} échéance${abonnement.remise_restante > 1 ? 's' : ''}, puis ${euros(abonnement.prix_plein_cents)}.`
+                    : `, terminé : la prochaine échéance repasse à ${euros(abonnement.prix_plein_cents)}.`}
+              </Text>
+            )}
             {abonnement.statut === 'actif' && (
               <Text style={styles.text}>
                 Prochaine échéance le {jour(abonnement.fin_periode)}
-                {abonnement.moyen === 'sepa' ? `, ${euros(abonnement.prix_cents)} prélevés sur ton compte` : ''}.
+                {abonnement.moyen === 'sepa' && abonnement.prix_cents > 0 ? `, ${euros(abonnement.prix_cents)} prélevés sur ton compte` : ''}.
               </Text>
             )}
             {abonnement.statut === 'impaye' && (
@@ -513,7 +628,8 @@ function Page() {
             {!changement && (
             <View style={styles.row}>
               {(['mois', 'an'] as const).map((f) => {
-                const p = f === 'mois' ? offre.mois_cents : offre.an_cents;
+                const p = prixDe(f);
+                const barre = remiseSur(f) ? (f === 'mois' ? offre.mois_cents : offre.an_cents) : null;
                 return (
                   <Pressable
                     key={f}
@@ -525,14 +641,65 @@ function Page() {
                   >
                     <Text style={[styles.formuleNom, formule === f && styles.formuleNomChoisi]}>{f === 'mois' ? 'Au mois' : "À l'année"}</Text>
                     <Text style={[styles.formulePrix, formule === f && styles.formuleNomChoisi]}>
-                      {p ? `${euros(p)} / ${f}` : '—'}
+                      {p === 0 ? 'Offert' : p ? `${euros(p)} / ${f}` : '—'}
                     </Text>
+                    {!!barre && <Text style={[styles.small, styles.barre]}>{euros(barre)}</Text>}
                   </Pressable>
                 );
               })}
             </View>
             )}
-            {!secure && !paiement && (
+            {!changement && !secure && !paiement && !codeEnvoye && (
+              <View>
+                {promo && (
+                  <Text style={styles.text}>
+                    Code {promo.code} : -{promo.remise_pct} %{promo.formule ? (promo.formule === 'mois' ? ' sur la formule au mois' : " sur la formule à l'année") : ''}
+                    {promo.periodes ? `, ${dureeRemise(promo.formule ?? formule, promo.periodes)}` : ', tant que tu restes'}.{' '}
+                    <Text style={styles.link} onPress={() => { setPromo(null); setCodePromo(''); }}>Retirer</Text>
+                  </Text>
+                )}
+                {!promo && !promoOuvert && (
+                  <Pressable onPress={() => setPromoOuvert(true)} accessibilityRole="button">
+                    <Text style={styles.changed}>J'ai un code promo</Text>
+                  </Pressable>
+                )}
+                {!promo && promoOuvert && (
+                  <View style={styles.row}>
+                    <TextInput
+                      value={codePromo}
+                      onChangeText={(t) => setCodePromo(t.replace(/[^A-Za-z0-9-]/g, '').toUpperCase().slice(0, 30))}
+                      onSubmitEditing={() => verifierCode()}
+                      placeholder="Code promo"
+                      placeholderTextColor={colors.tertiary}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      autoComplete="off"
+                      style={[styles.input, styles.half]}
+                    />
+                    <Pressable onPress={() => verifierCode()} style={({ pressed }) => [styles.formule, styles.promoBouton, pressed && styles.pressed]} accessibilityRole="button">
+                      <Text style={styles.formuleNom}>Appliquer</Text>
+                    </Pressable>
+                  </View>
+                )}
+                {promoRefus && <Text style={styles.refus}>{promoRefus}</Text>}
+              </View>
+            )}
+            {offertPourDeBon && (
+              <>
+                <Text style={styles.text}>MichelIA+ offert, tant que tu restes : ni carte ni compte à donner.</Text>
+                <Pressable onPress={() => setAccepte((a) => !a)} style={styles.row} accessibilityRole="checkbox" accessibilityState={{ checked: accepte }}>
+                  <Text style={styles.case}>{accepte ? '☑' : '☐'}</Text>
+                  <Text style={[styles.small, styles.half]}>
+                    J'accepte les{' '}
+                    <Text style={styles.link} onPress={() => window.open('/conditions.html', '_blank')}>
+                      conditions
+                    </Text>
+                    . Résiliable ici en deux clics.
+                  </Text>
+                </Pressable>
+              </>
+            )}
+            {!secure && !paiement && !offertPourDeBon && (
               <View style={styles.row}>
                 {(['carte', 'sepa'] as const).map((m) => (
                   <Pressable
@@ -551,7 +718,7 @@ function Page() {
               </View>
             )}
             {retourSepa && <Text style={styles.text}>Je relis ton mandat chez Stancer, deux secondes…</Text>}
-            {!secure && !paiement && moyen === 'sepa' && !codeEnvoye && (
+            {!secure && !paiement && !offertPourDeBon && moyen === 'sepa' && !codeEnvoye && (
               <>
                 <TextInput
                   value={iban}
@@ -582,7 +749,9 @@ function Page() {
                 <Text style={styles.small}>
                   {changement
                     ? `Je t'envoie un code par SMS : en le recopiant, tu signes le mandat sur ce compte. Rien n'est prélevé aujourd'hui ; les prochaines échéances partent dessus, à la même date ${rythme}.`
-                    : `Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Le premier prélèvement part tout de suite, puis à la même date ${rythme}.`}
+                    : gratuit
+                      ? `Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Rien n'est prélevé aujourd'hui : les premiers prélèvements partiront à la fin de la période offerte.`
+                      : `Je t'envoie un code par SMS : en le recopiant, tu signes le mandat. Le premier prélèvement part tout de suite, puis à la même date ${rythme}.`}
                 </Text>
                 <Pressable onPress={() => setAccepte((a) => !a)} style={styles.row} accessibilityRole="checkbox" accessibilityState={{ checked: accepte }}>
                   <Text style={styles.case}>{accepte ? '☑' : '☐'}</Text>
@@ -592,7 +761,7 @@ function Page() {
                       conditions
                     </Text>{' '}
                     {changement ? '' : 'et je demande que MichelIA+ commence tout de suite : je renonce à mon délai de rétractation de 14 jours. '}
-                    J'autorise GOLDEN PRINT à prélever {prix ? euros(prix) : 'le prix affiché'} {rythme} à
+                    J'autorise GOLDEN PRINT à prélever {gratuit ? `${euros(prixNormal ?? 0)} ${rythme}, après la période offerte (${dureeRemise(formule, promo?.periodes)}),` : prix ? `${euros(prix)} ${rythme}${suiteRemise}` : `le prix affiché ${rythme}`} à
                     la date anniversaire : ce rappel vaut avis de prélèvement. Résiliable ici en deux clics.
                   </Text>
                 </Pressable>
@@ -619,9 +788,15 @@ function Page() {
                 </Text>
               </>
             )}
-            {!secure && !retourSepa && moyen === 'carte' && (
+            {!secure && !retourSepa && !offertPourDeBon && moyen === 'carte' && (
               <>
                 <ChampsCarte {...{ numero, setNumero, expiration, setExpiration, cvc, setCvc }} />
+                {gratuit && (
+                  <Text style={styles.small}>
+                    Rien n'est débité aujourd'hui : ta banque valide la carte avec une autorisation de 0,50 €, levée tout de suite.
+                    Elle servira à la fin de la période offerte.
+                  </Text>
+                )}
                 {changement && (
                   <Text style={styles.small}>
                     Ta banque valide la carte avec une autorisation de 0,50 € : rien n'est débité, elle disparaît d'elle-même.
@@ -637,7 +812,7 @@ function Page() {
                       conditions
                     </Text>{' '}
                     et je demande que MichelIA+ commence tout de suite : je renonce à mon délai de rétractation de 14 jours.
-                    Renouvelé {rythme}, résiliable ici en deux clics.
+                    {gratuit ? `Offert ${dureeRemise(formule, promo?.periodes)}, puis ${euros(prixNormal ?? 0)} ${rythme}` : `Renouvelé ${rythme}${suiteRemise}`}, résiliable ici en deux clics.
                   </Text>
                 </Pressable>
                 )}
@@ -647,19 +822,23 @@ function Page() {
             {refus && <Text style={styles.refus}>{refus}</Text>}
             {!secure && !paiement && (
               <Pressable
-                onPress={moyen === 'carte' ? souscrire : codeEnvoye ? signerMandat : demanderCode}
-                disabled={sending || !prix}
-                style={({ pressed }) => [styles.payer, (sending || !prix) && styles.dimmed, pressed && styles.pressed]}
+                onPress={offertPourDeBon ? activerOffert : moyen === 'carte' ? souscrire : codeEnvoye ? signerMandat : demanderCode}
+                disabled={sending || prix == null}
+                style={({ pressed }) => [styles.payer, (sending || prix == null) && styles.dimmed, pressed && styles.pressed]}
                 accessibilityRole="button"
               >
                 {sending ? (
                   <ActivityIndicator color={colors.onAccent} />
                 ) : (
                   <Text style={styles.payerText}>
-                    {moyen === 'carte'
+                    {offertPourDeBon
+                      ? 'Activer MichelIA+'
+                      : moyen === 'carte'
                       ? changement
                         ? 'Enregistrer cette carte'
-                        : `Cotiser ${prix ? euros(prix) : ''}`
+                        : gratuit
+                          ? 'Activer MichelIA+'
+                          : `Cotiser ${prix ? euros(prix) : ''}`
                       : codeEnvoye
                         ? 'Signer le mandat'
                         : 'Recevoir mon code'}
@@ -680,7 +859,7 @@ function Page() {
               </Pressable>
             )}
             <Text style={styles.small}>
-              Paiement sécurisé par Stancer. {moyen === 'sepa' ? 'Ton IBAN part chez Stancer ; Michel range ton mandat signé dans un coffre privé.' : "Ta carte n'est jamais gardée chez Michel."}
+              {offertPourDeBon ? 'Rien à payer.' : 'Paiement sécurisé par Stancer.'} {offertPourDeBon ? '' : moyen === 'sepa' ? 'Ton IBAN part chez Stancer ; Michel range ton mandat signé dans un coffre privé.' : "Ta carte n'est jamais gardée chez Michel."}
             </Text>
           </View>
         )}
@@ -766,4 +945,6 @@ const styles = StyleSheet.create({
   optionPays: { paddingVertical: 8, paddingHorizontal: 12 },
   paysChoisi: { color: colors.accent, fontWeight: '700' },
   case: { color: colors.accent, fontSize: 20, lineHeight: 22 },
+  barre: { textDecorationLine: 'line-through', marginTop: 2 },
+  promoBouton: { flexGrow: 0, flexBasis: 'auto', paddingHorizontal: 16, justifyContent: 'center' },
 });

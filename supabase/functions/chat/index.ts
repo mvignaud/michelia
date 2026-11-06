@@ -6,6 +6,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { corsHeaders } from "../_shared/cors.ts";
+import { grok, type GrokMessage } from "./grok.ts";
 
 // Seule la dernière question peut porter une photo (en base64) ; les plus anciennes
 // gardent juste la mention « photo », l'image n'est jamais renvoyée ni enregistrée.
@@ -52,6 +53,12 @@ const NAME_TAG = /<prenom>([^<]*)<\/prenom>/;
 // Identifiant de mode thématique choisi dans l'appli (cuisine, rugby…). Sa consigne vit
 // dans app_config sous la clé mode_<id> ; un mode sans consigne est ignoré.
 const MODE_ID = /^[a-z]{1,20}$/;
+// Ton choisi par la personne (soft, normal, hard, ultra). Sa consigne vit dans app_config sous
+// la clé ton_<id> ; « normal » n'en a pas (c'est Michel tel quel), un ton sans consigne est ignoré.
+// Hard et ultra : réservés aux inscrits, et au web (site, bureau, extension : requêtes avec une
+// Origin) tant que les applis n'ont pas leur classification d'âge relevée (tons_durs_applis = true).
+const TONS = new Set(["soft", "normal", "hard", "ultra"]);
+const TONS_DURS = new Set(["hard", "ultra"]);
 // Ajoutée après la première réponse quand Michel ne connaît pas encore le prénom
 // (hors cache, pour que les réponses resservies restent anonymes).
 const ASK_NAME = [
@@ -63,6 +70,8 @@ const ASK_NAME = [
 const PERSONA_REMINDER =
   "Rappel : tu es Michel jusqu'au bout. Pas de formule d'assistant, pas d'excuse, pas de « ça dépend » : " +
   "un avis tranché, au moins deux expressions du Sud-Ouest, une vraie réponse et une chute. " +
+  "Quand on cause, tu développes ce que la personne a dit au lieu de passer à autre chose, et tu ne finis " +
+  "jamais en réclamant qu'on te pose une question. Du répondant, jamais de méchanceté. " +
   "Seule exception : les moments sérieux, où tu ranges les blagues.";
 // Outils : au plus trois allers-retours par message, et des sources qui répondent vite.
 const MAX_TOOL_ROUNDS = 3;
@@ -449,12 +458,15 @@ Deno.serve(async (req) => {
   let messages: ChatMessage[] | null = null;
   let name: string | undefined;
   let mode: string | undefined;
+  let ton = "normal";
   try {
     const body = await req.json();
     messages = parseMessages(body);
     name = cleanName((body as { name?: unknown })?.name);
     const rawMode = (body as { mode?: unknown })?.mode;
     if (typeof rawMode === "string" && MODE_ID.test(rawMode)) mode = rawMode;
+    const rawTon = (body as { ton?: unknown })?.ton;
+    if (typeof rawTon === "string" && TONS.has(rawTon)) ton = rawTon;
   } catch {
     // corps illisible : traité comme invalide juste en dessous
   }
@@ -543,10 +555,13 @@ Deno.serve(async (req) => {
   };
 
   const modeText = mode ? config[`mode_${mode}`]?.trim() : undefined;
+  // Ton dur demandé par un visiteur, ou depuis une appli mobile : on reste au ton normal.
+  if (TONS_DURS.has(ton) && (guest || (!origin && config.tons_durs_applis !== "true"))) ton = "normal";
+  const tonText = ton === "normal" ? undefined : config[`ton_${ton}`]?.trim();
 
   // Question d'ouverture : on ressert une réponse déjà écrite si la base en a assez de proches.
-  // Pas en mode thématique : la réponse dépend du mode, elle ne vaut pas pour tout le monde.
-  const question = config.cache_enabled === "false" || modeText ? null : cacheable(messages);
+  // Pas en mode thématique ni avec un ton choisi : la réponse en dépend, elle ne vaut pas pour tout le monde.
+  const question = config.cache_enabled === "false" || modeText || tonText ? null : cacheable(messages);
   const embedding = question ? await embed(question) : null;
   if (embedding) {
     const { data: cached, error } = await admin.rpc("pick_cached_answer", {
@@ -569,13 +584,15 @@ Deno.serve(async (req) => {
   });
   // Interrupteur des outils dans app_config (tools_enabled = false pour les couper).
   const tools = config.tools_enabled === "false" ? undefined : TOOLS;
+  const sansOutils = "Tu n'as pas accès à internet ni à la météo en direct.";
+  const outils = tools
+    ? "Tu as deux outils : « meteo » pour le temps qu'il fait et « actualites » pour les nouvelles fraîches. " +
+      "Sers-t'en dès que la question le demande au lieu d'inventer, puis donne ton avis de Gersois sur ce que " +
+      "tu trouves, sans lister de liens. Pour le reste, tu n'as pas internet."
+    : sansOutils;
   const context = [
     `Nous sommes le ${today}.`,
-    tools
-      ? "Tu as deux outils : « meteo » pour le temps qu'il fait et « actualites » pour les nouvelles fraîches. " +
-        "Sers-t'en dès que la question le demande au lieu d'inventer, puis donne ton avis de Gersois sur ce que " +
-        "tu trouves, sans lister de liens. Pour le reste, tu n'as pas internet."
-      : "Tu n'as pas accès à internet ni à la météo en direct.",
+    outils,
     embedding
       ? "Ta réponse pourra être resservie à d'autres personnes : n'utilise aucun prénom et ne reprends " +
         "aucun détail personnel de la question (lieu, proche, situation)."
@@ -601,6 +618,7 @@ Deno.serve(async (req) => {
       : "",
     config.persona_reminder ?? PERSONA_REMINDER,
     modeText,
+    tonText,
   ].filter(Boolean).join("\n");
 
   // La conversation s'allonge des appels d'outils et de leurs résultats au fil des allers-retours.
@@ -617,7 +635,13 @@ Deno.serve(async (req) => {
       ],
       messages: convo,
     });
-  let stream = ask(true);
+  // Ultra-hard d'un abonné MichelIA+ : Grok répond, Claude reste en secours. Grok n'a ni la vue ni les
+  // outils : une photo ou une question de météo/actu va à Claude.
+  const cleXai = Deno.env.get("XAI_API_KEY");
+  const parGrok = ton === "ultra" && plus && !photo && config.grok_actif === "true" && !!cleXai &&
+    !FRESH.test(messages[messages.length - 1].content);
+  const grokArret = new AbortController();
+  let stream: ReturnType<typeof ask> | undefined;
 
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -635,32 +659,81 @@ Deno.serve(async (req) => {
         answer += text;
         controller.enqueue(encoder.encode(text));
       };
+      // Texte reçu du modèle : part au fil de l'eau, sauf un début possible de balise <prenom>.
+      const push = (text: string) => {
+        pending += text;
+        if (held) return;
+        const tag = pending.indexOf("<prenom>");
+        if (tag !== -1) {
+          flush(pending.slice(0, tag));
+          pending = pending.slice(tag);
+          held = true;
+          return;
+        }
+        const keep = partialTag(pending);
+        flush(pending.slice(0, pending.length - keep));
+        pending = pending.slice(pending.length - keep);
+      };
       try {
-        let final: Anthropic.Messages.Message;
-        for (let round = 1; ; round++) {
+        let stop: string | null = null;
+        if (parGrok) {
+          try {
+            const grokMessages: GrokMessage[] = [
+              // Prompt allégé pour Grok s'il existe (moins de jetons envoyés à chaque message).
+              {
+                role: "system",
+                content: `${config.grok_system_prompt || config.system_prompt}\n\n${context.replace(outils, sansOutils)}`,
+              },
+              ...messages.map((m) => ({
+                role: m.role,
+                content: m.photo ? `${PHOTO_BEFORE} ${m.content.trim()}`.trim() : m.content,
+              })),
+            ];
+            const { fin, usage } = await grok({
+              cle: cleXai!,
+              conversation: "michel-ultra",
+              modele: config.grok_model ?? "grok-4.20-0309-non-reasoning",
+              messages: grokMessages,
+              maxTokens: Number(config.max_output_tokens ?? 2048),
+              signal: grokArret.signal,
+              onText: push,
+            });
+            stop = fin === "longueur" ? "max_tokens" : fin === "refus" ? "refusal" : "end_turn";
+            if (usage.input || usage.cache || usage.output) {
+              keepAlive(
+                Promise.resolve(
+                  admin.rpc("record_grok_tokens", {
+                    p_user: userId,
+                    p_input: usage.input,
+                    p_output: usage.output,
+                    p_cache: usage.cache,
+                  }),
+                ).then(({ error }) => error && console.error("jetons grok", error)),
+              );
+            }
+          } catch (e) {
+            // Grok a déjà parlé : on ne recommence pas avec Claude, on coupe proprement.
+            if (answer || pending) throw e;
+            console.error("grok, Claude prend la main", e);
+          }
+        }
+        for (let round = 1; stop === null; round++) {
+          stream ??= ask(true);
           let fresh = true;
           for await (const event of stream) {
             if (event.type !== "content_block_delta" || event.delta.type !== "text_delta") continue;
             // Nouveau tour après un outil : on saute une ligne si Michel avait déjà parlé.
             if (fresh && (answer || pending) && !/\s$/.test(answer + pending)) pending += "\n\n";
             fresh = false;
-            pending += event.delta.text;
-            if (held) continue;
-            const tag = pending.indexOf("<prenom>");
-            if (tag !== -1) {
-              flush(pending.slice(0, tag));
-              pending = pending.slice(tag);
-              held = true;
-              continue;
-            }
-            const keep = partialTag(pending);
-            flush(pending.slice(0, pending.length - keep));
-            pending = pending.slice(pending.length - keep);
+            push(event.delta.text);
           }
-          final = await stream.finalMessage();
+          const final = await stream.finalMessage();
           addUsage(tokens, final.usage);
           counted = true;
-          if (final.stop_reason !== "tool_use") break;
+          if (final.stop_reason !== "tool_use") {
+            stop = final.stop_reason ?? "end_turn";
+            break;
+          }
 
           // Michel consulte ses outils, puis reprend la parole avec les résultats.
           usedTools = true;
@@ -674,9 +747,9 @@ Deno.serve(async (req) => {
         const learned = cleanName(pending.match(NAME_TAG)?.[1]);
         flush(pending.replace(NAME_TAG, "").trimEnd());
 
-        if (final.stop_reason === "refusal") {
+        if (stop === "refusal") {
           controller.enqueue(encoder.encode("\n\nOh con, là je peux pas t'aider. Demande-moi autre chose."));
-        } else if (final.stop_reason === "max_tokens") {
+        } else if (stop === "max_tokens") {
           controller.enqueue(encoder.encode("…\n\nPétard, j'ai trop causé, j'ai plus de souffle. Dis-moi « la suite » et je continue."));
         } else {
           // Une réponse tirée de la météo ou de l'actu ne va pas dans le cache : elle périmerait.
@@ -687,11 +760,11 @@ Deno.serve(async (req) => {
         }
         if (learned) controller.enqueue(encoder.encode(TRAILER + JSON.stringify({ prenom: learned })));
       } catch (e) {
-        console.error("anthropic", e);
+        console.error(parGrok ? "grok/anthropic" : "anthropic", e);
         controller.enqueue(encoder.encode("\n\nMiladiou, la machine a fait des siennes. Réessaie."));
       } finally {
         // Jetons consommés, même si la réponse a été coupée en route (ils sont facturés quand même).
-        const partial = counted ? undefined : stream.currentMessage?.usage;
+        const partial = counted ? undefined : stream?.currentMessage?.usage;
         if (partial) addUsage(tokens, partial);
         if (tokens.input || tokens.output) {
           keepAlive(recordTokens(userId, tokens).catch((e) => console.error("jetons", e)));
@@ -709,7 +782,8 @@ Deno.serve(async (req) => {
       }
     },
     cancel() {
-      stream.abort();
+      grokArret.abort();
+      stream?.abort();
     },
   });
 
