@@ -130,7 +130,9 @@ export async function saveCarnet(carnet: Carnet): Promise<void> {
 export async function loadAccountCarnet(
   userId: string,
   locales: Discussion[],
-  sansAncienne = false,
+  // Une causette effacée en attente dont la copie est dans conversations : cette copie, si elle n'a pas
+  // été réécrite depuis (heure ≤ ancienneJusqua, en ms), c'est elle, on ne la reprend pas.
+  ancienneJusqua = 0,
   // « complet » : la liste des causettes a bien été lue (sinon on ne sait pas lesquelles ont été effacées).
 ): Promise<{ name?: string; discussions: Discussion[]; aEnvoyer: Discussion[]; complet: boolean } | null> {
   const [conv, liste] = await Promise.all([
@@ -153,7 +155,7 @@ export async function loadAccountCarnet(
   // y a écrit (sinon elle est recopiée en même temps qu'une causette, à la même heure).
   const ancienne = nettoyer(conv.data?.messages);
   const majAncienne = conv.data?.updated_at ? temps(conv.data.updated_at) : 0;
-  if (!sansAncienne && ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
+  if (majAncienne > ancienneJusqua && ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
     const maj = new Date(majAncienne).toISOString();
     // La même causette, continuée par l'appli d'avant : tous ses messages ouvrent la conversation du compte.
     // L'appli d'avant ne garde que les 40 derniers messages : le début de la causette a pu glisser hors
@@ -209,14 +211,20 @@ async function envoyerDiscussion(userId: string, d: Discussion, enCours?: { name
 
 // Retire une causette du compte. Si c'était la plus récente, sa copie dans la table conversations
 // est vidée aussi : sinon elle reviendrait au prochain chargement comme une conversation d'avant le carnet.
-export function deleteAccountDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
-  return aLaFile(id, () => effacerDiscussion(userId, id, plusRecente));
+// « copieJusqua » : l'heure (ms) de cette causette, 0 si elle n'était pas la plus récente. La copie n'est
+// vidée que si personne ne l'a réécrite depuis (une appli d'avant le carnet a pu y mettre autre chose).
+export function deleteAccountDiscussion(userId: string, id: string, copieJusqua: number): Promise<void> {
+  return aLaFile(id, () => effacerDiscussion(userId, id, copieJusqua));
 }
 
-async function effacerDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
+async function effacerDiscussion(userId: string, id: string, copieJusqua: number): Promise<void> {
+  const vider = () => {
+    const q = supabase.from('conversations').update({ messages: [] }).eq('user_id', userId);
+    return Number.isFinite(copieJusqua) ? q.lte('updated_at', new Date(copieJusqua).toISOString()) : q;
+  };
   const [effacee, copie] = await Promise.all([
     supabase.from('discussions').delete().eq('user_id', userId).eq('id', id),
-    plusRecente ? supabase.from('conversations').update({ messages: [] }).eq('user_id', userId) : null,
+    copieJusqua > 0 ? vider() : null,
   ]);
   if (effacee.error) throw effacee.error;
   if (copie?.error) throw copie.error;
@@ -225,10 +233,12 @@ async function effacerDiscussion(userId: string, id: string, plusRecente: boolea
 // Causettes effacées sur l'appareil mais pas encore sur le compte (hors ligne, ou compte encore en
 // chargement) : gardées de côté pour ne pas les reprendre du compte, et réessayées au chargement suivant.
 const KEY_EFFACEES = 'michelia:carnet:effacees:v1';
-// Chaque entrée est « compte:causette:1|0 » : un effacement ne se rejoue que sur le compte d'où il vient,
-// et le dernier chiffre dit s'il faut aussi vider la copie dans conversations (causette la plus récente).
+// Chaque entrée est « compte:causette:heure » : un effacement ne se rejoue que sur le compte d'où il vient,
+// et l'heure (ms, 0 sinon) dit jusqu'où vider la copie dans conversations (causette la plus récente).
+// Les entrées d'avant (« 1 ») vident la copie sans condition.
 let effacees: Promise<Set<string>> | null = null;
-const cle = (userId: string, id: string, plusRecente: boolean) => `${userId}:${id}:${plusRecente ? 1 : 0}`;
+const cle = (userId: string, id: string, copieJusqua: number) => `${userId}:${id}:${copieJusqua}`;
+const heureDe = (x: string | undefined) => (x === '1' ? Infinity : Number(x) || 0);
 
 function toutesEffacees(): Promise<Set<string>> {
   effacees ??= AsyncStorage.getItem(KEY_EFFACEES)
@@ -240,14 +250,14 @@ function toutesEffacees(): Promise<Set<string>> {
   return effacees;
 }
 
-// Les causettes de ce compte effacées ici mais peut-être pas encore sur le compte (id → plus récente ?).
-export async function lireEffacees(userId: string): Promise<Map<string, boolean>> {
+// Les causettes de ce compte effacées ici mais peut-être pas encore sur le compte (id → heure de la copie).
+export async function lireEffacees(userId: string): Promise<Map<string, number>> {
   const prefixe = `${userId}:`;
-  const ids = new Map<string, boolean>();
+  const ids = new Map<string, number>();
   for (const k of await toutesEffacees()) {
     if (!k.startsWith(prefixe)) continue;
-    const [id, plus] = k.slice(prefixe.length).split(':');
-    if (id) ids.set(id, ids.get(id) === true || plus === '1');
+    const [id, heure] = k.slice(prefixe.length).split(':');
+    if (id) ids.set(id, Math.max(ids.get(id) ?? 0, heureDe(heure)));
   }
   return ids;
 }
@@ -259,11 +269,9 @@ async function changerEffacees(change: (ids: Set<string>) => void): Promise<void
 }
 
 // Efface une causette du compte ; tant que ce n'est pas fait, elle reste notée comme effacée.
-export async function effacerDuCompte(userId: string, id: string, plusRecente: boolean): Promise<void> {
-  await changerEffacees((ids) => ids.add(cle(userId, id, plusRecente)));
-  await deleteAccountDiscussion(userId, id, plusRecente);
-  await changerEffacees((ids) => {
-    ids.delete(cle(userId, id, true));
-    ids.delete(cle(userId, id, false));
-  });
+export async function effacerDuCompte(userId: string, id: string, copieJusqua: number): Promise<void> {
+  await changerEffacees((ids) => ids.add(cle(userId, id, copieJusqua)));
+  await deleteAccountDiscussion(userId, id, copieJusqua);
+  const prefixe = `${userId}:${id}:`;
+  await changerEffacees((ids) => ids.forEach((k) => k.startsWith(prefixe) && ids.delete(k)));
 }

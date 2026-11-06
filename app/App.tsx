@@ -307,7 +307,7 @@ function Chat() {
     setCarnet(gardees);
     saveCarnet({ name: nameRef.current, courante: ouverte, discussions: gardees });
     if (memberId && syncedFor === memberId) {
-      tombees.forEach((d) => effacerDuCompte(memberId, d.id, false).catch(() => undefined));
+      tombees.forEach((d) => effacerDuCompte(memberId, d.id, 0).catch(() => undefined));
     }
     return gardees;
   }
@@ -341,14 +341,15 @@ function Chat() {
     let cancelled = false;
     lireEffacees(memberId)
       .then(async (effacees) => {
-        // La plus récente effacée en attente : la copie dans conversations, c'est elle, on ne la reprend pas.
-        const sansAncienne = [...effacees.values()].some((plus) => plus);
-        return [await loadAccountCarnet(memberId, carnetRef.current, sansAncienne), effacees] as const;
+        // La plus récente effacée en attente : la copie dans conversations, c'est elle (si elle n'a pas
+        // été réécrite depuis), on ne la reprend pas.
+        const jusqua = Math.max(0, ...effacees.values());
+        return [await loadAccountCarnet(memberId, carnetRef.current, jusqua), effacees] as const;
       })
       .then(([remote, effacees]) => {
       if (cancelled) return;
       // Effacées ici avant d'avoir pu l'être sur le compte : on réessaie, et on ne les reprend pas.
-      effacees.forEach((plusRecente, id) => effacerDuCompte(memberId, id, plusRecente).catch(() => undefined));
+      effacees.forEach((jusqua, id) => effacerDuCompte(memberId, id, jusqua).catch(() => undefined));
       if (!remote) {
         // Souci réseau : on garde l'appareil, et on enverra la causette en cours à la prochaine réponse.
         setSyncedFor(memberId);
@@ -387,7 +388,7 @@ function Chat() {
       const avant = carnetRef.current;
       // Au-delà de 30, les plus anciennes quittent le carnet, et le compte aussi.
       const { gardees, tombees } = ranger([...parId.values()]);
-      tombees.forEach((d) => d.enLigne && effacerDuCompte(memberId, d.id, false).catch(() => undefined));
+      tombees.forEach((d) => d.enLigne && effacerDuCompte(memberId, d.id, 0).catch(() => undefined));
       majCarnet(gardees, couranteRef.current);
       aEnvoyer.forEach((d) => {
         if (gardees.some((g) => g.id === d.id)) envoyer(memberId, d);
@@ -472,14 +473,15 @@ function Chat() {
   function retirerCausette(id: string) {
     const d = carnetRef.current.find((x) => x.id === id);
     if (!d || (busy && id === courante)) return;
-    const plusRecente = carnetRef.current[0]?.id === id;
+    // La plus récente : sa copie dans conversations sera vidée, si personne ne l'a réécrite depuis.
+    const copieJusqua = carnetRef.current[0]?.id === id ? Date.parse(d.maj) || 0 : 0;
     const ouverte = id === courante ? nouvelId() : courante;
     majCarnet(carnetRef.current.filter((x) => x.id !== id), ouverte);
     if (id === courante) {
       setCourante(ouverte);
       setBubbles([]);
     }
-    if (memberId) effacerDuCompte(memberId, id, plusRecente).catch(() => undefined);
+    if (memberId) effacerDuCompte(memberId, id, copieJusqua).catch(() => undefined);
   }
 
   // Android : le bouton retour ferme le tiroir.
