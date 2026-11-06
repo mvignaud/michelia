@@ -130,6 +130,7 @@ export async function saveCarnet(carnet: Carnet): Promise<void> {
 export async function loadAccountCarnet(
   userId: string,
   locales: Discussion[],
+  sansAncienne = false,
   // « complet » : la liste des causettes a bien été lue (sinon on ne sait pas lesquelles ont été effacées).
 ): Promise<{ name?: string; discussions: Discussion[]; aEnvoyer: Discussion[]; complet: boolean } | null> {
   const [conv, liste] = await Promise.all([
@@ -152,7 +153,7 @@ export async function loadAccountCarnet(
   // y a écrit (sinon elle est recopiée en même temps qu'une causette, à la même heure).
   const ancienne = nettoyer(conv.data?.messages);
   const majAncienne = conv.data?.updated_at ? temps(conv.data.updated_at) : 0;
-  if (ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
+  if (!sansAncienne && ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
     const maj = new Date(majAncienne).toISOString();
     // La même causette, continuée par l'appli d'avant : tous ses messages ouvrent la conversation du compte.
     const continuee = (d: Discussion) => prolonge(ancienne, d.messages);

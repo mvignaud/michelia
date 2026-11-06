@@ -339,7 +339,13 @@ function Chat() {
     setSyncedFor(undefined);
     if (!memberId || !loaded) return;
     let cancelled = false;
-    Promise.all([loadAccountCarnet(memberId, carnetRef.current), lireEffacees(memberId)]).then(([remote, effacees]) => {
+    lireEffacees(memberId)
+      .then(async (effacees) => {
+        // La plus récente effacée en attente : la copie dans conversations, c'est elle, on ne la reprend pas.
+        const sansAncienne = [...effacees.values()].some((plus) => plus);
+        return [await loadAccountCarnet(memberId, carnetRef.current, sansAncienne), effacees] as const;
+      })
+      .then(([remote, effacees]) => {
       if (cancelled) return;
       // Effacées ici avant d'avoir pu l'être sur le compte : on réessaie, et on ne les reprend pas.
       effacees.forEach((plusRecente, id) => effacerDuCompte(memberId, id, plusRecente).catch(() => undefined));
@@ -348,10 +354,7 @@ function Chat() {
         setSyncedFor(memberId);
         return;
       }
-      // La plus récente effacée en attente : la copie dans conversations, c'est elle, on ne la reprend pas.
-      const copieEffacee = [...effacees.values()].some((plus) => plus);
-      const reprises = new Set(remote.aEnvoyer.map((d) => d.id));
-      const garder = (d: Discussion) => !effacees.has(d.id) && !(copieEffacee && reprises.has(d.id));
+      const garder = (d: Discussion) => !effacees.has(d.id);
       const parId = new Map(remote.discussions.filter(garder).map((d) => [d.id, d]));
       const aEnvoyer = new Map(remote.aEnvoyer.filter(garder).map((d) => [d.id, d]));
       // Une causette jamais envoyée mais déjà sur le compte sous un autre identifiant (la même conversation
