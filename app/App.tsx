@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
+  BackHandler,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -12,6 +13,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -24,6 +26,7 @@ import { isMember, loadProfile } from './src/auth';
 import { CaptchaHost } from './src/captcha';
 import { ANALYTICS_ENABLED } from './src/analytics';
 import { Causette } from './src/Causette';
+import { Carnet } from './src/Carnet';
 import { causetteId, copier, plain, type Echange } from './src/causette';
 import { Comptoir } from './src/Comptoir';
 import { ConversationSheet } from './src/ConversationSheet';
@@ -38,7 +41,18 @@ import { NotifyCard } from './src/NotifyCard';
 import { forgetLoginGreeting, loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { noterReponse, nouvelleCle } from './src/notes';
-import { loadAccountMemory, loadMemory, saveAccountMemory, saveMemory } from './src/memory';
+import {
+  deleteAccountDiscussion,
+  loadAccountCarnet,
+  loadCarnet,
+  nettoyer,
+  nouvelId,
+  ranger,
+  saveAccountDiscussion,
+  saveCarnet,
+  titreDe,
+  type Discussion,
+} from './src/memory';
 import { pickPhoto, photoUri, type Photo } from './src/photo';
 import { AvatarMichel } from './src/Blocs';
 import { bureau, demarrerBureau, notifier, ouvrirDehors } from './src/bureau';
@@ -134,6 +148,15 @@ function Chat() {
   const [conversation, setConversation] = useState<Echange[] | null>(null);
   const [copied, setCopied] = useState<string>();
   const [avatar, setAvatar] = useState<Avatar>(() => avatarFromSeed(''));
+  // Le carnet des causettes (la plus récente en haut) et celle qui est à l'écran. Une causette nouvelle
+  // n'entre dans le carnet qu'au premier échange. Le carnet est aussi tenu dans une réf, à jour tout de suite.
+  const [carnet, setCarnet] = useState<Discussion[]>([]);
+  const carnetRef = useRef<Discussion[]>([]);
+  const [courante, setCourante] = useState(nouvelId);
+  // Sur un téléphone (ou une fenêtre étroite), le carnet s'ouvre en tiroir.
+  const [tiroir, setTiroir] = useState(false);
+  const { width } = useWindowDimensions();
+  const large = Platform.OS === 'web' && width >= 900;
   const sentRef = useRef(0);
   // Le comptoir est-il ouvert pour cet appareil ? Sur le web, la page /comptoir ; dans les applis,
   // seulement l'achat intégré, s'il est ouvert pour la boutique de l'appareil (jamais de lien vers le web).
@@ -157,6 +180,9 @@ function Chat() {
       // Déconnexion : la conversation reste sur le compte, on l'efface de l'appareil.
       if (event === 'SIGNED_OUT') {
         setBubbles([]);
+        carnetRef.current = [];
+        setCarnet([]);
+        setCourante(nouvelId());
         setName(undefined);
         forgetLoginGreeting();
       }
@@ -257,52 +283,136 @@ function Chat() {
   }
 
   useEffect(() => {
-    loadMemory().then((memory) => {
-      setName((current) => current ?? memory.name);
-      setBubbles((current) => [...memory.messages.map((m) => ({ ...m, id: newId() })), ...current]);
+    loadCarnet().then((saved) => {
+      setName((current) => current ?? saved.name);
+      carnetRef.current = saved.discussions;
+      setCarnet(saved.discussions);
+      const ouverte = saved.discussions.find((d) => d.id === saved.courante);
+      if (ouverte) {
+        setCourante(ouverte.id);
+        setBubbles((current) => [...ouverte.messages.map((m) => ({ ...m, id: newId() })), ...current]);
+      }
       setLoaded(true);
     });
   }, []);
 
-  // Membre : on reprend la conversation gardée sur le compte. S'il n'y en a pas encore,
-  // celle de l'appareil y sera envoyée à la prochaine sauvegarde.
+  // Le carnet change : à l'écran, sur l'appareil, et sur le compte pour les causettes retirées.
+  function majCarnet(discussions: Discussion[], ouverte = courante) {
+    const { gardees, tombees } = ranger(discussions);
+    carnetRef.current = gardees;
+    setCarnet(gardees);
+    saveCarnet({ name, courante: ouverte, discussions: gardees });
+    if (memberId && syncedFor === memberId) {
+      tombees.forEach((d) => deleteAccountDiscussion(memberId, d, false).catch(() => undefined));
+    }
+    return gardees;
+  }
+
+  // Membre : on range dans le carnet les causettes gardées sur le compte, et on y envoie celles de
+  // l'appareil qui n'y sont pas encore (ou plus récentes). Si l'écran est vide, on rouvre la plus récente.
   const [syncedFor, setSyncedFor] = useState<string>();
-  // Échanges commencés pendant que la conversation du compte se charge : ils restent à l'écran.
-  const pendingSync = useRef(new Set<string>());
+  const bubblesRef = useRef(bubbles);
+  bubblesRef.current = bubbles;
   useEffect(() => {
     setSyncedFor(undefined);
     if (!memberId || !loaded) return;
     let cancelled = false;
-    loadAccountMemory(memberId).then((remote) => {
+    loadAccountCarnet(memberId, carnetRef.current).then((remote) => {
       if (cancelled) return;
-      const keep = new Set(pendingSync.current);
-      pendingSync.current.clear();
-      if (remote?.messages.length) {
-        setBubbles((current) => [
-          ...remote.messages.map((m) => ({ ...m, id: newId() })),
-          ...current.filter((b) => b.local || keep.has(b.id)),
-        ]);
+      if (!remote) {
+        // Souci réseau : on garde l'appareil, et on enverra la causette en cours à la prochaine réponse.
+        setSyncedFor(memberId);
+        return;
       }
-      if (remote?.name) setName((current) => current ?? remote.name);
+      const parId = new Map(remote.discussions.map((d) => [d.id, d]));
+      const aEnvoyer = new Map(remote.aEnvoyer.map((d) => [d.id, d]));
+      for (const locale of carnetRef.current) {
+        const distante = parId.get(locale.id);
+        if (!distante || Date.parse(locale.maj) > Date.parse(distante.maj)) {
+          parId.set(locale.id, locale);
+          aEnvoyer.set(locale.id, locale);
+        }
+      }
+      const { gardees } = ranger([...parId.values()]);
+      carnetRef.current = gardees;
+      setCarnet(gardees);
+      const gardeesIds = new Set(gardees.map((d) => d.id));
+      aEnvoyer.forEach((d) => {
+        if (gardeesIds.has(d.id)) saveAccountDiscussion(memberId, d).catch(() => undefined);
+      });
+      if (remote.name) setName((current) => current ?? remote.name);
+      if (!bubblesRef.current.some((b) => !b.local) && gardees[0]) {
+        setCourante(gardees[0].id);
+        setBubbles((current) => [...gardees[0].messages.map((m) => ({ ...m, id: newId() })), ...current]);
+      }
       setSyncedFor(memberId);
     });
     return () => {
       cancelled = true;
-      // Changement de compte : les échanges en attente ne passent pas à l'autre compte.
-      pendingSync.current.clear();
     };
   }, [memberId, loaded]);
 
   // On sauvegarde une fois la réponse terminée, sans les échanges en échec.
   useEffect(() => {
     if (!loaded || busy) return;
-    const messages = bubbles
-      .filter((b) => !b.local)
-      .filter((b, i, all) => !b.failed && !all[i + 1]?.failed)
-      .map(({ role, content, photo }) => ({ role, content, photo }));
-    saveMemory({ name, messages });
-    if (memberId && syncedFor === memberId) saveAccountMemory(memberId, { name, messages });
-  }, [bubbles, name, busy, loaded, memberId, syncedFor]);
+    const messages = nettoyer(
+      bubbles.filter((b) => !b.local).filter((b, i, all) => !b.failed && !all[i + 1]?.failed),
+    );
+    const avant = carnetRef.current.find((d) => d.id === courante);
+    const changee = messages.length > 0 && JSON.stringify(messages) !== JSON.stringify(avant?.messages ?? []);
+    if (!changee) {
+      saveCarnet({ name, courante, discussions: carnetRef.current });
+      return;
+    }
+    const maintenant = new Date().toISOString();
+    const d: Discussion = { id: courante, titre: avant?.titre ?? titreDe(messages), messages, maj: maintenant };
+    majCarnet([d, ...carnetRef.current.filter((x) => x.id !== courante)]);
+    if (memberId && syncedFor === memberId) saveAccountDiscussion(memberId, d, { name }).catch(() => undefined);
+    // majCarnet lit courante, name, memberId et syncedFor : déjà dans la liste.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bubbles, name, busy, loaded, memberId, syncedFor, courante]);
+
+  // Changer de causette. Pendant que Michel répond, on reste où on est.
+  function ouvrirCausette(id: string) {
+    setTiroir(false);
+    if (busy || id === courante) return;
+    const d = carnetRef.current.find((x) => x.id === id);
+    if (!d) return;
+    setCourante(id);
+    setBubbles(d.messages.map((m) => ({ ...m, id: newId() })));
+    setInvitation(null);
+  }
+
+  function nouvelleCausette() {
+    setTiroir(false);
+    if (busy) return;
+    setCourante(nouvelId());
+    setBubbles([]);
+    setInvitation(null);
+  }
+
+  function retirerCausette(id: string) {
+    const d = carnetRef.current.find((x) => x.id === id);
+    if (!d || (busy && id === courante)) return;
+    const plusRecente = carnetRef.current[0]?.id === id;
+    const ouverte = id === courante ? nouvelId() : courante;
+    majCarnet(carnetRef.current.filter((x) => x.id !== id), ouverte);
+    if (id === courante) {
+      setCourante(ouverte);
+      setBubbles([]);
+    }
+    if (memberId && syncedFor === memberId) deleteAccountDiscussion(memberId, d, plusRecente).catch(() => undefined);
+  }
+
+  // Android : le bouton retour ferme le tiroir.
+  useEffect(() => {
+    if (!tiroir) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setTiroir(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [tiroir]);
 
   async function send(input = draft) {
     const text = input.trim();
@@ -317,7 +427,6 @@ function Chat() {
       question,
     ];
     setBubbles([...bubbles, question, { id: answerId, role: 'assistant', content: '' }]);
-    if (memberId && syncedFor !== memberId) pendingSync.current.add(question.id).add(answerId);
     sentRef.current += 1;
     dictee.couper();
     setDraft('');
@@ -441,13 +550,44 @@ function Chat() {
   const canSend = !busy && (draft.trim().length > 0 || !!attached);
   const suggestions = findMode(mode)?.suggestions ?? DEFAULT_SUGGESTIONS;
   const modeChips = [{ id: undefined, label: '💬 Tout' }, ...MODES];
+  const carnetProps = {
+    discussions: carnet,
+    courante,
+    occupe: busy,
+    membre: member,
+    onOuvrir: ouvrirCausette,
+    onNouvelle: nouvelleCausette,
+    onSupprimer: retirerCausette,
+    onConnexion: () => {
+      setTiroir(false);
+      setAccount('signin');
+    },
+  };
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
         <StatusBar style="dark" />
+        <View style={styles.cadre}>
+        {large && (
+          <View style={styles.cote}>
+            <Carnet {...carnetProps} />
+          </View>
+        )}
+        <View style={styles.principal}>
         <View style={styles.header}>
           <View style={styles.headerInner}>
+            {!large && (
+              <Pressable
+                onPress={() => setTiroir(true)}
+                style={({ pressed }) => [styles.menu, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Mes causettes"
+                hitSlop={6}
+              >
+                <Text style={styles.menuText}>☰</Text>
+              </Pressable>
+            )}
             <AvatarMichel />
             <View style={styles.headerText}>
               <Text style={styles.title}>Michel</Text>
@@ -468,12 +608,12 @@ function Chat() {
             </Pressable>
             {bubbles.length > 0 && !busy && (
               <Pressable
-                onPress={() => setBubbles([])}
+                onPress={nouvelleCausette}
                 style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
                 accessibilityRole="button"
-                accessibilityLabel="Nouvelle discussion"
+                accessibilityLabel="Nouvelle causette"
               >
-                <Text style={styles.newChatText}>Nouveau</Text>
+                <Text style={styles.newChatText}>{large ? 'Nouveau' : '＋'}</Text>
               </Pressable>
             )}
           </View>
@@ -808,6 +948,21 @@ function Chat() {
             </View>
           </SafeAreaView>
         </KeyboardAvoidingView>
+        </View>
+        </View>
+        {tiroir && !large && (
+          <View style={styles.tiroirFond}>
+            <Pressable
+              style={styles.tiroirOmbre}
+              onPress={() => setTiroir(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Fermer le carnet"
+            />
+            <SafeAreaView edges={['bottom', 'left']} style={styles.tiroir}>
+              <Carnet {...carnetProps} onFermer={() => setTiroir(false)} />
+            </SafeAreaView>
+          </View>
+        )}
         {account && (
           <AccountScreen
             session={session}
@@ -853,6 +1008,20 @@ function Chat() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  cadre: { flex: 1, flexDirection: 'row' },
+  cote: { width: 280, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.separator },
+  principal: { flex: 1, minWidth: 0 },
+  menu: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  menuText: { color: colors.accent, fontSize: 22, lineHeight: 26 },
+  tiroirFond: { ...StyleSheet.absoluteFill, zIndex: 20, flexDirection: 'row' },
+  tiroirOmbre: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(43, 36, 32, 0.35)' },
+  tiroir: {
+    width: '85%',
+    maxWidth: 320,
+    height: '100%',
+    backgroundColor: colors.bar,
+    boxShadow: '2px 0 16px rgba(60, 40, 20, 0.2)',
+  },
   header: ecran.bar,
   headerInner: ecran.barInner,
   headerText: { flex: 1 },
