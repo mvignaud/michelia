@@ -129,7 +129,8 @@ async function commentairesInstagram(version: string, ig: { id: string; username
         id: c.id,
         publication_id: media.id,
         publication: media.caption ?? "",
-        auteur_id: c.from?.id ?? pseudo,
+        // Le pseudo, comme pour les mentions (reseaux-webhook) : un seul plafond par personne.
+        auteur_id: pseudo ?? c.from?.id ?? null,
         auteur: pseudo,
         texte: c.text ?? "",
         date: c.timestamp,
@@ -143,6 +144,15 @@ async function commentairesInstagram(version: string, ig: { id: string; username
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { error: "POST seulement" });
   const config = await loadConfig();
+  // La purge passe avant tout le reste : même coupées, les réponses ne gardent rien au-delà du délai annoncé.
+  const conservation = nombre(config.reseaux_conservation_jours, 90);
+  // Une réservation restée « en_cours » (fonction coupée en route) est rendue au bout d'une demi-heure ;
+  // le journal ne garde rien au-delà de la durée de conservation (voir la page de confidentialité).
+  await admin.from("reponses_reseaux").delete().eq("statut", "en_cours")
+    .lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
+  await admin.from("reponses_reseaux").delete()
+    .lt("created_at", new Date(Date.now() - conservation * 86400_000).toISOString());
+
   if (config.reseaux_reponses_actif !== "true") return json(200, { actif: false });
   if (!PAGE_TOKEN) return json(200, { actif: true, jeton: false });
 
@@ -150,15 +160,7 @@ Deno.serve(async (req) => {
   const fenetre = nombre(config.reseaux_fenetre_heures, 72);
   const maxPassage = nombre(config.reseaux_max_passage, 10);
   const maxAuteur = nombre(config.reseaux_max_auteur_jour, 3);
-  const conservation = nombre(config.reseaux_conservation_jours, 90);
   const depuis = new Date(Date.now() - fenetre * 3600_000);
-
-  // Une réservation restée « en_cours » (fonction coupée en route) est rendue au bout d'une demi-heure ;
-  // le journal ne garde rien au-delà de la durée de conservation (voir la page de confidentialité).
-  await admin.from("reponses_reseaux").delete().eq("statut", "en_cours")
-    .lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
-  await admin.from("reponses_reseaux").delete()
-    .lt("created_at", new Date(Date.now() - conservation * 86400_000).toISOString());
 
   let commentaires: Commentaire[] = [];
   const erreurs: string[] = [];
