@@ -84,8 +84,10 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
     .limit(limite);
   if (error) console.error("MichelIA+ E-KO : abonnements illisibles", error.message);
   for (const a of nouveaux ?? []) {
+    // Le premier vrai paiement : les périodes offertes (0 €, code promo à 100 %) restent chez Michel, E-KO
+    // ne prend l'abonnement qu'au premier prélèvement.
     const premier = ((a.abonnement_echeances ?? []) as Paiement[])
-      .filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id))
+      .filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id) && e.montant_cents > 0)
       .sort((x, y) => x.created_at.localeCompare(y.created_at))[0];
     if (!premier) continue;
     const plan = r.plans[a.formule];
@@ -131,7 +133,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   const depuis7j = new Date(Date.now() - 7 * 86_400_000).toISOString();
   for (let page = 0; page < 50; page++) {
     const { data, error: pageErr } = await admin.from("abonnements")
-      .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, created_at, statut, eko_facture_id, eko_cycle)")
+      .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, montant_cents, created_at, statut, eko_facture_id, eko_cycle)")
       .eq("source", "web").not("eko_abonnement", "is", null).is("eko_erreur", null)
       .gte("created_at", depuis7j)
       .order("id", { ascending: false })
@@ -146,7 +148,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   for (const a of recents) {
     const echeances = (a.abonnement_echeances ?? []) as Paiement[];
     if (echeances.some((e) => e.eko_cycle || e.eko_facture_id)) continue;
-    const premier = echeances.filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id))
+    const premier = echeances.filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id) && e.montant_cents > 0)
       .sort((x, y) => x.created_at.localeCompare(y.created_at))[0];
     if (!premier) continue;
     try {

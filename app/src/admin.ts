@@ -308,7 +308,7 @@ export async function createCodePromo(c: NouveauCode): Promise<void> {
   });
   if (error?.code === '23505') throw new Error('Ce code existe déjà.');
   if (error?.code === 'P0002') throw new Error('Aucun compte avec cette adresse e-mail.');
-  if (error?.code === '23514') throw new Error('Valeur refusée : code (3 à 30 lettres, chiffres, tirets), remise de 1 à 95 %.');
+  if (error?.code === '23514') throw new Error('Valeur refusée : code (3 à 30 lettres, chiffres, tirets), remise de 1 à 100 %.');
   if (error) fail(error);
 }
 

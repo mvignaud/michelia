@@ -196,7 +196,7 @@ Sur le site seulement (les applis suivent les prix d'Apple et de Google). Migrat
 `20261107010000_codes_promo.sql`.
 
 - Créés dans le back-office, onglet « Codes promo » (administrateurs) : code (3 à 30 lettres, chiffres,
-  tirets), remise de 1 à 95 %, formule visée (mois, an ou les deux), nombre d'échéances remisées (vide :
+  tirets), remise de 1 à 100 %, formule visée (mois, an ou les deux), nombre d'échéances remisées (vide :
   tant que dure l'abonnement), compte réservé (par son e-mail), nombre d'utilisations, date de fin, note.
   Un code se coupe et se réactive ; les abonnés qui l'ont déjà gardent leur remise. Table `codes_promo`,
   RPC `admin_codes_promo`, `admin_code_promo_creer`, `admin_code_promo_actif` (journal `admin_audit`).
@@ -206,6 +206,14 @@ Sur le site seulement (les applis suivent les prix d'Apple et de Google). Migrat
   verrou) : places comptées, une fois par compte, formule, dates. L'abonnement garde `prix_cents` = prix
   remisé, `prix_plein_cents` = prix normal, `remise_pct`, `remise_periodes`, `code_promo_id`. Refusé :
   l'abonnement en attente est supprimé, rien n'est prélevé, la page dit pourquoi.
+- 100 % (offert) : rien n'est prélevé ; chaque période offerte est une échéance à 0 € (`offert:abo_…`),
+  payée tout de suite (`echeanceOfferte`), sans alerte de renouvellement.
+  - Pour un nombre d'échéances : la carte est seulement vérifiée (autorisation de 0,50 € avec 3D Secure,
+    jamais encaissée, levée aussitôt) ou le mandat SEPA signé sans prélèvement ; ils servent ensuite au
+    prix normal. E-KO ne prend l'abonnement qu'au premier vrai paiement (les échéances à 0 € restent chez
+    Michel).
+  - Pour toujours : ni carte ni mandat (`{souscrire, moyen: "offert", code_promo, captcha}`), abonnement
+    sans moyen, renouvelé à 0 € par `michelia-plus-echeances`.
 - Une utilisation (`codes_promo_utilisations`) compte tant que l'abonnement vit, ou s'il a payé au moins
   une échéance ; une souscription abandonnée ou refusée rend la place.
 - Prix remisé (`prix_remise`) : arrondi vers le bas à un multiple de 6 centimes, pour que le hors taxes

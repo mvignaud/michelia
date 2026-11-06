@@ -9,7 +9,8 @@ create table if not exists public.codes_promo (
   id bigint generated always as identity primary key,
   -- En majuscules, lettres, chiffres et tirets (MICHEL-20).
   code text not null unique check (code ~ '^[A-Z0-9][A-Z0-9-]{2,29}$'),
-  remise_pct integer not null check (remise_pct between 1 and 95),
+  -- 100 % : périodes offertes (rien prélevé ; carte ou mandat gardés pour la suite, sauf si c'est pour toujours).
+  remise_pct integer not null check (remise_pct between 1 and 100),
   -- null : au mois comme à l'année.
   formule text check (formule in ('mois', 'an')),
   -- Nombre d'échéances remisées (1 = la première seulement) ; null : tant que dure l'abonnement.
@@ -46,19 +47,26 @@ alter table public.codes_promo_utilisations enable row level security;
 -- code_promo_id et remise_pct restent pour l'historique.
 alter table public.abonnements
   add column if not exists code_promo_id bigint references public.codes_promo (id) on delete set null,
-  add column if not exists remise_pct integer check (remise_pct is null or remise_pct between 1 and 95),
+  add column if not exists remise_pct integer check (remise_pct is null or remise_pct between 1 and 100),
   add column if not exists remise_periodes integer check (remise_periodes is null or remise_periodes >= 1),
   add column if not exists prix_plein_cents integer check (prix_plein_cents is null or prix_plein_cents > 0);
 
+-- Périodes offertes (code à 100 %) : abonnement et échéance à 0 €.
+alter table public.abonnements drop constraint if exists abonnements_prix_cents_check;
+alter table public.abonnements add constraint abonnements_prix_cents_check check (prix_cents >= 0);
+alter table public.abonnement_echeances drop constraint if exists abonnement_echeances_montant_cents_check;
+alter table public.abonnement_echeances add constraint abonnement_echeances_montant_cents_check check (montant_cents >= 0);
+
 -- Prix remisé, en centimes : arrondi vers le bas à un multiple de 6 centimes, pour que le prix hors
 -- taxes (TVA 20 %) tombe juste au centime chez E-KO et que sa facture égale le paiement Stancer.
--- Jamais sous 0,54 € (minimum Stancer : 0,50 €).
+-- Jamais sous 0,54 € (minimum Stancer : 0,50 €), sauf à 100 % : offert, 0 €.
 create or replace function public.prix_remise(p_prix integer, p_pct integer)
 returns integer
 language sql
 immutable
 as $$
-  select least(p_prix, greatest(54, (floor(p_prix * (100 - p_pct) / 100.0 / 6) * 6)::integer));
+  select case when p_pct >= 100 then 0
+    else least(p_prix, greatest(54, (floor(p_prix * (100 - p_pct) / 100.0 / 6) * 6)::integer)) end;
 $$;
 
 -- Utilisations qui comptent : abonnement vivant, ou terminé après au moins un paiement. Une souscription
@@ -304,3 +312,39 @@ $$;
 
 revoke all on function public.mon_abonnement() from public, anon;
 grant execute on function public.mon_abonnement() to authenticated;
+
+-- Alerte de renouvellement (migration 20261030160000_alertes.sql) : pas pour une période offerte à 0 €,
+-- qui reviendrait chaque mois sans rien d'encaissé.
+create or replace function public.alerte_echeance()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  a public.abonnements%rowtype;
+begin
+  if new.essai or new.statut <> 'paye' or new.montant_cents = 0 or (tg_op = 'UPDATE' and old.statut = 'paye') then
+    return new;
+  end if;
+  if not exists (
+    select 1 from public.abonnement_echeances e
+    where e.abonnement_id = new.abonnement_id and e.id < new.id and e.statut = 'paye'
+  ) then
+    return new;
+  end if;
+  select * into a from public.abonnements where id = new.abonnement_id;
+  perform public.deposer_alerte('renouvellement', jsonb_build_object(
+    'id', a.id,
+    'source', a.source,
+    'formule', a.formule,
+    'moyen', a.moyen,
+    'montant_cents', new.montant_cents,
+    'periode_fin', new.periode_fin,
+    'prenom', (select first_name from public.profiles where id = a.user_id)
+  ));
+  return new;
+exception when others then
+  return new;
+end;
+$$;

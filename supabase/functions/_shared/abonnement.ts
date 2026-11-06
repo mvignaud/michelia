@@ -22,6 +22,10 @@ const REJETS_A_RETENTER = ["AM04", "MS03"];
 // Un prélèvement SEPA peut être rejeté plusieurs jours après son départ : on le relit pendant ce délai.
 export const RELECTURE_SEPA_JOURS = 15;
 
+// Autorisation de vérification d'une carte (changement de carte, ou mois offerts par un code promo à
+// 100 %) : demandée avec 3D Secure, jamais encaissée, annulée tout de suite après.
+export const MONTANT_VERIF = 50;
+
 // Échéances ratées d'affilée avant d'arrêter l'abonnement, et délai entre deux essais.
 export const ECHECS_MAX = 3;
 export const RELANCE_JOURS = 3;
@@ -108,11 +112,16 @@ export async function confirmerEcheance(paiementId: string): Promise<Etat> {
   }
   let statut = String(payment.data.status ?? "");
   const auth = String(payment.data.auth?.status ?? "");
-  if (Number(payment.data.amount) !== echeance.montant_cents || String(payment.data.currency ?? "").toLowerCase() !== "eur") {
-    console.error("MichelIA+ : montant inattendu", paiementId, payment.data.amount, echeance.montant_cents);
+  // Échéance offerte (code promo à 100 %) : la carte est seulement vérifiée par une autorisation de
+  // MONTANT_VERIF, jamais encaissée.
+  const offerte = echeance.montant_cents === 0;
+  const attendu = offerte ? MONTANT_VERIF : echeance.montant_cents;
+  if (Number(payment.data.amount) !== attendu || String(payment.data.currency ?? "").toLowerCase() !== "eur") {
+    console.error("MichelIA+ : montant inattendu", paiementId, payment.data.amount, attendu);
     return { etat: "inconnu" };
   }
   if (!statut && AUTH_FAILED.includes(auth)) statut = "refused";
+  if (offerte) return confirmerVerification(paiementId, echeance, statut, auth, payment.data.card);
   // 3D Secure réussi, ou paiement seulement autorisé : c'est à nous de demander l'encaissement.
   if ((!statut && auth === "success") || statut === "authorized") {
     const capture = await stancer("PATCH", `/v1/checkout/${paiementId}`, { status: "capture" });
@@ -140,6 +149,59 @@ export async function confirmerEcheance(paiementId: string): Promise<Etat> {
 }
 
 type Echeance = { id: number; abonnement_id: number; periode_fin: string };
+
+// Première échéance offerte, payée par carte : 3D Secure réussi → autorisation demandée (jamais
+// encaissée) ; une fois autorisée, la carte est gardée pour la suite, l'autorisation est levée et la
+// période offerte est comptée payée.
+// deno-lint-ignore no-explicit-any
+async function confirmerVerification(paiementId: string, echeance: Echeance, statut: string, auth: string, carte: any): Promise<Etat> {
+  if (!statut && auth === "success") {
+    const demande = await stancer("PATCH", `/v1/checkout/${paiementId}`, { status: "authorize" });
+    statut = String((demande.status === 409 ? (await stancer("GET", `/v1/checkout/${paiementId}`)).data : demande.data)?.status ?? "");
+  }
+  if (FAILED.includes(statut)) return refuserEcheance(echeance.id, echeance.abonnement_id);
+  if (statut !== "authorized") return { etat: "attente" };
+  const jeton = typeof carte?.id === "string" && /^card_[A-Za-z0-9]{6,64}$/.test(carte.id) ? carte.id : null;
+  const chiffres = typeof carte?.last4 === "string" && /^\d{4}$/.test(carte.last4) ? carte.last4 : null;
+  if (!jeton) {
+    console.error("MichelIA+ : ALERTE carte vérifiée sans jeton", paiementId);
+    return { etat: "attente" };
+  }
+  const etat = await marquerPayee(echeance, { stancer_carte: jeton, ...(chiffres ? { derniers_chiffres: chiffres } : {}) });
+  if (etat.etat === "paye") {
+    const annule = await stancer("PATCH", `/v1/checkout/${paiementId}`, { status: "canceled" });
+    if (!annule.ok) console.error("MichelIA+ : autorisation de vérification non annulée (la banque la libérera)", paiementId, annule.status, safeError(annule.data));
+  }
+  return etat;
+}
+
+// Période offerte par un code promo à 100 % : une échéance à 0 €, sans rien demander à Stancer, comptée
+// payée tout de suite (MichelIA+ prolongé). L'identifiant dépend de l'abonnement et du début de la
+// période : rejouée, elle retombe sur la même.
+export async function echeanceOfferte(
+  a: { id: number; essai: boolean },
+  debut: Date,
+  fin: Date,
+  moyen: { stancer_sepa?: string; derniers_chiffres?: string } = {},
+): Promise<Etat> {
+  const paiementId = `offert:abo_${a.id}.${debut.toISOString().slice(0, 10).replaceAll("-", "")}`;
+  const { error } = await admin.from("abonnement_echeances").upsert({
+    abonnement_id: a.id,
+    paiement_id: paiementId,
+    montant_cents: 0,
+    periode_debut: debut.toISOString(),
+    periode_fin: fin.toISOString(),
+    essai: a.essai,
+  }, { onConflict: "paiement_id", ignoreDuplicates: true });
+  if (error) {
+    console.error("MichelIA+ : période offerte non enregistrée", a.id, error.message);
+    return { etat: "attente" };
+  }
+  const { data: e } = await admin.from("abonnement_echeances").select("id, abonnement_id, periode_fin, statut").eq("paiement_id", paiementId).single();
+  if (!e) return { etat: "attente" };
+  if (e.statut === "paye") return { etat: "paye", fin_periode: e.periode_fin };
+  return marquerPayee(e, moyen);
+}
 
 // L'échéance est payée : elle passe « paye » (une seule fois) et l'abonnement est prolongé, dans la
 // même transaction (payer_echeance, migration 20261031010000_remarques_codex.sql). Une résiliation
@@ -363,6 +425,8 @@ export async function premierPrelevementSepa(
   a: { id: number; formule: Formule; prix_cents: number; essai: boolean; stancer_client: string | null; stancer_sepa: string },
   signeLe: Date,
 ): Promise<Etat & { paiement?: string }> {
+  // Première période offerte (code promo à 100 %) : le mandat est signé, rien n'est prélevé.
+  if (a.prix_cents === 0) return echeanceOfferte(a, signeLe, finDePeriode(signeLe, a.formule), { stancer_sepa: a.stancer_sepa });
   const { data: numero } = await admin.rpc("prochain_numero_recu");
   let numeroRecu = typeof numero === "string" && numero.length <= 36 ? numero : null;
   const uniqueId = `abo_${a.id}.${signeLe.toISOString().slice(0, 10).replaceAll("-", "")}.0`;

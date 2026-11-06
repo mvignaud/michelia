@@ -684,7 +684,7 @@ function PromoTab() {
     const n = entier(periodes);
     const plafond = entier(max);
     if (!/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(code)) return setError('Code : 3 à 30 lettres, chiffres ou tirets.');
-    if (!pct || pct < 1 || pct > 95) return setError('Remise : de 1 à 95 %.');
+    if (!pct || pct < 1 || pct > 100) return setError('Remise : de 1 à 100 %.');
     if (periodes.trim() && (!n || n < 1)) return setError("Nombre d'échéances : vide (toujours) ou 1 et plus.");
     if (max.trim() && (!plafond || plafond < 1)) return setError("Nombre d'utilisations : vide (sans limite) ou 1 et plus.");
     if (fin.trim() && !finIso()) return setError('Date de fin : JJ/MM/AAAA.');
@@ -768,7 +768,7 @@ function PromoTab() {
           />
           <TextInput value={note} onChangeText={(t) => setNote(t.slice(0, 200))} placeholder="Note (pour toi)" placeholderTextColor={colors.tertiary} style={styles.subject} />
           <Text style={styles.small}>
-            Un code sert une fois par compte, sur MichelIA+ pris sur le site. Prix remisé arrondi au centime qui tombe juste en hors taxes (multiple de 6 centimes), jamais sous 0,54 €.
+            Un code sert une fois par compte, sur MichelIA+ pris sur le site. Prix remisé arrondi au centime qui tombe juste en hors taxes (multiple de 6 centimes), jamais sous 0,54 €. À 100 % : offert (rien prélevé) ; avec un nombre d'échéances, la carte ou le mandat sont pris pour la suite, sinon rien n'est demandé.
           </Text>
           <Pressable onPress={creer} disabled={busy} style={({ pressed }) => [styles.primary, (pressed || busy) && styles.pressed]} accessibilityRole="button">
             {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>Créer le code</Text>}
