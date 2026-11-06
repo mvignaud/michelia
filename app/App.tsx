@@ -42,7 +42,8 @@ import { forgetLoginGreeting, loginGreeting } from './src/greeting';
 import { askMichel, type ChatMessage } from './src/chat';
 import { noterReponse, nouvelleCle } from './src/notes';
 import {
-  deleteAccountDiscussion,
+  effacerDuCompte,
+  lireEffacees,
   loadAccountCarnet,
   loadCarnet,
   nettoyer,
@@ -305,7 +306,7 @@ function Chat() {
     setCarnet(gardees);
     saveCarnet({ name: nameRef.current, courante: ouverte, discussions: gardees });
     if (memberId && syncedFor === memberId) {
-      tombees.forEach((d) => deleteAccountDiscussion(memberId, d, false).catch(() => undefined));
+      tombees.forEach((d) => effacerDuCompte(memberId, d.id, false).catch(() => undefined));
     }
     return gardees;
   }
@@ -337,15 +338,17 @@ function Chat() {
     setSyncedFor(undefined);
     if (!memberId || !loaded) return;
     let cancelled = false;
-    loadAccountCarnet(memberId, carnetRef.current).then((remote) => {
+    Promise.all([loadAccountCarnet(memberId, carnetRef.current), lireEffacees()]).then(([remote, effacees]) => {
       if (cancelled) return;
+      // Effacées ici avant d'avoir pu l'être sur le compte : on réessaie, et on ne les reprend pas.
+      effacees.forEach((id) => effacerDuCompte(memberId, id, false).catch(() => undefined));
       if (!remote) {
         // Souci réseau : on garde l'appareil, et on enverra la causette en cours à la prochaine réponse.
         setSyncedFor(memberId);
         return;
       }
-      const parId = new Map(remote.discussions.map((d) => [d.id, d]));
-      const aEnvoyer = new Map(remote.aEnvoyer.map((d) => [d.id, d]));
+      const parId = new Map(remote.discussions.filter((d) => !effacees.has(d.id)).map((d) => [d.id, d]));
+      const aEnvoyer = new Map(remote.aEnvoyer.filter((d) => !effacees.has(d.id)).map((d) => [d.id, d]));
       for (const locale of carnetRef.current) {
         const distante = parId.get(locale.id);
         // Déjà passée par le compte mais plus dessus : effacée depuis un autre appareil (si la liste a bien été lue).
@@ -356,7 +359,9 @@ function Chat() {
         }
       }
       const avant = carnetRef.current;
-      const { gardees } = ranger([...parId.values()]);
+      // Au-delà de 30, les plus anciennes quittent le carnet, et le compte aussi.
+      const { gardees, tombees } = ranger([...parId.values()]);
+      tombees.forEach((d) => d.enLigne && effacerDuCompte(memberId, d.id, false).catch(() => undefined));
       majCarnet(gardees, couranteRef.current);
       aEnvoyer.forEach((d) => {
         if (gardees.some((g) => g.id === d.id)) envoyer(memberId, d);
@@ -448,7 +453,7 @@ function Chat() {
       setCourante(ouverte);
       setBubbles([]);
     }
-    if (memberId && syncedFor === memberId) deleteAccountDiscussion(memberId, d, plusRecente).catch(() => undefined);
+    if (memberId) effacerDuCompte(memberId, id, plusRecente).catch(() => undefined);
   }
 
   // Android : le bouton retour ferme le tiroir.

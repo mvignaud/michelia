@@ -145,9 +145,11 @@ export async function loadAccountCarnet(
   const majAncienne = conv.data?.updated_at ? temps(conv.data.updated_at) : 0;
   if (ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
     const maj = new Date(majAncienne).toISOString();
-    const debut = ancienne[0];
-    const memeDebut = (d: Discussion) => d.messages[0]?.role === debut.role && d.messages[0]?.content === debut.content;
-    const suite = discussions.find(memeDebut) ?? locales.find(memeDebut);
+    // La même causette, continuée par l'appli d'avant : tous ses messages ouvrent la conversation du compte.
+    const continuee = (d: Discussion) =>
+      d.messages.length <= ancienne.length &&
+      d.messages.every((m, i) => ancienne[i].role === m.role && ancienne[i].content === m.content);
+    const suite = discussions.find(continuee) ?? locales.find(continuee);
     const reprise: Discussion = suite
       ? { ...suite, messages: ancienne, maj }
       : { id: nouvelId(), titre: titreDe(ancienne), messages: ancienne, maj };
@@ -184,9 +186,38 @@ export async function saveAccountDiscussion(
 
 // Retire une causette du compte. Si c'était la plus récente, sa copie dans la table conversations
 // est vidée aussi : sinon elle reviendrait au prochain chargement comme une conversation d'avant le carnet.
-export async function deleteAccountDiscussion(userId: string, d: Discussion, plusRecente: boolean): Promise<void> {
-  await Promise.all([
-    supabase.from('discussions').delete().eq('user_id', userId).eq('id', d.id),
+export async function deleteAccountDiscussion(userId: string, id: string, plusRecente: boolean): Promise<void> {
+  const [{ error }] = await Promise.all([
+    supabase.from('discussions').delete().eq('user_id', userId).eq('id', id),
     plusRecente && supabase.from('conversations').update({ messages: [] }).eq('user_id', userId),
   ]);
+  if (error) throw error;
+}
+
+// Causettes effacées sur l'appareil mais pas encore sur le compte (hors ligne, ou compte encore en
+// chargement) : gardées de côté pour ne pas les reprendre du compte, et réessayées au chargement suivant.
+const KEY_EFFACEES = 'michelia:carnet:effacees:v1';
+let effacees: Promise<Set<string>> | null = null;
+
+export function lireEffacees(): Promise<Set<string>> {
+  effacees ??= AsyncStorage.getItem(KEY_EFFACEES)
+    .then((raw) => {
+      const ids: unknown = JSON.parse(raw ?? '[]');
+      return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []);
+    })
+    .catch(() => new Set<string>());
+  return effacees;
+}
+
+async function changerEffacees(change: (ids: Set<string>) => void): Promise<void> {
+  const ids = await lireEffacees();
+  change(ids);
+  await AsyncStorage.setItem(KEY_EFFACEES, JSON.stringify([...ids].slice(-100))).catch(() => undefined);
+}
+
+// Efface une causette du compte ; tant que ce n'est pas fait, elle reste notée comme effacée.
+export async function effacerDuCompte(userId: string, id: string, plusRecente: boolean): Promise<void> {
+  await changerEffacees((ids) => ids.add(id));
+  await deleteAccountDiscussion(userId, id, plusRecente);
+  await changerEffacees((ids) => ids.delete(id));
 }
