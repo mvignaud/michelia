@@ -161,6 +161,28 @@ function fiche(a: Alerte): Fiche {
           { bouton: "Voir les abonnements", url: table("abonnements") },
         ],
       };
+    case "reseaux": {
+      // Fonction « reseaux » : jeton Meta cassé, ou commentaire que Michel préfère laisser à Mathieu.
+      if (d.type === "jeton") {
+        return {
+          sujet: `🔌 Michel ne lit plus les commentaires Facebook et Instagram`,
+          blocs: [
+            "Meta refuse mon jeton : je ne peux plus lire ni répondre aux commentaires. Il faut en refaire un, c'est expliqué dans docs/REPONSES-RESEAUX.md (étape « Le jeton »).",
+            { lignes: [["Erreur", txt(d.erreur) ?? "?"]] },
+          ],
+        };
+      }
+      const reseau = d.reseau === "instagram" ? "Instagram" : "Facebook";
+      return {
+        sujet: `💬 Un commentaire ${reseau} pour toi`,
+        blocs: [
+          `${txt(d.auteur) ?? "Quelqu'un"} a laissé un commentaire sur ${reseau} auquel je préfère que tu répondes toi-même :`,
+          `« ${txt(d.texte) ?? ""} »`,
+          { lignes: [["Pourquoi", ou(d.raison)], ["Réseau", reseau]] },
+          { bouton: "Ouvrir la boîte de réception", url: "https://business.facebook.com/latest/inbox/all" },
+        ],
+      };
+    }
     default:
       return { sujet: `Alerte ${a.genre}`, blocs: [JSON.stringify(d)] };
   }

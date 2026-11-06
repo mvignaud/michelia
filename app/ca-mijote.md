@@ -1,5 +1,5 @@
 ---
-maj: 2026-11-05
+maj: 2026-11-06
 ---
 <!--
 Ce qui mijote chez Michel : la feuille de route publique, page michel.beer/ca-mijote (/roadmap y mène).
@@ -25,6 +25,7 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 - **Michel dans Chrome** : une extension pour m'avoir dans un panneau à côté de tes onglets, sans ouvrir le site. Tu surlignes un bout de texte, clic droit, « Demander à Michel », et je te dis ce que j'en pense. Elle attend son tour chez Google pour entrer dans la boutique de Chrome.
 - **Michel sur l'ordinateur** : un vrai logiciel pour Windows, Mac et Linux, pas le site dans une fenêtre. Je me range dans la barre de l'écran, je rapplique avec Ctrl+Maj+M (Cmd+Maj+M sur Mac) et je te préviens quand j'ai répondu. Le Mac attend sa signature officielle d'Apple, ensuite c'est à télécharger sur michel.beer.
 - **Michel sur l'App Store et Google Play** : les applis partent à l'examen chez Apple et passent en rayon chez Google, avec de belles photos de moi pour la vitrine. Apple regarde tout sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
+- **Michel répond sur Facebook et Instagram** : tu laisses un commentaire sous une de mes publications, je te réponds moi-même, avec mon caractère. Les malpolis, je les laisse causer tout seuls.
 
 ## Sur la planche
 
