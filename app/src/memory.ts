@@ -109,6 +109,8 @@ export async function loadCarnet(): Promise<Carnet> {
   }
 }
 
+let ancienneEffacee = false;
+
 export async function saveCarnet(carnet: Carnet): Promise<void> {
   try {
     await AsyncStorage.setItem(
@@ -119,6 +121,12 @@ export async function saveCarnet(carnet: Carnet): Promise<void> {
         discussions: carnet.discussions.map((d) => ({ ...d, messages: aGarder(d.messages) })),
       }),
     );
+    // Le carnet est écrit : l'ancienne mémoire (reprise au premier chargement) ne sert plus, on l'efface
+    // pour qu'une causette effacée ou une déconnexion ne laisse rien traîner sur l'appareil.
+    if (!ancienneEffacee) {
+      await AsyncStorage.removeItem(KEY_ANCIENNE);
+      ancienneEffacee = true;
+    }
   } catch {
     // Stockage plein ou bloqué (navigation privée) : Michel oubliera, tant pis.
   }
