@@ -259,3 +259,60 @@ export async function exportMembers(): Promise<number> {
   }
   return rows.length;
 }
+
+// Codes promo de MichelIA+ (migration 20261107010000_codes_promo.sql), onglet « Codes promo ».
+export type CodePromo = {
+  id: number;
+  code: string;
+  remise_pct: number;
+  formule: 'mois' | 'an' | null;
+  periodes: number | null;
+  user_id: string | null;
+  email: string | null;
+  utilisations_max: number | null;
+  utilisations: number;
+  debut: string | null;
+  fin: string | null;
+  actif: boolean;
+  note: string | null;
+  created_at: string;
+};
+
+export type NouveauCode = {
+  code: string;
+  remise_pct: number;
+  formule: 'mois' | 'an' | null;
+  periodes: number | null;
+  email: string | null;
+  utilisations_max: number | null;
+  fin: string | null;
+  note: string | null;
+};
+
+export async function listCodesPromo(): Promise<CodePromo[]> {
+  const { data, error } = await supabase.rpc('admin_codes_promo');
+  if (error) fail(error);
+  return (data ?? []) as CodePromo[];
+}
+
+export async function createCodePromo(c: NouveauCode): Promise<void> {
+  const { error } = await supabase.rpc('admin_code_promo_creer', {
+    p_code: c.code,
+    p_remise_pct: c.remise_pct,
+    p_formule: c.formule,
+    p_periodes: c.periodes,
+    p_email: c.email,
+    p_utilisations_max: c.utilisations_max,
+    p_fin: c.fin,
+    p_note: c.note,
+  });
+  if (error?.code === '23505') throw new Error('Ce code existe déjà.');
+  if (error?.code === 'P0002') throw new Error('Aucun compte avec cette adresse e-mail.');
+  if (error?.code === '23514') throw new Error('Valeur refusée : code (3 à 30 lettres, chiffres, tirets), remise de 1 à 100 %.');
+  if (error) fail(error);
+}
+
+export async function setCodePromoActif(id: number, actif: boolean): Promise<void> {
+  const { error } = await supabase.rpc('admin_code_promo_actif', { p_id: id, p_actif: actif });
+  if (error) fail(error);
+}
