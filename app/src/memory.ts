@@ -204,27 +204,35 @@ export async function deleteAccountDiscussion(userId: string, id: string, plusRe
 // Causettes effacées sur l'appareil mais pas encore sur le compte (hors ligne, ou compte encore en
 // chargement) : gardées de côté pour ne pas les reprendre du compte, et réessayées au chargement suivant.
 const KEY_EFFACEES = 'michelia:carnet:effacees:v1';
+// Chaque entrée est « compte:causette » : un effacement ne se rejoue que sur le compte d'où il vient.
 let effacees: Promise<Set<string>> | null = null;
+const cle = (userId: string, id: string) => `${userId}:${id}`;
 
-export function lireEffacees(): Promise<Set<string>> {
+function toutesEffacees(): Promise<Set<string>> {
   effacees ??= AsyncStorage.getItem(KEY_EFFACEES)
     .then((raw) => {
       const ids: unknown = JSON.parse(raw ?? '[]');
-      return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []);
+      return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string' && x.includes(':')) : []);
     })
     .catch(() => new Set<string>());
   return effacees;
 }
 
+// Les causettes de ce compte effacées ici mais peut-être pas encore sur le compte.
+export async function lireEffacees(userId: string): Promise<Set<string>> {
+  const prefixe = `${userId}:`;
+  return new Set([...(await toutesEffacees())].filter((k) => k.startsWith(prefixe)).map((k) => k.slice(prefixe.length)));
+}
+
 async function changerEffacees(change: (ids: Set<string>) => void): Promise<void> {
-  const ids = await lireEffacees();
+  const ids = await toutesEffacees();
   change(ids);
   await AsyncStorage.setItem(KEY_EFFACEES, JSON.stringify([...ids].slice(-100))).catch(() => undefined);
 }
 
 // Efface une causette du compte ; tant que ce n'est pas fait, elle reste notée comme effacée.
 export async function effacerDuCompte(userId: string, id: string, plusRecente: boolean): Promise<void> {
-  await changerEffacees((ids) => ids.add(id));
+  await changerEffacees((ids) => ids.add(cle(userId, id)));
   await deleteAccountDiscussion(userId, id, plusRecente);
-  await changerEffacees((ids) => ids.delete(id));
+  await changerEffacees((ids) => ids.delete(cle(userId, id)));
 }
