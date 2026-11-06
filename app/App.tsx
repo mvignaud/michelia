@@ -45,6 +45,8 @@ import { bureau, demarrerBureau, notifier, ouvrirDehors } from './src/bureau';
 import { COLUMN, ecran } from './src/ecran';
 import { useDictee } from './src/dictee';
 import { DEFAULT_SUGGESTIONS, MODES, findMode, loadMode, saveMode } from './src/modes';
+import { TONS_DURS_DISPONIBLES, findTon, loadTon, saveTon, type Ton, type TonId } from './src/tons';
+import { TonSheet } from './src/TonSheet';
 import { isOffline, registerServiceWorker } from './src/pwa';
 import { syncPush } from './src/push';
 import { RichText } from './src/RichText';
@@ -125,6 +127,10 @@ function Chat() {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState<string>();
   const [mode, setMode] = useState<string>();
+  const [ton, setTon] = useState<TonId>('normal');
+  const [tonOpen, setTonOpen] = useState(false);
+  const [sessionKnown, setSessionKnown] = useState(false);
+  const [tonLoaded, setTonLoaded] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountMode | null>(null);
@@ -150,7 +156,11 @@ function Chat() {
   const member = isMember(session);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setSession(data.session))
+      .catch(() => undefined)
+      .finally(() => setSessionKnown(true));
     const { data } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
       if (event === 'PASSWORD_RECOVERY') setAccount('reset');
@@ -247,6 +257,44 @@ function Chat() {
     loadMode().then(setMode);
   }, []);
 
+  // Ton enregistré : un ton dur n'est repris que pour un inscrit, là où il est proposé.
+  // On attend de connaître la session avant de rétrograder un ton dur.
+  useEffect(() => {
+    loadTon().then((saved) => {
+      if (saved) setTon(saved);
+      setTonLoaded(true);
+    });
+  }, []);
+  useEffect(() => {
+    if (!sessionKnown || !tonLoaded) return;
+    if (findTon(ton)?.dur && (!member || !TONS_DURS_DISPONIBLES)) {
+      setTon('normal');
+      saveTon('normal');
+    }
+  }, [ton, member, sessionKnown, tonLoaded]);
+
+  function applyTon(next: Ton) {
+    setTonOpen(false);
+    if (busy) return;
+    setTon(next.id);
+    saveTon(next.id);
+    setBubbles((all) => [...all, { id: newId(), role: 'assistant', content: next.hello, local: true }]);
+  }
+
+  function tonLocked() {
+    setTonOpen(false);
+    setBubbles((all) => [
+      ...all,
+      {
+        id: newId(),
+        role: 'assistant',
+        content: 'Ça, c’est réservé aux inscrits, con. Crée-toi un compte et je me lâche.',
+        local: true,
+      },
+    ]);
+    setAccount(member ? 'profile' : 'signin');
+  }
+
   // Changement de mode : Michel l'annonce d'un mot, affiché seulement.
   function chooseMode(id: string | undefined) {
     if (busy || id === mode) return;
@@ -339,6 +387,7 @@ function Chat() {
         })),
         name,
         mode,
+        ton,
         (chunk) => {
           reponse += chunk;
           updateAnswer((b) => ({ ...b, content: b.content + chunk }));
@@ -499,8 +548,27 @@ function Chat() {
                 </Pressable>
               );
             })}
+            <Pressable
+              onPress={() => setTonOpen(true)}
+              disabled={busy}
+              style={({ pressed }) => [styles.mode, ton !== 'normal' && styles.modeActive, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Ton de Michel : ${findTon(ton)?.label ?? ''}`}
+            >
+              <Text style={[styles.modeText, ton !== 'normal' && styles.modeTextActive]}>{findTon(ton)?.label}</Text>
+            </Pressable>
           </ScrollView>
         </View>
+        {tonOpen && (
+          <TonSheet
+            current={ton}
+            member={member}
+            busy={busy}
+            onClose={() => setTonOpen(false)}
+            onApply={applyTon}
+            onLocked={tonLocked}
+          />
+        )}
 
         <KeyboardAvoidingView
           style={styles.body}

@@ -52,6 +52,12 @@ const NAME_TAG = /<prenom>([^<]*)<\/prenom>/;
 // Identifiant de mode thématique choisi dans l'appli (cuisine, rugby…). Sa consigne vit
 // dans app_config sous la clé mode_<id> ; un mode sans consigne est ignoré.
 const MODE_ID = /^[a-z]{1,20}$/;
+// Ton choisi par la personne (soft, normal, hard, ultra). Sa consigne vit dans app_config sous
+// la clé ton_<id> ; « normal » n'en a pas (c'est Michel tel quel), un ton sans consigne est ignoré.
+// Hard et ultra : réservés aux inscrits, et au web (site, bureau, extension : requêtes avec une
+// Origin) tant que les applis n'ont pas leur classification d'âge relevée (tons_durs_applis = true).
+const TONS = new Set(["soft", "normal", "hard", "ultra"]);
+const TONS_DURS = new Set(["hard", "ultra"]);
 // Ajoutée après la première réponse quand Michel ne connaît pas encore le prénom
 // (hors cache, pour que les réponses resservies restent anonymes).
 const ASK_NAME = [
@@ -451,12 +457,15 @@ Deno.serve(async (req) => {
   let messages: ChatMessage[] | null = null;
   let name: string | undefined;
   let mode: string | undefined;
+  let ton = "normal";
   try {
     const body = await req.json();
     messages = parseMessages(body);
     name = cleanName((body as { name?: unknown })?.name);
     const rawMode = (body as { mode?: unknown })?.mode;
     if (typeof rawMode === "string" && MODE_ID.test(rawMode)) mode = rawMode;
+    const rawTon = (body as { ton?: unknown })?.ton;
+    if (typeof rawTon === "string" && TONS.has(rawTon)) ton = rawTon;
   } catch {
     // corps illisible : traité comme invalide juste en dessous
   }
@@ -545,10 +554,13 @@ Deno.serve(async (req) => {
   };
 
   const modeText = mode ? config[`mode_${mode}`]?.trim() : undefined;
+  // Ton dur demandé par un visiteur, ou depuis une appli mobile : on reste au ton normal.
+  if (TONS_DURS.has(ton) && (guest || (!origin && config.tons_durs_applis !== "true"))) ton = "normal";
+  const tonText = ton === "normal" ? undefined : config[`ton_${ton}`]?.trim();
 
   // Question d'ouverture : on ressert une réponse déjà écrite si la base en a assez de proches.
-  // Pas en mode thématique : la réponse dépend du mode, elle ne vaut pas pour tout le monde.
-  const question = config.cache_enabled === "false" || modeText ? null : cacheable(messages);
+  // Pas en mode thématique ni avec un ton choisi : la réponse en dépend, elle ne vaut pas pour tout le monde.
+  const question = config.cache_enabled === "false" || modeText || tonText ? null : cacheable(messages);
   const embedding = question ? await embed(question) : null;
   if (embedding) {
     const { data: cached, error } = await admin.rpc("pick_cached_answer", {
@@ -603,6 +615,7 @@ Deno.serve(async (req) => {
       : "",
     config.persona_reminder ?? PERSONA_REMINDER,
     modeText,
+    tonText,
   ].filter(Boolean).join("\n");
 
   // La conversation s'allonge des appels d'outils et de leurs résultats au fil des allers-retours.
