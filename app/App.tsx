@@ -322,6 +322,8 @@ function Chat() {
 
   // Envoie une causette au compte ; une fois arrivée, elle est notée « en ligne » : si elle disparaît
   // un jour du compte, c'est qu'elle a été effacée depuis un autre appareil.
+  // Causettes écrites pendant le chargement du compte, pas encore envoyées.
+  const enSuspens = useRef(new Set<string>());
   function envoyer(userId: string, d: Discussion, enCours?: { name?: string }) {
     saveAccountDiscussion(userId, d, enCours)
       .then(() => {
@@ -351,10 +353,12 @@ function Chat() {
       // Effacées ici avant d'avoir pu l'être sur le compte : on réessaie, et on ne les reprend pas.
       effacees.forEach((jusqua, id) => effacerDuCompte(memberId, id, jusqua).catch(() => undefined));
       if (!remote) {
-        // Souci réseau : on garde l'appareil. La causette ouverte a pu changer pendant le chargement
-        // (envoi alors suspendu) : on tente de l'envoyer quand même, le compte la prendra s'il répond.
-        const ouverte = carnetRef.current.find((d) => d.id === couranteRef.current);
-        if (ouverte) envoyer(memberId, ouverte, { name: nameRef.current });
+        // Souci réseau : on garde l'appareil. Les causettes écrites pendant le chargement (envoi alors
+        // suspendu) partent quand même : le compte les prendra s'il répond de nouveau.
+        carnetRef.current
+          .filter((d) => enSuspens.current.has(d.id))
+          .forEach((d) => envoyer(memberId, d, d.id === couranteRef.current ? { name: nameRef.current } : undefined));
+        enSuspens.current.clear();
         setSyncedFor(memberId);
         return;
       }
@@ -421,6 +425,7 @@ function Chat() {
           ...current.filter((b) => !rangees.has(b.id)),
         ]);
       }
+      enSuspens.current.clear();
       setSyncedFor(memberId);
     });
     return () => {
@@ -450,6 +455,7 @@ function Chat() {
     };
     majCarnet([d, ...carnetRef.current.filter((x) => x.id !== courante)]);
     if (memberId && syncedFor === memberId) envoyer(memberId, d, { name });
+    else if (memberId) enSuspens.current.add(d.id);
     // majCarnet lit courante, name, memberId et syncedFor : déjà dans la liste.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bubbles, name, busy, loaded, memberId, syncedFor, courante]);
