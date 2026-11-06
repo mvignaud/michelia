@@ -351,7 +351,10 @@ function Chat() {
       // Effacées ici avant d'avoir pu l'être sur le compte : on réessaie, et on ne les reprend pas.
       effacees.forEach((jusqua, id) => effacerDuCompte(memberId, id, jusqua).catch(() => undefined));
       if (!remote) {
-        // Souci réseau : on garde l'appareil, et on enverra la causette en cours à la prochaine réponse.
+        // Souci réseau : on garde l'appareil. La causette ouverte a pu changer pendant le chargement
+        // (envoi alors suspendu) : on tente de l'envoyer quand même, le compte la prendra s'il répond.
+        const ouverte = carnetRef.current.find((d) => d.id === couranteRef.current);
+        if (ouverte) envoyer(memberId, ouverte, { name: nameRef.current });
         setSyncedFor(memberId);
         return;
       }
