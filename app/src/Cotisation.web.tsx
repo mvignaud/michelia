@@ -481,8 +481,9 @@ function Page() {
     setSending(true);
     setRefus(null);
     try {
-      // Code promo vérifié, s'il vise la formule de la cotisation : remise sur les prochaines échéances.
-      const code = promo && abonnement && (!promo.formule || promo.formule === abonnement.formule) ? { code_promo: promo.code } : {};
+      // Code promo vérifié : remise sur les prochaines échéances. Pas sur la bonne formule : refusé par
+      // Michel, et rien ne repart (pas de reprise au prix plein en douce).
+      const code = promo ? { code_promo: promo.code } : {};
       const { error } = await supabase.functions.invoke('michelia-plus', { body: { reprendre: true, ...code } });
       const statut = (error as { context?: { status?: number } } | null)?.context?.status;
       if (statut === 400 && (await champEnErreur(error)) === 'code_promo') {
