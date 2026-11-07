@@ -312,6 +312,26 @@ export async function createCodePromo(c: NouveauCode): Promise<void> {
   if (error) fail(error);
 }
 
+// Modification : ne vaut que pour les prochaines utilisations (les abonnés gardent leur remise).
+export async function updateCodePromo(id: number, c: NouveauCode): Promise<void> {
+  const { error } = await supabase.rpc('admin_code_promo_modifier', {
+    p_id: id,
+    p_code: c.code,
+    p_remise_pct: c.remise_pct,
+    p_formule: c.formule,
+    p_periodes: c.periodes,
+    p_email: c.email,
+    p_utilisations_max: c.utilisations_max,
+    p_fin: c.fin,
+    p_note: c.note,
+  });
+  if (error?.code === '23505') throw new Error('Ce code existe déjà.');
+  if (error?.code === 'P0002') throw new Error(error.message.includes('Code') ? 'Code introuvable.' : 'Aucun compte avec cette adresse e-mail.');
+  if (error?.code === '23514') throw new Error('Valeur refusée : code (3 à 30 lettres, chiffres, tirets), remise de 1 à 100 %.');
+  if (error?.code === 'PGRST202') throw new Error("La modification n'est pas encore installée (SQL à coller).");
+  if (error) fail(error);
+}
+
 export async function setCodePromoActif(id: number, actif: boolean): Promise<void> {
   const { error } = await supabase.rpc('admin_code_promo_actif', { p_id: id, p_actif: actif });
   if (error) fail(error);
