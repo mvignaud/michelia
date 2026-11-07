@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Switch,
   Text,
@@ -12,7 +13,10 @@ import {
 } from 'react-native';
 import {
   PAGE_SIZE,
+  createCodePromo,
   deleteUser,
+  listCodesPromo,
+  updateCodePromo,
   exportMembers,
   listBroadcasts,
   listUsers,
@@ -22,10 +26,12 @@ import {
   mergeUsers,
   resumeBroadcast,
   sendBroadcast,
+  setCodePromoActif,
   testLettre,
   userUsage,
   type AdminUser,
   type Broadcast,
+  type CodePromo,
   type CostPerActive,
   type Costs,
   type Stats,
@@ -34,18 +40,19 @@ import {
 } from './admin';
 import { SWITCH_COLORS, colors, serif } from './theme';
 
-type Tab = 'stats' | 'members' | 'message';
+type Tab = 'stats' | 'members' | 'message' | 'promo';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'stats', label: 'Tableau de bord' },
   { id: 'members', label: 'Membres' },
   { id: 'message', label: 'Annonce' },
+  { id: 'promo', label: 'Codes promo' },
 ];
 
 const number = (n: number | null | undefined) => (n ?? 0).toLocaleString('fr-FR');
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 const shortDay = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
-// Coût Claude en dollars : quatre décimales sous le dollar, les montants sont minuscules.
+// Coût IA en dollars : quatre décimales sous le dollar, les montants sont minuscules.
 const dollars = (n: number | null | undefined) => {
   const value = Number(n ?? 0);
   const digits = value < 1 ? 4 : 2;
@@ -84,6 +91,7 @@ export function AdminScreen({ onClose }: { onClose: () => void }) {
       {tab === 'stats' && <StatsTab />}
       {tab === 'members' && <MembersTab />}
       {tab === 'message' && <MessageTab />}
+      {tab === 'promo' && <PromoTab />}
     </View>
   );
 }
@@ -127,7 +135,7 @@ function StatsTab() {
         <Tile label="Réponses en cache" value={stats.cache_answers} hint={`${number(stats.cache_hits)} fois resservies`} />
         {costs && (
           <Tile
-            label="Coût Claude aujourd'hui"
+            label="Coût IA aujourd'hui"
             text={dollars(costs.cost_today)}
             hint={`${dollars(costs.cost_7d)} en 7 j · ${dollars(costs.cost_30d)} en 30 j`}
           />
@@ -144,7 +152,7 @@ function StatsTab() {
         <Bars days={stats.days} value={(d) => d.signups} />
       </Section>
       {costs && (
-        <Section title="Coût Claude par jour (indicatif)">
+        <Section title="Coût IA par jour (indicatif)">
           <Bars days={costs.days} value={(d) => d.cost} format={dollars} />
           <Text style={styles.small}>
             Estimation d'après les jetons de chaque réponse et les prix réglés dans app_config
@@ -167,7 +175,7 @@ function StatsTab() {
             order={perActive.tranches.map((t) => t.label)}
           />
           <Text style={styles.small}>
-            Actif : au moins une question sur les 30 derniers jours. Tranches de coût Claude par utilisateur, en dollars.
+            Actif : au moins une question sur les 30 derniers jours. Tranches de coût IA (Claude + Grok) par utilisateur, en dollars.
           </Text>
         </Section>
       )}
@@ -459,8 +467,8 @@ function MemberDetail({ user, onChanged }: { user: AdminUser; onChanged: (messag
     ["Questions aujourd'hui", number(user.messages_today)],
     ['Questions sur 90 j', number(user.messages_90d)],
     ['Messages dans sa conversation', number(user.conversation_messages)],
-    ['Coût Claude sur 7 j', dollars(user.cost_7d)],
-    ['Coût Claude sur 90 j', dollars(user.cost_90d)],
+    ['Coût IA sur 7 j', dollars(user.cost_7d)],
+    ['Coût IA sur 90 j', dollars(user.cost_90d)],
     ['Identifiant', user.id],
   ];
   return (
@@ -477,7 +485,7 @@ function MemberDetail({ user, onChanged }: { user: AdminUser; onChanged: (messag
       {days ? <Bars days={days} value={(d) => d.messages} /> : <ActivityIndicator color={colors.accent} />}
       {days && days.some((d) => d.cost > 0) && (
         <>
-          <Text style={[styles.factLabel, styles.detailChart]}>Coût Claude par jour (indicatif)</Text>
+          <Text style={[styles.factLabel, styles.detailChart]}>Coût IA par jour (indicatif)</Text>
           <Bars days={days} value={(d) => d.cost} format={dollars} />
         </>
       )}
@@ -640,6 +648,216 @@ function Chip({ label, active, onPress, disabled }: { label: string; active: boo
     >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+// Codes promo de MichelIA+ sur le site : création et liste. Le code se tape sur /la-cotisation, ou
+// arrive tout prêt par un lien michel.beer/la-cotisation?code=… Les applis (Apple, Google) n'en ont pas.
+function PromoTab() {
+  const [codes, setCodes] = useState<CodePromo[]>();
+  const [code, setCode] = useState('');
+  const [remise, setRemise] = useState('20');
+  const [formule, setFormule] = useState<'mois' | 'an' | null>(null);
+  const [periodes, setPeriodes] = useState('');
+  const [email, setEmail] = useState('');
+  const [max, setMax] = useState('');
+  const [fin, setFin] = useState('');
+  const [note, setNote] = useState('');
+  // Code en cours de modification (null : création).
+  const [edite, setEdite] = useState<CodePromo | null>(null);
+  const defilement = useRef<ScrollViewInstance>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+
+  const refresh = useCallback(() => {
+    listCodesPromo().then(setCodes).catch((e) => setError(e instanceof Error ? e.message : 'Liste illisible.'));
+  }, []);
+  useEffect(refresh, [refresh]);
+
+  const entier = (t: string) => (t.trim() ? Number.parseInt(t, 10) : null);
+  // Date de fin au format JJ/MM/AAAA, valable jusqu'au soir (23:59, heure de Paris à peu près).
+  const finIso = () => {
+    const m = fin.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 23, 59, 59).toISOString() : null;
+  };
+
+  async function creer() {
+    setError(undefined);
+    setNotice(undefined);
+    const pct = entier(remise);
+    const n = entier(periodes);
+    const plafond = entier(max);
+    if (!/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(code)) return setError('Code : 3 à 30 lettres, chiffres ou tirets.');
+    if (!pct || pct < 1 || pct > 100) return setError('Remise : de 1 à 100 %.');
+    if (periodes.trim() && (!n || n < 1)) return setError("Nombre d'échéances : vide (toujours) ou 1 et plus.");
+    if (max.trim() && (!plafond || plafond < 1)) return setError("Nombre d'utilisations : vide (sans limite) ou 1 et plus.");
+    if (fin.trim() && !finIso()) return setError('Date de fin : JJ/MM/AAAA.');
+    setBusy(true);
+    try {
+      const valeurs = {
+        code,
+        remise_pct: pct,
+        formule,
+        periodes: n,
+        email: email.trim() || null,
+        utilisations_max: plafond,
+        fin: finIso(),
+        note: note.trim() || null,
+      };
+      if (edite) {
+        await updateCodePromo(edite.id, valeurs);
+        setNotice(`Code ${code} modifié. Les abonnés qui l'ont déjà gardent leur remise.`);
+      } else {
+        await createCodePromo(valeurs);
+        setNotice(`Code ${code} créé. Lien direct : michel.beer/la-cotisation?code=${code}`);
+      }
+      vider();
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : edite ? 'Modification ratée.' : 'Création ratée.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function vider() {
+    setEdite(null);
+    setCode('');
+    setRemise('20');
+    setFormule(null);
+    setPeriodes('');
+    setEmail('');
+    setMax('');
+    setFin('');
+    setNote('');
+  }
+
+  // Le code choisi remonte dans le formulaire, prêt à être modifié.
+  function modifier(c: CodePromo) {
+    setError(undefined);
+    setNotice(undefined);
+    setEdite(c);
+    setCode(c.code);
+    setRemise(String(c.remise_pct));
+    setFormule(c.formule);
+    setPeriodes(c.periodes ? String(c.periodes) : '');
+    setEmail(c.email ?? '');
+    setMax(c.utilisations_max ? String(c.utilisations_max) : '');
+    setFin(c.fin ? new Date(c.fin).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
+    setNote(c.note ?? '');
+    defilement.current?.scrollTo({ y: 0, animated: true });
+  }
+
+  async function basculer(c: CodePromo) {
+    setError(undefined);
+    try {
+      await setCodePromoActif(c.id, !c.actif);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Changement raté.');
+    }
+  }
+
+  return (
+    <ScrollView ref={defilement} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Section title={edite ? `Modifier ${edite.code}` : 'Nouveau code'}>
+        <View style={styles.card}>
+          <TextInput
+            value={code}
+            onChangeText={(t) => setCode(t.replace(/[^A-Za-z0-9-]/g, '').toUpperCase().slice(0, 30))}
+            placeholder="CODE (ex. GERS-20)"
+            placeholderTextColor={colors.tertiary}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            style={styles.subject}
+          />
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Remise (%)</Text>
+            <TextInput value={remise} onChangeText={(t) => setRemise(t.replace(/\D/g, '').slice(0, 3))} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <Text style={styles.small}>Formule</Text>
+          <View style={styles.filters}>
+            <Chip label="Les deux" active={formule === null} onPress={() => setFormule(null)} />
+            <Chip label="Au mois" active={formule === 'mois'} onPress={() => setFormule('mois')} />
+            <Chip label="À l'année" active={formule === 'an'} onPress={() => setFormule('an')} />
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Échéances remisées</Text>
+            <TextInput value={periodes} onChangeText={(t) => setPeriodes(t.replace(/\D/g, '').slice(0, 3))} placeholder="toutes" placeholderTextColor={colors.tertiary} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Utilisations max</Text>
+            <TextInput value={max} onChangeText={(t) => setMax(t.replace(/\D/g, '').slice(0, 6))} placeholder="sans limite" placeholderTextColor={colors.tertiary} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.switchLabel}>Valable jusqu'au</Text>
+            <TextInput value={fin} onChangeText={(t) => setFin(t.slice(0, 10))} placeholder="JJ/MM/AAAA" placeholderTextColor={colors.tertiary} style={[styles.subject, styles.promoNombre]} />
+          </View>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Réservé au compte (e-mail, facultatif)"
+            placeholderTextColor={colors.tertiary}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            style={styles.subject}
+          />
+          <TextInput value={note} onChangeText={(t) => setNote(t.slice(0, 200))} placeholder="Note (pour toi)" placeholderTextColor={colors.tertiary} style={styles.subject} />
+          <Text style={styles.small}>
+            Un code sert une fois par compte, sur MichelIA+ pris sur le site. Prix remisé arrondi au centime qui tombe juste en hors taxes (multiple de 6 centimes), jamais sous 0,54 €. À 100 % : offert (rien prélevé) ; avec un nombre d'échéances, la carte ou le mandat sont pris pour la suite, sinon rien n'est demandé.
+          </Text>
+          <Pressable onPress={creer} disabled={busy} style={({ pressed }) => [styles.primary, (pressed || busy) && styles.pressed]} accessibilityRole="button">
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>{edite ? 'Enregistrer' : 'Créer le code'}</Text>}
+          </Pressable>
+          {edite && (
+            <Pressable onPress={vider} accessibilityRole="button">
+              <Text style={[styles.resume, styles.promoAnnuler]}>Annuler la modification</Text>
+            </Pressable>
+          )}
+          {edite && edite.utilisations > 0 && (
+            <Text style={styles.small}>Déjà utilisé {edite.utilisations} fois : ces abonnés gardent la remise qu'ils ont eue.</Text>
+          )}
+          {error && <Text style={styles.error}>{error}</Text>}
+          {notice && <Text style={styles.notice}>{notice}</Text>}
+        </View>
+      </Section>
+      <Section title="Codes">
+        <View style={styles.card}>
+          {!codes && <ActivityIndicator color={colors.accent} />}
+          {codes?.length === 0 && <Text style={styles.small}>Aucun code pour l'instant.</Text>}
+          {codes?.map((c) => (
+            <View key={c.id} style={[styles.history, styles.memberBorder]}>
+              <View style={styles.row}>
+                <Text style={[styles.memberName, !c.actif && styles.promoCoupe]}>
+                  {c.code} · -{c.remise_pct} %
+                </Text>
+                <View style={styles.promoActions}>
+                  <Pressable onPress={() => modifier(c)} accessibilityRole="button">
+                    <Text style={styles.resume}>Modifier</Text>
+                  </Pressable>
+                  <Pressable onPress={() => basculer(c)} accessibilityRole="button">
+                    <Text style={styles.resume}>{c.actif ? 'Couper' : 'Réactiver'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <Text style={styles.small}>
+                {c.formule === 'mois' ? 'Au mois' : c.formule === 'an' ? "À l'année" : 'Mois et année'}
+                {' · '}
+                {c.periodes ? `${c.periodes} échéance${c.periodes > 1 ? 's' : ''} remisée${c.periodes > 1 ? 's' : ''}` : 'toujours remisé'}
+                {' · '}
+                {number(c.utilisations)}
+                {c.utilisations_max ? ` / ${number(c.utilisations_max)}` : ''} utilisation{c.utilisations > 1 ? 's' : ''}
+                {c.fin ? ` · jusqu'au ${date(c.fin)}` : ''}
+                {c.email ? ` · réservé à ${c.email}` : ''}
+                {!c.actif ? ' · coupé' : ''}
+              </Text>
+              {c.note && <Text style={styles.small}>{c.note}</Text>}
+            </View>
+          ))}
+        </View>
+      </Section>
+    </ScrollView>
   );
 }
 
@@ -999,4 +1217,8 @@ const styles = StyleSheet.create({
   strong: { color: colors.text, fontWeight: '600' },
   dangerOutline: { borderColor: colors.failed },
   dangerText: { color: colors.failed },
+  promoNombre: { minWidth: 110, textAlign: 'right' },
+  promoActions: { flexDirection: 'row', gap: 16 },
+  promoAnnuler: { textAlign: 'center' },
+  promoCoupe: { color: colors.tertiary, textDecorationLine: 'line-through' },
 });

@@ -7,7 +7,8 @@
 //   ratée, relances épuisées, résiliation.
 // Tant que michelia_plus_eko_actif ne vaut pas 'true', rien ne part : Michel prélève lui-même, comme avant.
 import { admin, isCardPaymentId } from "./stancer.ts";
-import { changerMoyenEko, coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
+import { changerMoyenEko, coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, prixNormalEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
+import { finirRemise, remiseFinie } from "./abonnement.ts";
 
 const MAX_TENTATIVES = 5;
 const MAX_ESSAIS_EVENEMENT = 5;
@@ -73,7 +74,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   // 1. Abonnements du site payés et pas encore dans E-KO : tiers, puis souscription sur la carte ou le
   // mandat, première période facturée tout de suite.
   const { data: nouveaux, error } = await admin.from("abonnements")
-    .select("id, user_id, formule, moyen, statut, email, stancer_carte, stancer_client, stancer_sepa, eko_tiers, eko_tentatives, abonnement_echeances(id, paiement_id, montant_cents, numero_recu, created_at, statut, eko_facture, eko_facture_id, eko_regle_le, eko_cycle)")
+    .select("id, user_id, formule, moyen, statut, email, prix_plein_cents, stancer_carte, stancer_client, stancer_sepa, eko_tiers, eko_tentatives, abonnement_echeances(id, paiement_id, montant_cents, numero_recu, created_at, statut, eko_facture, eko_facture_id, eko_regle_le, eko_cycle)")
     .eq("source", "web").eq("essai", false)
     .is("eko_abonnement", null).is("eko_erreur", null)
     .in("statut", ["actif", "impaye", "resilie"])
@@ -83,8 +84,10 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
     .limit(limite);
   if (error) console.error("MichelIA+ E-KO : abonnements illisibles", error.message);
   for (const a of nouveaux ?? []) {
+    // Le premier vrai paiement : les périodes offertes (0 €, code promo à 100 %) restent chez Michel, E-KO
+    // ne prend l'abonnement qu'au premier prélèvement.
     const premier = ((a.abonnement_echeances ?? []) as Paiement[])
-      .filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id))
+      .filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id) && e.montant_cents > 0)
       .sort((x, y) => x.created_at.localeCompare(y.created_at))[0];
     if (!premier) continue;
     const plan = r.plans[a.formule];
@@ -101,7 +104,10 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
         tiers = await tiersAbonne(a.user_id, await nomDe(a.user_id, a.email));
         await admin.from("abonnements").update({ eko_tiers: tiers }).eq("id", a.id);
       }
-      const sub = await souscrireEko({ abonnementId: a.id, tierCode: tiers, planCode: plan, moyen });
+      // Code promo : le premier paiement était remisé, la première facture E-KO doit l'être aussi
+      // (prix remisé multiple de 6 centimes : le hors taxes tombe juste au centime, TVA 20 %).
+      const remise = a.prix_plein_cents && premier.montant_cents < a.prix_plein_cents ? Math.round(premier.montant_cents / 1.2) / 100 : undefined;
+      const sub = await souscrireEko({ abonnementId: a.id, tierCode: tiers, planCode: plan, moyen, prixRemiseHt: remise });
       // Le code tout de suite : une reprise ne souscrit jamais deux fois. Pas noté : on recommence au
       // passage suivant, avec la même clé (E-KO rend la même souscription).
       const { data: note, error: noteErr } = await admin.from("abonnements").update({ eko_abonnement: sub.code, eko_tentatives: 0 }).eq("id", a.id).select("id");
@@ -127,7 +133,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   const depuis7j = new Date(Date.now() - 7 * 86_400_000).toISOString();
   for (let page = 0; page < 50; page++) {
     const { data, error: pageErr } = await admin.from("abonnements")
-      .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, created_at, statut, eko_facture_id, eko_cycle)")
+      .select("id, eko_abonnement, eko_tentatives, abonnement_echeances(id, paiement_id, montant_cents, created_at, statut, eko_facture_id, eko_cycle)")
       .eq("source", "web").not("eko_abonnement", "is", null).is("eko_erreur", null)
       .gte("created_at", depuis7j)
       .order("id", { ascending: false })
@@ -142,7 +148,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   for (const a of recents) {
     const echeances = (a.abonnement_echeances ?? []) as Paiement[];
     if (echeances.some((e) => e.eko_cycle || e.eko_facture_id)) continue;
-    const premier = echeances.filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id))
+    const premier = echeances.filter((e) => e.statut === "paye" && isCardPaymentId(e.paiement_id) && e.montant_cents > 0)
       .sort((x, y) => x.created_at.localeCompare(y.created_at))[0];
     if (!premier) continue;
     try {
@@ -237,6 +243,22 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
       } else {
         console.error("MichelIA+ E-KO : ALERTE nouveau moyen de paiement non transmis, retenté au prochain passage", a.id, messageDe(e));
       }
+    }
+  }
+
+  // 4 ter. Codes promo arrivés au bout (échéances remisées toutes payées) : E-KO reprend le prix du plan
+  // pour les périodes suivantes, puis Michel aussi. Retenté à chaque passage.
+  const { data: remises } = await admin.from("abonnements")
+    .select("id, prix_cents, prix_plein_cents, remise_periodes, eko_abonnement")
+    .in("statut", ["actif", "impaye", "resilie"]).not("eko_abonnement", "is", null)
+    .not("prix_plein_cents", "is", null).not("remise_periodes", "is", null).limit(limite * 5);
+  for (const a of remises ?? []) {
+    try {
+      if (!(await remiseFinie(a))) continue;
+      await prixNormalEko(a.eko_abonnement!);
+      await finirRemise(a);
+    } catch (e) {
+      console.error("MichelIA+ E-KO : ALERTE fin de remise non transmise, retentée au prochain passage", a.id, messageDe(e));
     }
   }
 

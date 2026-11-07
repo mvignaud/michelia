@@ -2,62 +2,288 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage } from './chat';
 import { supabase } from './supabase';
 
-// Ce que Michel retient : le prénom du visiteur et la dernière conversation.
-// Toujours sur l'appareil ; pour les membres, aussi sur le compte (table conversations).
-export type Memory = { name?: string; messages: ChatMessage[] };
+// Ce que Michel retient : le prénom du visiteur et ses causettes, rangées comme dans un carnet
+// (la plus récente en haut). Toujours sur l'appareil ; pour les membres, aussi sur le compte :
+// table discussions, une ligne par causette. La causette où l'on vient d'écrire est en plus recopiée
+// dans la table conversations (une ligne par compte), que lisent le back-office et les applis d'avant le carnet.
+// « enLigne » : la causette est déjà arrivée sur le compte. Si elle n'y est plus au chargement suivant,
+// c'est qu'elle a été effacée depuis un autre appareil, et l'appareil l'oublie aussi.
+export type Discussion = { id: string; titre: string; messages: ChatMessage[]; maj: string; enLigne?: boolean };
+export type Carnet = { name?: string; courante?: string; discussions: Discussion[] };
 
-const KEY = 'michelia:memoire:v1';
+const KEY = 'michelia:carnet:v1';
+// Avant le carnet, une seule conversation : reprise comme première causette.
+const KEY_ANCIENNE = 'michelia:memoire:v1';
 const MAX_SAVED = 40;
+export const MAX_DISCUSSIONS = 30;
 
-function clean(saved: Partial<Memory>): Memory {
-  const messages = Array.isArray(saved.messages)
-      ? saved.messages.filter(
+// Messages gardés : rôle, texte et la mention « photo ». Les photos elles-mêmes ne sont jamais gardées.
+export function nettoyer(raw: unknown): ChatMessage[] {
+  return Array.isArray(raw)
+    ? raw
+        .filter(
           (m): m is ChatMessage =>
             (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string',
-        ).map(({ role, content, photo }) => ({ role, content, ...(photo === true && { photo }) }))
-      : [];
-  return { name: typeof saved.name === 'string' ? saved.name : undefined, messages };
+        )
+        .map(({ role, content, photo }) => ({ role, content, ...(photo === true && { photo }) }))
+    : [];
 }
 
-// Les photos ne sont jamais gardées : seule la mention « photo » reste dans la conversation.
-const withoutImage = ({ image: _image, ...message }: ChatMessage): ChatMessage => message;
+const aGarder = (messages: ChatMessage[]) => nettoyer(messages).slice(-MAX_SAVED);
 
-export async function loadMemory(): Promise<Memory> {
-  try {
-    const raw = await AsyncStorage.getItem(KEY);
-    return clean(raw ? (JSON.parse(raw) as Partial<Memory>) : {});
-  } catch {
-    return { messages: [] };
-  }
+// « suite » prolonge « debut » : tous les messages de debut ouvrent suite, dans l'ordre.
+export function prolonge(suite: ChatMessage[], debut: ChatMessage[]): boolean {
+  return (
+    debut.length > 0 &&
+    debut.length <= suite.length &&
+    debut.every((m, i) => suite[i].role === m.role && suite[i].content === m.content)
+  );
 }
 
-// Conversation gardée sur le compte, ou null s'il n'y en a pas encore (ou en cas de souci réseau).
-export async function loadAccountMemory(userId: string): Promise<Memory | null> {
-  const { data, error } = await supabase
-    .from('conversations')
-    .select('name, messages')
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error || !data) return null;
-  return clean({ name: data.name ?? undefined, messages: data.messages });
+// Le titre d'une causette : le début de la première question.
+export function titreDe(messages: ChatMessage[]): string {
+  const question = messages.find((m) => m.role === 'user' && m.content.trim());
+  const texte = question?.content.replace(/\s+/g, ' ').trim() ?? '';
+  if (!texte) return messages.some((m) => m.photo) ? 'Une photo' : 'Causette';
+  return texte.length > 60 ? `${texte.slice(0, 57).trimEnd()}…` : texte;
 }
 
-export async function saveAccountMemory(userId: string, memory: Memory): Promise<void> {
-  await supabase.from('conversations').upsert({
-    user_id: userId,
-    name: memory.name?.slice(0, 30) ?? null,
-    messages: memory.messages.slice(-MAX_SAVED).map(withoutImage),
-    updated_at: new Date().toISOString(),
+// Identifiant d'une causette (format uuid, attendu par la base).
+export function nouvelId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 }
 
-export async function saveMemory(memory: Memory): Promise<void> {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const temps = (iso: string) => Date.parse(iso) || 0;
+
+function discussion(raw: unknown): Discussion | null {
+  const d = raw as Partial<Discussion & { updated_at: string }> | null;
+  if (!d || typeof d.id !== 'string' || !UUID.test(d.id)) return null;
+  const messages = nettoyer(d.messages);
+  if (!messages.length) return null;
+  const maj = typeof d.maj === 'string' ? d.maj : typeof d.updated_at === 'string' ? d.updated_at : '';
+  return {
+    id: d.id,
+    titre: typeof d.titre === 'string' && d.titre.trim() ? d.titre : titreDe(messages),
+    messages,
+    maj: new Date(temps(maj)).toISOString(),
+    ...(d.enLigne === true && { enLigne: true }),
+  };
+}
+
+// La plus récente en haut, et pas plus de MAX_DISCUSSIONS : renvoie aussi celles qui tombent du carnet.
+export function ranger(discussions: Discussion[]): { gardees: Discussion[]; tombees: Discussion[] } {
+  const triees = [...discussions].sort((a, b) => temps(b.maj) - temps(a.maj));
+  return { gardees: triees.slice(0, MAX_DISCUSSIONS), tombees: triees.slice(MAX_DISCUSSIONS) };
+}
+
+export async function loadCarnet(): Promise<Carnet> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Carnet>;
+      const discussions = Array.isArray(saved.discussions)
+        ? saved.discussions.map(discussion).filter((d): d is Discussion => !!d)
+        : [];
+      return {
+        name: typeof saved.name === 'string' ? saved.name : undefined,
+        courante: typeof saved.courante === 'string' ? saved.courante : undefined,
+        discussions: ranger(discussions).gardees,
+      };
+    }
+    const ancienne = JSON.parse((await AsyncStorage.getItem(KEY_ANCIENNE)) ?? '{}') as { name?: unknown; messages?: unknown };
+    const messages = nettoyer(ancienne.messages);
+    const premiere = messages.length
+      ? [{ id: nouvelId(), titre: titreDe(messages), messages, maj: new Date().toISOString() }]
+      : [];
+    return {
+      name: typeof ancienne.name === 'string' ? ancienne.name : undefined,
+      courante: premiere[0]?.id,
+      discussions: premiere,
+    };
+  } catch {
+    return { discussions: [] };
+  }
+}
+
+let ancienneEffacee = false;
+
+export async function saveCarnet(carnet: Carnet): Promise<void> {
   try {
     await AsyncStorage.setItem(
       KEY,
-      JSON.stringify({ name: memory.name, messages: memory.messages.slice(-MAX_SAVED).map(withoutImage) }),
+      JSON.stringify({
+        name: carnet.name,
+        courante: carnet.courante,
+        discussions: carnet.discussions.map((d) => ({ ...d, messages: aGarder(d.messages) })),
+      }),
     );
+    // Le carnet est écrit : l'ancienne mémoire (reprise au premier chargement) ne sert plus, on l'efface
+    // pour qu'une causette effacée ou une déconnexion ne laisse rien traîner sur l'appareil.
+    if (!ancienneEffacee) {
+      await AsyncStorage.removeItem(KEY_ANCIENNE);
+      ancienneEffacee = true;
+    }
   } catch {
     // Stockage plein ou bloqué (navigation privée) : Michel oubliera, tant pis.
   }
+}
+
+const INVENTAIRE = 500;
+
+// Les causettes gardées sur le compte (null en cas de souci réseau). « aEnvoyer » : celles à recopier
+// dans la table discussions, c'est-à-dire la conversation écrite par une appli d'avant le carnet.
+// « locales » : les causettes de l'appareil, pour reconnaître cette conversation si elle y est déjà.
+export async function loadAccountCarnet(
+  userId: string,
+  locales: Discussion[],
+  // Une causette effacée en attente dont la copie est dans conversations : cette copie, si elle n'a pas
+  // été réécrite depuis (heure ≤ ancienneJusqua, en ms), c'est elle, on ne la reprend pas.
+  ancienneJusqua = 0,
+  // « complet » : la liste des causettes a bien été lue (sinon on ne sait pas lesquelles ont été effacées).
+): Promise<{ name?: string; discussions: Discussion[]; aEnvoyer: Discussion[]; complet: boolean } | null> {
+  const [conv, liste] = await Promise.all([
+    supabase.from('conversations').select('name, messages, updated_at').eq('user_id', userId).maybeSingle(),
+    supabase
+      .from('discussions')
+      .select('id, titre, messages, updated_at')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      // Tout l'inventaire (le compte en garde au plus 100, plus après une fusion de comptes) : une causette
+      // absente de la liste doit vraiment avoir été effacée. Le surplus au-delà de 30 est retiré ensuite.
+      .limit(INVENTAIRE),
+  ]);
+  if (conv.error && liste.error) return null;
+  const discussions: Discussion[] = (liste.data ?? [])
+    .map(discussion)
+    .filter((d): d is Discussion => !!d)
+    .map((d) => ({ ...d, enLigne: true }));
+  const aEnvoyer: Discussion[] = [];
+
+  // La conversation du compte n'est plus récente que les causettes que si une appli d'avant le carnet
+  // y a écrit (sinon elle est recopiée en même temps qu'une causette, à la même heure).
+  const ancienne = nettoyer(conv.data?.messages);
+  const majAncienne = conv.data?.updated_at ? temps(conv.data.updated_at) : 0;
+  if (majAncienne > ancienneJusqua && ancienne.length && discussions.every((d) => temps(d.maj) < majAncienne)) {
+    const maj = new Date(majAncienne).toISOString();
+    // La même causette, continuée par l'appli d'avant : tous ses messages ouvrent la conversation du compte.
+    // L'appli d'avant ne garde que les 40 derniers messages : le début de la causette a pu glisser hors
+    // de la fenêtre. On accepte alors un recouvrement d'au moins un échange (pas une simple question d'ouverture).
+    const continuee = (d: Discussion) =>
+      d.messages.some((_, o) => (o === 0 || d.messages.length - o >= 2) && prolonge(ancienne, d.messages.slice(o)));
+    const suite = discussions.find(continuee) ?? locales.find(continuee);
+    const reprise: Discussion = suite
+      ? { ...suite, messages: ancienne, maj }
+      : { id: nouvelId(), titre: titreDe(ancienne), messages: ancienne, maj };
+    aEnvoyer.push(reprise);
+    const place = discussions.findIndex((d) => d.id === reprise.id);
+    if (place >= 0) discussions[place] = reprise;
+    else discussions.unshift(reprise);
+  }
+  return { name: conv.data?.name ?? undefined, discussions, aEnvoyer, complet: !liste.error && (liste.data?.length ?? 0) < INVENTAIRE };
+}
+
+// Garde une causette sur le compte. « enCours » : c'est celle où l'on vient d'écrire, recopiée aussi
+// dans la table conversations (avec le prénom), à la même heure.
+// Les envois et effacements d'une même causette passent l'un après l'autre, dans l'ordre demandé :
+// un effacement ne peut pas être doublé par un envoi parti juste avant lui.
+const files = new Map<string, Promise<unknown>>();
+function aLaFile<T>(id: string, travail: () => Promise<T>): Promise<T> {
+  const suivant = (files.get(id) ?? Promise.resolve()).catch(() => undefined).then(travail);
+  files.set(id, suivant);
+  suivant
+    .catch(() => undefined)
+    .then(() => files.get(id) === suivant && files.delete(id));
+  return suivant;
+}
+
+export function saveAccountDiscussion(userId: string, d: Discussion, enCours?: { name?: string }): Promise<void> {
+  return aLaFile(d.id, () => envoyerDiscussion(userId, d, enCours));
+}
+
+async function envoyerDiscussion(userId: string, d: Discussion, enCours?: { name?: string }): Promise<void> {
+  const messages = aGarder(d.messages);
+  const [{ error }] = await Promise.all([
+    supabase
+      .from('discussions')
+      .upsert({ id: d.id, user_id: userId, titre: d.titre.slice(0, 80), messages, updated_at: d.maj }),
+    enCours &&
+      supabase.from('conversations').upsert({
+        user_id: userId,
+        name: enCours.name?.slice(0, 30) ?? null,
+        messages,
+        updated_at: d.maj,
+      }),
+  ]);
+  if (error) throw error;
+}
+
+// Retire une causette du compte. Si c'était la plus récente, sa copie dans la table conversations
+// est vidée aussi : sinon elle reviendrait au prochain chargement comme une conversation d'avant le carnet.
+// « copieJusqua » : l'heure (ms) de cette causette, 0 si elle n'était pas la plus récente. La copie n'est
+// vidée que si personne ne l'a réécrite depuis (une appli d'avant le carnet a pu y mettre autre chose).
+export function deleteAccountDiscussion(userId: string, id: string, copieJusqua: number): Promise<void> {
+  return aLaFile(id, () => effacerDiscussion(userId, id, copieJusqua));
+}
+
+async function effacerDiscussion(userId: string, id: string, copieJusqua: number): Promise<void> {
+  const vider = () => {
+    const q = supabase.from('conversations').update({ messages: [] }).eq('user_id', userId);
+    return Number.isFinite(copieJusqua) ? q.lte('updated_at', new Date(copieJusqua).toISOString()) : q;
+  };
+  const [effacee, copie] = await Promise.all([
+    supabase.from('discussions').delete().eq('user_id', userId).eq('id', id),
+    copieJusqua > 0 ? vider() : null,
+  ]);
+  if (effacee.error) throw effacee.error;
+  if (copie?.error) throw copie.error;
+}
+
+// Causettes effacées sur l'appareil mais pas encore sur le compte (hors ligne, ou compte encore en
+// chargement) : gardées de côté pour ne pas les reprendre du compte, et réessayées au chargement suivant.
+const KEY_EFFACEES = 'michelia:carnet:effacees:v1';
+// Chaque entrée est « compte:causette:heure » : un effacement ne se rejoue que sur le compte d'où il vient,
+// et l'heure (ms, 0 sinon) dit jusqu'où vider la copie dans conversations (causette la plus récente).
+// Les entrées d'avant (« 1 ») vident la copie sans condition.
+let effacees: Promise<Set<string>> | null = null;
+const cle = (userId: string, id: string, copieJusqua: number) => `${userId}:${id}:${copieJusqua}`;
+const heureDe = (x: string | undefined) => (x === '1' ? Infinity : Number(x) || 0);
+
+function toutesEffacees(): Promise<Set<string>> {
+  effacees ??= AsyncStorage.getItem(KEY_EFFACEES)
+    .then((raw) => {
+      const ids: unknown = JSON.parse(raw ?? '[]');
+      return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string' && x.split(':').length === 3) : []);
+    })
+    .catch(() => new Set<string>());
+  return effacees;
+}
+
+// Les causettes de ce compte effacées ici mais peut-être pas encore sur le compte (id → heure de la copie).
+export async function lireEffacees(userId: string): Promise<Map<string, number>> {
+  const prefixe = `${userId}:`;
+  const ids = new Map<string, number>();
+  for (const k of await toutesEffacees()) {
+    if (!k.startsWith(prefixe)) continue;
+    const [id, heure] = k.slice(prefixe.length).split(':');
+    if (id) ids.set(id, Math.max(ids.get(id) ?? 0, heureDe(heure)));
+  }
+  return ids;
+}
+
+async function changerEffacees(change: (ids: Set<string>) => void): Promise<void> {
+  const ids = await toutesEffacees();
+  change(ids);
+  await AsyncStorage.setItem(KEY_EFFACEES, JSON.stringify([...ids].slice(-100))).catch(() => undefined);
+}
+
+// Efface une causette du compte ; tant que ce n'est pas fait, elle reste notée comme effacée.
+export async function effacerDuCompte(userId: string, id: string, copieJusqua: number): Promise<void> {
+  await changerEffacees((ids) => ids.add(cle(userId, id, copieJusqua)));
+  await deleteAccountDiscussion(userId, id, copieJusqua);
+  const prefixe = `${userId}:${id}:`;
+  await changerEffacees((ids) => ids.forEach((k) => k.startsWith(prefixe) && ids.delete(k)));
 }
