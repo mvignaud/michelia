@@ -6,15 +6,18 @@ const PREMIER_MOT_MS = 15_000;
 
 export type GrokMessage = { role: "system" | "user" | "assistant"; content: string };
 export type GrokFin = "fin" | "longueur" | "refus";
-export type GrokUsage = { input: number; output: number };
+// input : jetons d'entrée hors cache ; cache : jetons d'entrée servis depuis le cache de xAI (moins chers).
+export type GrokUsage = { input: number; cache: number; output: number };
 
 type Morceau = {
   choices?: { delta?: { content?: string }; finish_reason?: string | null }[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
 };
 
 export async function grok(options: {
   cle: string;
+  // Même identifiant d'une requête à l'autre : xAI les envoie au même serveur, qui a le prompt en cache.
+  conversation: string;
   modele: string;
   messages: GrokMessage[];
   maxTokens: number;
@@ -24,14 +27,18 @@ export async function grok(options: {
   const attente = new AbortController();
   const timer = setTimeout(() => attente.abort(), PREMIER_MOT_MS);
   const signal = AbortSignal.any([options.signal, attente.signal]);
-  const usage: GrokUsage = { input: 0, output: 0 };
+  const usage: GrokUsage = { input: 0, cache: 0, output: 0 };
   let fin: GrokFin = "fin";
   // Le flux doit se clore par une raison de fin ou [DONE] : sinon il a été coupé en route.
   let termine = false;
   try {
     const res = await fetch(URL_XAI, {
       method: "POST",
-      headers: { Authorization: `Bearer ${options.cle}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${options.cle}`,
+        "Content-Type": "application/json",
+        "x-grok-conv-id": options.conversation,
+      },
       body: JSON.stringify({
         model: options.modele,
         messages: options.messages,
@@ -58,7 +65,9 @@ export async function grok(options: {
         if (!donnee || donnee === "[DONE]") continue;
         const morceau = JSON.parse(donnee) as Morceau;
         if (morceau.usage) {
-          usage.input = morceau.usage.prompt_tokens ?? usage.input;
+          const cache = morceau.usage.prompt_tokens_details?.cached_tokens ?? 0;
+          usage.cache = cache;
+          usage.input = Math.max((morceau.usage.prompt_tokens ?? 0) - cache, 0);
           usage.output = morceau.usage.completion_tokens ?? usage.output;
         }
         const choix = morceau.choices?.[0];
