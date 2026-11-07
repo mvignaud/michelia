@@ -234,6 +234,8 @@ export async function traiter(
   config: Record<string, string>,
   publier: (texte: string) => Promise<string | null>,
   alerteDonnees: Record<string, unknown>,
+  // Dernière vérification juste avant de publier : une raison de se taire, ou null pour y aller.
+  garde?: () => Promise<string | null>,
 ): Promise<{ issue: Issue; erreur?: string; jetonCasse?: boolean }> {
   let verdict: Verdict;
   try {
@@ -251,6 +253,11 @@ export async function traiter(
     await finir(id, { statut: "mathieu", raison: verdict.texte });
     await alerte({ type: "a_voir", reseau: entree.reseau, auteur: entree.auteur, texte: borne(entree.texte, 1000), raison: verdict.texte, ...alerteDonnees });
     return { issue: "mathieu" };
+  }
+  const motif = garde ? await garde() : null;
+  if (motif) {
+    await finir(id, { statut: "silence", reponse: verdict.texte, raison: motif });
+    return { issue: "silence" };
   }
   try {
     const reponseId = await publier(verdict.texte);

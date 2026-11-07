@@ -180,10 +180,15 @@ async function traiterMessage(version: string, reseau: Reseau, soi: string, ev: 
   const conversation = `dm:${personne}`;
 
   if (msg.is_echo) {
-    // L'écho d'une réponse de Michel arrive parfois avant qu'il l'ait notée : on lui laisse quelques secondes.
-    for (let essai = 0; essai < 4; essai++) {
-      const { data } = await admin.from("reponses_reseaux").select("id").eq("reponse_id", msg.mid).limit(1);
-      if (data?.length) return true;
+    // L'écho d'une réponse de Michel arrive parfois avant qu'il l'ait notée : tant qu'il a un message en
+    // cours de traitement dans cette conversation, on attend (une minute au plus). Sinon c'est Mathieu.
+    for (let essai = 0; essai < 20; essai++) {
+      const { data: nous } = await admin.from("reponses_reseaux").select("id").eq("reponse_id", msg.mid).limit(1);
+      if (nous?.length) return true;
+      const { data: enCours } = await admin.from("reponses_reseaux").select("id")
+        .eq("reseau", reseau).eq("auteur_id", conversation).eq("statut", "en_cours")
+        .not("commentaire_id", "like", "dm:mathieu:%").limit(1);
+      if (!enCours?.length) break;
       await attendre(3000);
     }
     // Personne d'autre que Michel ou Mathieu n'écrit depuis le compte : c'est Mathieu, Michel se retire.
@@ -208,10 +213,17 @@ async function traiterMessage(version: string, reseau: Reseau, soi: string, ev: 
   if (quand < Date.now() - 23 * 3600_000) return true;
 
   // Mathieu a repris la conversation, ou Michel la lui a passée : on ne s'en mêle plus pendant un moment.
-  const pause = new Date(Date.now() - nombre(config.reseaux_messages_pause_heures, 24) * 3600_000).toISOString();
-  const { data: recents } = await admin.from("reponses_reseaux").select("commentaire_id, statut")
-    .eq("reseau", reseau).eq("auteur_id", conversation).gte("created_at", pause);
-  if ((recents ?? []).some((l) => l.statut === "mathieu" || l.commentaire_id.startsWith("dm:mathieu:"))) return true;
+  // Vérifié à l'arrivée du message, puis encore juste avant d'envoyer la réponse.
+  const pauseHeures = nombre(config.reseaux_messages_pause_heures, 24);
+  const repris = async () => {
+    const { data } = await admin.from("reponses_reseaux").select("commentaire_id, statut")
+      .eq("reseau", reseau).eq("auteur_id", conversation)
+      .gte("created_at", new Date(Date.now() - pauseHeures * 3600_000).toISOString());
+    return (data ?? []).some((l) => l.statut === "mathieu" || l.commentaire_id.startsWith("dm:mathieu:"))
+      ? "Mathieu a repris la conversation"
+      : null;
+  };
+  if (await repris()) return true;
   if (await auteurAuPlafond(reseau, conversation, nombre(config.reseaux_messages_max_jour, 20))) return true;
 
   const id = `dm:${msg.mid}`;
@@ -228,26 +240,25 @@ async function traiterMessage(version: string, reseau: Reseau, soi: string, ev: 
   if (!await reserver(reservation)) return true;
 
   // Des messages envoyés coup sur coup : on attend un peu, et seul le dernier reçoit une réponse (qui voit
-  // les précédents dans l'historique).
+  // les précédents dans l'historique). L'ordre : l'heure du message, puis l'ordre d'arrivée en base.
   await attendre(8000);
-  const { data: suivants } = await admin.from("reponses_reseaux").select("id")
+  const { data: lignes } = await admin.from("reponses_reseaux").select("id, commentaire_id, commente_at, commentaire, reponse, statut")
     .eq("reseau", reseau).eq("auteur_id", conversation).like("commentaire_id", "dm:%")
     .not("commentaire_id", "like", "dm:mathieu:%")
-    .gt("commente_at", reservation.commente_at).limit(1);
-  if (suivants?.length) {
+    .gte("created_at", new Date(Date.now() - 86400_000).toISOString());
+  const rang = (l: { id: number; commente_at: string | null }) => [Date.parse(l.commente_at ?? "") || 0, l.id];
+  const avantQue = (a: number[], b: number[]) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+  const conv = (lignes ?? []).slice().sort((a, b) => (avantQue(rang(a), rang(b)) ? -1 : 1));
+  const moi = conv.find((l) => l.commentaire_id === id);
+  if (!moi) return true;
+  if (conv.some((l) => avantQue(rang(moi), rang(l)))) {
     await finir(id, { statut: "silence", raison: "regroupé avec le message suivant" });
     return true;
   }
 
   // Ce qui s'est dit dans les dernières 24 heures, dans l'ordre.
-  const { data: avant } = await admin.from("reponses_reseaux").select("commentaire, reponse, statut")
-    .eq("reseau", reseau).eq("auteur_id", conversation).like("commentaire_id", "dm:%")
-    .not("commentaire_id", "like", "dm:mathieu:%")
-    .lt("commente_at", reservation.commente_at)
-    .gte("commente_at", new Date(Date.now() - 86400_000).toISOString())
-    .order("commente_at", { ascending: false }).limit(12);
   const historique: { de: "personne" | "michel"; texte: string }[] = [];
-  for (const l of (avant ?? []).reverse()) {
+  for (const l of conv.filter((l) => l !== moi).slice(-12)) {
     if (l.commentaire) historique.push({ de: "personne", texte: l.commentaire });
     if (l.statut === "repondu" && l.reponse) historique.push({ de: "michel", texte: l.reponse });
   }
@@ -263,6 +274,7 @@ async function traiterMessage(version: string, reseau: Reseau, soi: string, ev: 
         message: JSON.stringify({ text: reponse }),
       }, "POST")).message_id ?? null,
     { message: true },
+    repris,
   );
   await garderEnEchec(r, reservation);
   return !r.jetonCasse;
