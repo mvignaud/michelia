@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Switch,
   Text,
@@ -15,6 +16,7 @@ import {
   createCodePromo,
   deleteUser,
   listCodesPromo,
+  updateCodePromo,
   exportMembers,
   listBroadcasts,
   listUsers,
@@ -661,6 +663,9 @@ function PromoTab() {
   const [max, setMax] = useState('');
   const [fin, setFin] = useState('');
   const [note, setNote] = useState('');
+  // Code en cours de modification (null : création).
+  const [edite, setEdite] = useState<CodePromo | null>(null);
+  const defilement = useRef<ScrollViewInstance>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -690,7 +695,7 @@ function PromoTab() {
     if (fin.trim() && !finIso()) return setError('Date de fin : JJ/MM/AAAA.');
     setBusy(true);
     try {
-      await createCodePromo({
+      const valeurs = {
         code,
         remise_pct: pct,
         formule,
@@ -699,17 +704,49 @@ function PromoTab() {
         utilisations_max: plafond,
         fin: finIso(),
         note: note.trim() || null,
-      });
-      setNotice(`Code ${code} créé. Lien direct : michel.beer/la-cotisation?code=${code}`);
-      setCode('');
-      setEmail('');
-      setNote('');
+      };
+      if (edite) {
+        await updateCodePromo(edite.id, valeurs);
+        setNotice(`Code ${code} modifié. Les abonnés qui l'ont déjà gardent leur remise.`);
+      } else {
+        await createCodePromo(valeurs);
+        setNotice(`Code ${code} créé. Lien direct : michel.beer/la-cotisation?code=${code}`);
+      }
+      vider();
       refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Création ratée.');
+      setError(e instanceof Error ? e.message : edite ? 'Modification ratée.' : 'Création ratée.');
     } finally {
       setBusy(false);
     }
+  }
+
+  function vider() {
+    setEdite(null);
+    setCode('');
+    setRemise('20');
+    setFormule(null);
+    setPeriodes('');
+    setEmail('');
+    setMax('');
+    setFin('');
+    setNote('');
+  }
+
+  // Le code choisi remonte dans le formulaire, prêt à être modifié.
+  function modifier(c: CodePromo) {
+    setError(undefined);
+    setNotice(undefined);
+    setEdite(c);
+    setCode(c.code);
+    setRemise(String(c.remise_pct));
+    setFormule(c.formule);
+    setPeriodes(c.periodes ? String(c.periodes) : '');
+    setEmail(c.email ?? '');
+    setMax(c.utilisations_max ? String(c.utilisations_max) : '');
+    setFin(c.fin ? new Date(c.fin).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
+    setNote(c.note ?? '');
+    defilement.current?.scrollTo({ y: 0, animated: true });
   }
 
   async function basculer(c: CodePromo) {
@@ -723,8 +760,8 @@ function PromoTab() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Section title="Nouveau code">
+    <ScrollView ref={defilement} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Section title={edite ? `Modifier ${edite.code}` : 'Nouveau code'}>
         <View style={styles.card}>
           <TextInput
             value={code}
@@ -771,8 +808,16 @@ function PromoTab() {
             Un code sert une fois par compte, sur MichelIA+ pris sur le site. Prix remisé arrondi au centime qui tombe juste en hors taxes (multiple de 6 centimes), jamais sous 0,54 €. À 100 % : offert (rien prélevé) ; avec un nombre d'échéances, la carte ou le mandat sont pris pour la suite, sinon rien n'est demandé.
           </Text>
           <Pressable onPress={creer} disabled={busy} style={({ pressed }) => [styles.primary, (pressed || busy) && styles.pressed]} accessibilityRole="button">
-            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>Créer le code</Text>}
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>{edite ? 'Enregistrer' : 'Créer le code'}</Text>}
           </Pressable>
+          {edite && (
+            <Pressable onPress={vider} accessibilityRole="button">
+              <Text style={[styles.resume, styles.promoAnnuler]}>Annuler la modification</Text>
+            </Pressable>
+          )}
+          {edite && edite.utilisations > 0 && (
+            <Text style={styles.small}>Déjà utilisé {edite.utilisations} fois : ces abonnés gardent la remise qu'ils ont eue.</Text>
+          )}
           {error && <Text style={styles.error}>{error}</Text>}
           {notice && <Text style={styles.notice}>{notice}</Text>}
         </View>
@@ -787,9 +832,14 @@ function PromoTab() {
                 <Text style={[styles.memberName, !c.actif && styles.promoCoupe]}>
                   {c.code} · -{c.remise_pct} %
                 </Text>
-                <Pressable onPress={() => basculer(c)} accessibilityRole="button">
-                  <Text style={styles.resume}>{c.actif ? 'Couper' : 'Réactiver'}</Text>
-                </Pressable>
+                <View style={styles.promoActions}>
+                  <Pressable onPress={() => modifier(c)} accessibilityRole="button">
+                    <Text style={styles.resume}>Modifier</Text>
+                  </Pressable>
+                  <Pressable onPress={() => basculer(c)} accessibilityRole="button">
+                    <Text style={styles.resume}>{c.actif ? 'Couper' : 'Réactiver'}</Text>
+                  </Pressable>
+                </View>
               </View>
               <Text style={styles.small}>
                 {c.formule === 'mois' ? 'Au mois' : c.formule === 'an' ? "À l'année" : 'Mois et année'}
@@ -1168,5 +1218,7 @@ const styles = StyleSheet.create({
   dangerOutline: { borderColor: colors.failed },
   dangerText: { color: colors.failed },
   promoNombre: { minWidth: 110, textAlign: 'right' },
+  promoActions: { flexDirection: 'row', gap: 16 },
+  promoAnnuler: { textAlign: 'center' },
   promoCoupe: { color: colors.tertiary, textDecorationLine: 'line-through' },
 });

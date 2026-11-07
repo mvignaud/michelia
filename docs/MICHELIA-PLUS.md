@@ -198,7 +198,9 @@ Sur le site seulement (les applis suivent les prix d'Apple et de Google). Migrat
 - Créés dans le back-office, onglet « Codes promo » (administrateurs) : code (3 à 30 lettres, chiffres,
   tirets), remise de 1 à 100 %, formule visée (mois, an ou les deux), nombre d'échéances remisées (vide :
   tant que dure l'abonnement), compte réservé (par son e-mail), nombre d'utilisations, date de fin, note.
-  Un code se coupe et se réactive ; les abonnés qui l'ont déjà gardent leur remise. Table `codes_promo`,
+  Un code se modifie (bouton « Modifier », `admin_code_promo_modifier`, migration
+  `20261107020000_codes_promo_modifier.sql`), se coupe et se réactive ; les abonnés qui l'ont déjà
+  gardent la remise obtenue (copiée sur l'abonnement). Table `codes_promo`,
   RPC `admin_codes_promo`, `admin_code_promo_creer`, `admin_code_promo_actif` (journal `admin_audit`).
 - Page `/la-cotisation` : « J'ai un code promo », ou lien tout prêt `michel.beer/la-cotisation?code=GERS-20`.
   `code_promo_verifier` (membres) rend les prix remisés ; le code part avec `{souscrire, …, code_promo}`.
