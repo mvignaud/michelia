@@ -48,6 +48,7 @@ const REFUS_PROMO: Record<string, string> = {
   moyen: 'Avec ce code, il me faut une carte ou un compte pour la suite.',
   cumul: 'Ta cotisation a déjà un code promo.',
   abonnement: "Ce code ne s'applique pas à cette cotisation.",
+  offert: "Ce code offert ne marche qu'en prenant MichelIA+, pas en reprenant une cotisation.",
 };
 // « les 3 premiers mois », « la première année », ou rien si la remise dure tout l'abonnement.
 export const dureeRemise = (formule: 'mois' | 'an', periodes: number | null | undefined) =>

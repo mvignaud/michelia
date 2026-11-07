@@ -1,6 +1,6 @@
 -- Code promo à la reprise d'une cotisation résiliée (bouton « Reprendre ma cotisation » de /la-cotisation).
 -- La remise vaut pour les prochaines échéances : les échéances déjà payées ne comptent pas dans le
--- nombre d'échéances remisées. Une seule remise par abonnement.
+-- nombre d'échéances remisées. Une seule remise par abonnement. Codes à 100 % refusés (souscription seulement).
 
 create or replace function public.code_promo_reprise(p_code text, p_abonnement bigint)
 returns jsonb
@@ -24,6 +24,10 @@ begin
   end if;
   r := public.code_promo_lire(p_code, a.user_id, a.formule, true);
   if not (r ->> 'valide')::boolean then return r; end if;
+  -- 100 % : les périodes offertes ne passent que par la souscription (E-KO ne connaît pas de cycle à 0 €).
+  if (r ->> 'remise_pct')::integer = 100 then
+    return jsonb_build_object('valide', false, 'raison', 'offert');
+  end if;
   prix := public.prix_remise(a.prix_cents, (r ->> 'remise_pct')::integer);
   select count(*) into payees from public.abonnement_echeances e where e.abonnement_id = a.id and e.statut = 'paye';
   insert into public.codes_promo_utilisations (code_id, user_id, abonnement_id)

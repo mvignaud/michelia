@@ -207,8 +207,9 @@ Sur le site seulement (les applis suivent les prix d'Apple et de Google). Migrat
 - Reprise d'une cotisation résiliée (`{reprendre: true, code_promo}`) : `code_promo_reprise` (migration
   `20261107030000_codes_promo_reprise.sql`) pose le code avant la reprise (refusé : rien ne repart),
   pour les prochaines échéances (`remise_periodes` = échéances déjà payées + celles du code), une seule
-  remise par abonnement (`cumul`). Déjà chez E-KO : `PATCH unit_price_override_ht` au prix remisé
-  (échec : ALERTE dans les journaux, à corriger dans E-KO).
+  remise par abonnement (`cumul`), pas de code à 100 % (`offert` : E-KO ne prend pas de cycle à 0 €).
+  Déjà chez E-KO : `PATCH unit_price_override_ht` au prix remisé ; pas encore : l'étape 1 le pose juste
+  après la souscription E-KO (échec : ALERTE dans les journaux, à corriger dans E-KO).
 - `michelia-plus` crée l'abonnement en attente puis appelle `code_promo_appliquer` (rôle service, sous
   verrou) : places comptées, une fois par compte, formule, dates. L'abonnement garde `prix_cents` = prix
   remisé, `prix_plein_cents` = prix normal, `remise_pct`, `remise_periodes`, `code_promo_id`. Refusé :
