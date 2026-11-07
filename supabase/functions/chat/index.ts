@@ -7,6 +7,7 @@ import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { grok, type GrokMessage } from "./grok.ts";
+import { consigneBlagues } from "./blagues.ts";
 
 // Seule la dernière question peut porter une photo (en base64) ; les plus anciennes
 // gardent juste la mention « photo », l'image n'est jamais renvoyée ni enregistrée.
@@ -619,6 +620,12 @@ Deno.serve(async (req) => {
     config.persona_reminder ?? PERSONA_REMINDER,
     modeText,
     tonText,
+    // Blagues tirées au sort dans le répertoire du prompt, pour qu'il ne ressorte pas toujours la première.
+    consigneBlagues(
+      config.system_prompt,
+      messages.filter((m) => m.role === "assistant").map((m) => m.content).join("\n"),
+      JOKE.test(messages[messages.length - 1].content),
+    ),
   ].filter(Boolean).join("\n");
 
   // La conversation s'allonge des appels d'outils et de leurs résultats au fil des allers-retours.
