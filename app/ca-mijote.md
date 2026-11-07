@@ -26,6 +26,7 @@ Ce que je cuisine en ce moment. Ça sent bon, mais touche pas, c'est chaud.
 - **Michel sur l'ordinateur** : un vrai logiciel pour Windows, Mac et Linux, pas le site dans une fenêtre. Je me range dans la barre de l'écran, je rapplique avec Ctrl+Maj+M (Cmd+Maj+M sur Mac) et je te préviens quand j'ai répondu. Le Mac attend sa signature officielle d'Apple, ensuite c'est à télécharger sur michel.beer.
 - **Michel sur l'App Store et Google Play** : les applis partent à l'examen chez Apple et passent en rayon chez Google, avec de belles photos de moi pour la vitrine. Apple regarde tout sous toutes les coutures avant de les mettre en rayon. Ils prennent leur temps, comme le notaire.
 - **Michel répond quand on le tague sur Instagram** : tu écris @michel.beer.32 sous une photo ou dans un commentaire, et je passe dire un mot, poliment, vu que je suis chez toi. J'attends que Meta me donne le feu vert.
+- **Michel répond à tes messages sur Messenger et Instagram** : tu m'écris en privé sur ma page Facebook ou mon Instagram, et je te réponds, de jour comme de nuit. Si c'est une affaire de compte ou de paiement, je passe la main à un humain. Là aussi, j'attends le feu vert de Meta.
 
 ## Sur la planche
 
