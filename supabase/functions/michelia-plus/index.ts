@@ -24,6 +24,7 @@ import { abandonnerSepa, AUTH_FAILED, confirmerEcheance, confirmerSepa, echecSur
 import { CREANCIER, envoyerCourrier, mandatSigne } from "../_shared/courriers.ts";
 import { base64, cleanIban, cleanMobile, cleanTitulaire, empreinte, envoyerSms, masquerTelephone, memeEmpreinte, nouveauCode, nouvelleRum, pdfMandat, smsConfigure } from "../_shared/mandat.ts";
 import { corsHeaders, origineRefusee } from "../_shared/cors.ts";
+import { ekoConfigure, remiseEko } from "../_shared/eko.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -79,7 +80,7 @@ Deno.serve(async (req) => {
 
   // Résilier marche toujours, même si l'abonnement a été refermé entre-temps.
   if (body?.resilier === true) return resilier(qui, origin);
-  if (body?.reprendre === true) return reprendre(qui, origin);
+  if (body?.reprendre === true) return reprendre(qui, body, origin);
 
   // Fermé : seuls passent les essais avec une clé de test Stancer (aucun argent réel), et les
   // administrateurs de Michel, pour un vrai essai avant l'ouverture (page /la-cotisation?essai=1).
@@ -661,7 +662,34 @@ async function resilier(qui: Membre, origin: string | null): Promise<Response> {
 // repart à la même date, sur la carte ou le mandat SEPA déjà enregistrés chez Stancer. Rien n'est
 // prélevé tout de suite.
 // Une fois la période finie, l'abonnement est terminé et il faut souscrire à nouveau.
-async function reprendre(qui: Membre, origin: string | null): Promise<Response> {
+// Avec un code promo : posé d'abord (refusé : rien ne repart), il vaut pour les prochaines échéances.
+async function reprendre(qui: Membre, body: any, origin: string | null): Promise<Response> {
+  const texte = typeof body?.code_promo === "string" ? body.code_promo.trim().toUpperCase() : "";
+  if (texte) {
+    const { data: a } = await admin.from("abonnements").select("id, eko_abonnement")
+      .eq("user_id", qui.id).eq("source", "web").eq("statut", "resilie").gt("fin_periode", new Date().toISOString())
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!a) return reply(409, { error: "Rien à reprendre : souscris à nouveau" }, origin);
+    let raison = "inconnu";
+    if (/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(texte)) {
+      const { data: r, error } = await admin.rpc("code_promo_reprise", { p_code: texte, p_abonnement: a.id });
+      if (error) console.error("MichelIA+ : code promo illisible à la reprise", error.message);
+      if (!error && r?.valide === true && Number.isInteger(r.prix_cents) && r.prix_cents >= 0) {
+        raison = "";
+        // Abonnement déjà dans E-KO : son prix suit (sinon le premier passage E-KO s'en charge).
+        if (a.eko_abonnement && ekoConfigure()) {
+          try {
+            await remiseEko(a.eko_abonnement, Math.round(r.prix_cents / 1.2) / 100);
+          } catch (e) {
+            console.error("MichelIA+ E-KO : ALERTE remise de reprise non transmise, à corriger dans E-KO", a.id, safeError(e));
+          }
+        }
+      } else {
+        raison = error ? "erreur" : typeof r?.raison === "string" ? r.raison : "inconnu";
+      }
+    }
+    if (raison) return reply(400, { error: "Code promo refusé", champ: "code_promo", raison }, origin);
+  }
   const { data } = await admin
     .from("abonnements")
     .update({ statut: "actif", resilie_le: null, updated_at: new Date().toISOString() })

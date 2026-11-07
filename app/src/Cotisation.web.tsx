@@ -46,6 +46,9 @@ const REFUS_PROMO: Record<string, string> = {
   formule: "Ce code ne marche pas sur cette formule.",
   compte: 'Connecte-toi pour utiliser un code promo.',
   moyen: 'Avec ce code, il me faut une carte ou un compte pour la suite.',
+  cumul: 'Ta cotisation a déjà un code promo.',
+  abonnement: "Ce code ne s'applique pas à cette cotisation.",
+  offert: "Ce code offert ne marche qu'en prenant MichelIA+, pas en reprenant une cotisation.",
 };
 // « les 3 premiers mois », « la première année », ou rien si la remise dure tout l'abonnement.
 export const dureeRemise = (formule: 'mois' | 'an', periodes: number | null | undefined) =>
@@ -478,8 +481,18 @@ function Page() {
     setSending(true);
     setRefus(null);
     try {
-      const { error } = await supabase.functions.invoke('michelia-plus', { body: { reprendre: true } });
+      // Code promo vérifié : remise sur les prochaines échéances. Pas sur la bonne formule : refusé par
+      // Michel, et rien ne repart (pas de reprise au prix plein en douce).
+      const code = promo ? { code_promo: promo.code } : {};
+      const { error } = await supabase.functions.invoke('michelia-plus', { body: { reprendre: true, ...code } });
+      const statut = (error as { context?: { status?: number } } | null)?.context?.status;
+      if (statut === 400 && (await champEnErreur(error)) === 'code_promo') {
+        await refusPromo(error);
+        return setRefus("Rien n'a repris : le code promo ne passe pas. Retire-le ou essaie-en un autre.");
+      }
       if (error) throw error;
+      setPromo(null);
+      setCodePromo('');
       await recharger();
     } catch (e) {
       console.error('MichelIA+ : reprise impossible', e);
@@ -488,6 +501,48 @@ function Page() {
       setSending(false);
     }
   };
+
+  // Champ « J'ai un code promo » : à la souscription, et à la reprise d'une cotisation résiliée.
+  const champPromo = (
+    <>
+      {promo && (
+        <Text style={styles.text}>
+          Code {promo.code} : -{promo.remise_pct} %{promo.formule ? (promo.formule === 'mois' ? ' sur la formule au mois' : " sur la formule à l'année") : ''}
+          {promo.periodes
+            ? abonnement
+              ? `, sur ${promo.periodes === 1 ? 'ta prochaine échéance' : `tes ${promo.periodes} prochaines échéances`}`
+              : `, ${dureeRemise(promo.formule ?? formule, promo.periodes)}`
+            : ', tant que tu restes'}.{' '}
+          <Text style={styles.link} onPress={() => { setPromo(null); setCodePromo(''); }}>Retirer</Text>
+        </Text>
+      )}
+      {!promo && !promoOuvert && (
+        <Pressable onPress={() => setPromoOuvert(true)} accessibilityRole="button">
+          <Text style={styles.changed}>J'ai un code promo</Text>
+        </Pressable>
+      )}
+      {!promo && promoOuvert && (
+        <View style={styles.row}>
+          <TextInput
+            value={codePromo}
+            onChangeText={(t) => setCodePromo(t.replace(/[^A-Za-z0-9-]/g, '').toUpperCase().slice(0, 30))}
+            onSubmitEditing={() => verifierCode()}
+            placeholder="Code promo"
+            placeholderTextColor={colors.tertiary}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            autoComplete="off"
+            style={[styles.input, styles.half]}
+          />
+          <Pressable onPress={() => verifierCode()} style={({ pressed }) => [styles.formule, styles.promoBouton, pressed && styles.pressed]} accessibilityRole="button">
+            <Text style={styles.formuleNom}>Appliquer</Text>
+          </Pressable>
+        </View>
+      )}
+      {promoRefus && <Text style={styles.refus}>{promoRefus}</Text>}
+      {!!abonnement && !!promo?.formule && promo.formule !== abonnement.formule && <Text style={styles.refus}>{REFUS_PROMO.formule}</Text>}
+    </>
+  );
 
   // Prix d'une formule, code promo compris s'il la vise.
   const prixDe = (f: 'mois' | 'an') => {
@@ -563,6 +618,7 @@ function Page() {
                 <Text style={styles.small}>
                   Tu regrettes déjà ? Reprends ta cotisation : rien n'est prélevé aujourd'hui, elle repart le {jour(abonnement.fin_periode)}, {abonnement.moyen === 'sepa' ? 'sur le même compte' : 'sur la même carte'}.
                 </Text>
+                {!abonnement.prix_plein_cents && champPromo}
                 <Pressable onPress={reprendre} disabled={sending} style={({ pressed }) => [styles.payer, pressed && styles.pressed]} accessibilityRole="button">
                   {sending ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.payerText}>Reprendre ma cotisation</Text>}
                 </Pressable>
@@ -651,37 +707,7 @@ function Page() {
             )}
             {!changement && !secure && !paiement && !codeEnvoye && (
               <View>
-                {promo && (
-                  <Text style={styles.text}>
-                    Code {promo.code} : -{promo.remise_pct} %{promo.formule ? (promo.formule === 'mois' ? ' sur la formule au mois' : " sur la formule à l'année") : ''}
-                    {promo.periodes ? `, ${dureeRemise(promo.formule ?? formule, promo.periodes)}` : ', tant que tu restes'}.{' '}
-                    <Text style={styles.link} onPress={() => { setPromo(null); setCodePromo(''); }}>Retirer</Text>
-                  </Text>
-                )}
-                {!promo && !promoOuvert && (
-                  <Pressable onPress={() => setPromoOuvert(true)} accessibilityRole="button">
-                    <Text style={styles.changed}>J'ai un code promo</Text>
-                  </Pressable>
-                )}
-                {!promo && promoOuvert && (
-                  <View style={styles.row}>
-                    <TextInput
-                      value={codePromo}
-                      onChangeText={(t) => setCodePromo(t.replace(/[^A-Za-z0-9-]/g, '').toUpperCase().slice(0, 30))}
-                      onSubmitEditing={() => verifierCode()}
-                      placeholder="Code promo"
-                      placeholderTextColor={colors.tertiary}
-                      autoCapitalize="characters"
-                      autoCorrect={false}
-                      autoComplete="off"
-                      style={[styles.input, styles.half]}
-                    />
-                    <Pressable onPress={() => verifierCode()} style={({ pressed }) => [styles.formule, styles.promoBouton, pressed && styles.pressed]} accessibilityRole="button">
-                      <Text style={styles.formuleNom}>Appliquer</Text>
-                    </Pressable>
-                  </View>
-                )}
-                {promoRefus && <Text style={styles.refus}>{promoRefus}</Text>}
+                {champPromo}
               </View>
             )}
             {offertPourDeBon && (

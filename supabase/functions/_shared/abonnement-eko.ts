@@ -7,7 +7,7 @@
 //   ratée, relances épuisées, résiliation.
 // Tant que michelia_plus_eko_actif ne vaut pas 'true', rien ne part : Michel prélève lui-même, comme avant.
 import { admin, isCardPaymentId } from "./stancer.ts";
-import { changerMoyenEko, coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, prixNormalEko, reglerFacture, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
+import { changerMoyenEko, coupureProgrammeeEko, EkoError, ekoConfigure, type MoyenAbonnement, premiereFactureEko, prixNormalEko, reglerFacture, remiseEko, reprendreEko, resilierEko, souscrireEko, tiersAbonne } from "./eko.ts";
 import { finirRemise, remiseFinie } from "./abonnement.ts";
 
 const MAX_TENTATIVES = 5;
@@ -74,7 +74,7 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
   // 1. Abonnements du site payés et pas encore dans E-KO : tiers, puis souscription sur la carte ou le
   // mandat, première période facturée tout de suite.
   const { data: nouveaux, error } = await admin.from("abonnements")
-    .select("id, user_id, formule, moyen, statut, email, prix_plein_cents, stancer_carte, stancer_client, stancer_sepa, eko_tiers, eko_tentatives, abonnement_echeances(id, paiement_id, montant_cents, numero_recu, created_at, statut, eko_facture, eko_facture_id, eko_regle_le, eko_cycle)")
+    .select("id, user_id, formule, moyen, statut, email, prix_cents, prix_plein_cents, stancer_carte, stancer_client, stancer_sepa, eko_tiers, eko_tentatives, abonnement_echeances(id, paiement_id, montant_cents, numero_recu, created_at, statut, eko_facture, eko_facture_id, eko_regle_le, eko_cycle)")
     .eq("source", "web").eq("essai", false)
     .is("eko_abonnement", null).is("eko_erreur", null)
     .in("statut", ["actif", "impaye", "resilie"])
@@ -119,6 +119,15 @@ export async function synchroniserEko(limite: number): Promise<{ crees: number; 
         continue;
       }
       bilan.crees++;
+      // Code promo posé après le premier paiement (reprise d'une cotisation résiliée) : la première facture
+      // reste au prix payé, les suivantes au prix remisé.
+      if (remise === undefined && a.prix_plein_cents && a.prix_cents > 0 && a.prix_cents < a.prix_plein_cents) {
+        try {
+          await remiseEko(sub.code, Math.round(a.prix_cents / 1.2) / 100);
+        } catch (e) {
+          console.error("MichelIA+ E-KO : ALERTE remise de reprise non transmise, à corriger dans E-KO", a.id, messageDe(e));
+        }
+      }
       // Première facture sur l'échéance du premier paiement ; ratée, l'étape 1 bis la reprend.
       if (sub.factureId) await lierPremiereFacture(premier.id, { factureId: sub.factureId, factureCode: sub.factureCode, cycleId: sub.cycleId });
     } catch (e) {
