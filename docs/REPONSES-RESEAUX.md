@@ -26,6 +26,10 @@ Tout est noté dans la table `public.reponses_reseaux` : le commentaire, la rép
 | `reseaux_graph_version` | `v24.0` | Version de l'API Graph. Meta garde une version au moins deux ans. |
 | `reseaux_mentions` | (absent = oui) | `false` coupe les réponses aux mentions Instagram (fonction `reseaux-webhook`). |
 | `reseaux_consigne_mention` | (aucune) | Remplace la consigne des mentions (`{ou}` y devient « un commentaire… » ou « la légende… »). |
+| `reseaux_messages` | (absent = oui) | `false` coupe les réponses aux messages privés Messenger et Instagram (fonction `reseaux-webhook`). |
+| `reseaux_messages_max_jour` | `20` | Réponses au plus à une même personne en messages privés, en 24 heures. |
+| `reseaux_messages_pause_heures` | `24` | Durée pendant laquelle Michel se tait dans une conversation après une réponse de Mathieu à la main, ou après lui avoir passé la main. |
+| `reseaux_consigne_message` | (aucune) | Remplace la consigne des messages privés (`{reseau}` y devient Messenger ou Instagram). |
 | `reseaux_conservation_jours` | `90` | Durée de conservation du journal `reponses_reseaux` (annoncée dans la page de confidentialité). |
 
 ## Mise en route (à faire une fois, par Mathieu)
@@ -72,7 +76,7 @@ Meta ne prévient d'une mention que par webhook, et seulement pour une appli **e
    - Vérifier le token : la même phrase que `META_WEBHOOK_VERIFY_TOKEN`
    - Vérifier et enregistrer, puis **S'abonner** au champ `mentions`.
 3. **Relier l'appli à la page** : dans l'explorateur de l'API Graph, avec le jeton de la page, `POST me/subscribed_apps` avec le paramètre `subscribed_fields=feed`. La réponse doit être `{"success": true}`.
-4. **Examen de l'appli** (Révision de l'app → Demandes d'autorisations) : demander l'accès avancé à `instagram_manage_comments` (et `instagram_basic`, `pages_read_engagement`, `pages_show_list` si demandé), avec les textes ci-dessous et une courte vidéo.
+4. **Examen de l'appli** (Révision de l'app → Demandes d'autorisations) : demander l'accès avancé à `instagram_manage_comments`, `instagram_manage_messages` et `pages_messaging` (et `instagram_basic`, `pages_read_engagement`, `pages_show_list` si demandé), avec les textes ci-dessous et une courte vidéo.
 5. Une fois accepté : passer l'appli **En ligne** (interrupteur en haut de la page de l'appli). URL de confidentialité : `https://michel.beer/confidentialite.html` ; instructions de suppression des données : `https://michel.beer/confidentialite.html#droits`.
 
 ### Textes pour l'examen (à coller, en anglais)
@@ -80,6 +84,14 @@ Meta ne prévient d'une mention que par webhook, et seulement pour une appli **e
 **instagram_manage_comments**
 
 > Michel IA (michel.beer) is a free French chatbot with the persona of a grumpy but kind old man from the Gers region. Our Instagram business account @michel.beer.32 uses this permission to (1) read comments left on our own posts and reply to them, and (2) receive webhook notifications when another user @mentions @michel.beer.32 in a caption or comment, and reply once to that mention via the /mentions endpoint. Replies are written by our assistant with strict rules: one short, friendly reply per comment, no links or promotion, a per-user daily cap, silence on insults, spam or politics, and hand-off to a human for account, payment or personal issues. We never comment where we are not mentioned. Comment data is kept 90 days and can be deleted on request (contact@michel.beer).
+
+**instagram_manage_messages**
+
+> Michel IA (michel.beer) is a free French chatbot with the persona of a grumpy but kind old man from the Gers region. Our Instagram business account @michel.beer.32 uses this permission to receive the direct messages people send to it (messages webhook) and reply automatically, only within the 24-hour standard messaging window, with the RESPONSE messaging type. Replies are written by our assistant: short, no promotion, a per-user daily cap, several messages sent in a row get a single reply, silence on insults or spam, and hand-off to a human (our team answers in the Meta Business Suite inbox) for account, payment or personal issues. As soon as our team replies manually in a conversation, the assistant stops answering in it for 24 hours. We never send the first message. Message data is kept 90 days and can be deleted on request (contact@michel.beer).
+
+**pages_messaging**
+
+> Same service on Messenger: our Facebook Page (Michel IA) uses this permission to receive the messages people send to the Page (messages and message_echoes webhooks) and reply automatically within the 24-hour standard messaging window, with the RESPONSE messaging type. Same rules as on Instagram: short replies, per-user daily cap, silence on insults or spam, hand-off to a human for account, payment or personal issues, the assistant steps back for 24 hours when our team replies manually, and we never send the first message.
 
 **instagram_basic**
 
@@ -95,6 +107,33 @@ Meta ne prévient d'une mention que par webhook, et seulement pour une appli **e
 2. Depuis un autre compte Instagram (un compte perso), publier un commentaire avec @michel.beer.32 sous une de ses publications.
 3. Attendre la réponse de Michel (quelques secondes), la montrer sous le commentaire.
 4. Montrer un commentaire sous une publication de Michel et sa réponse (fonction `reseaux`).
-5. Ouvrir michel.beer/confidentialite.html et montrer le paragraphe sur les commentaires.
+5. Depuis le compte Instagram perso, envoyer un message privé à @michel.beer.32 (« Salut Michel, il fait beau dans le Gers ? ») et montrer la réponse qui arrive.
+6. Depuis un compte Facebook perso, envoyer un message à la page de Michel sur Messenger et montrer la réponse.
+7. Montrer la boîte de réception Meta Business Suite : écrire une réponse à la main dans une conversation, puis renvoyer un message depuis le compte perso et montrer que Michel ne répond plus (un humain a pris le relais).
+8. Ouvrir michel.beer/confidentialite.html et montrer les paragraphes sur les commentaires et les messages privés.
 
-Pendant l'examen, l'appli est encore en développement : pour que le webhook reçoive la mention de l'étape 2, ajoute le compte perso comme **testeur Instagram** de l'appli (Rôles de l'app → Testeurs Instagram), et accepte l'invitation dans les réglages Instagram de ce compte.
+Pendant l'examen, l'appli est encore en développement : pour que le webhook reçoive la mention et les messages de la vidéo, ajoute le compte perso comme **testeur Instagram** de l'appli (Rôles de l'app → Testeurs Instagram), et accepte l'invitation dans les réglages Instagram de ce compte. Pour Messenger, le compte Facebook perso doit avoir un rôle sur l'appli (Rôles de l'app → Rôles → Testeur).
+
+## Les messages privés sur Messenger et Instagram (fonction `reseaux-webhook`)
+
+Quand quelqu'un écrit à Michel en privé, sur Messenger (page Facebook) ou en DM Instagram, Meta prévient la fonction `reseaux-webhook`, qui fait répondre Michel dans la conversation (`POST me/messages`, type `RESPONSE`).
+
+- Michel ne répond que dans les **24 heures** qui suivent le message (règle de Meta). Il n'écrit jamais le premier.
+- Il voit ce qui s'est dit dans la conversation sur les 24 dernières heures. Des messages envoyés coup sur coup reçoivent une seule réponse (il attend 8 secondes).
+- Au plus 20 réponses par personne et par jour (`reseaux_messages_max_jour`).
+- Silence devant les insultes et le spam ; pour un paiement, un compte, un bug, etc., il ne répond pas et envoie l'alerte « Un message … pour toi » à contact@michel.beer.
+- **Dès que Mathieu répond à la main** dans une conversation (boîte de réception Meta Business Suite ou appli Instagram), ou quand Michel lui a passé la main, Michel se tait dans cette conversation pendant 24 heures (`reseaux_messages_pause_heures`).
+- Les photos, vocaux et autocollants sans texte restent sans réponse.
+
+Tout est noté dans `public.reponses_reseaux` : `commentaire_id` commence par `dm:` (les réponses de Mathieu à la main par `dm:mathieu:`), `auteur_id` vaut `dm:` suivi de l'identifiant de la personne chez Meta.
+
+### Mise en route (Mathieu, en plus des mentions)
+
+1. **Autorisations** : dans l'explorateur de l'API Graph, refaire le jeton de la page (étape « Le jeton ») en ajoutant `pages_messaging` et `instagram_manage_messages`, puis remplacer le secret `META_PAGE_TOKEN`.
+2. **Instagram** : dans l'appli Instagram, Paramètres → Messages et réponses aux stories → Outils connectés → activer **Autoriser l'accès aux messages**.
+3. **Webhooks** :
+   - produit Instagram : s'abonner aussi au champ `messages` ;
+   - produit Page (Messenger → Paramètres de l'API Messenger, ou Webhooks → Page) : même URL de rappel et même phrase de vérification que pour Instagram, puis s'abonner à `messages` et `message_echoes`.
+4. **Relier l'appli à la page** : `POST me/subscribed_apps` avec `subscribed_fields=feed,messages,message_echoes`.
+5. **Réponses automatiques de Meta** : dans Meta Business Suite → Boîte de réception → Automatisations, couper la « Réponse instantanée » et les « Absences » : Meta les envoie au nom de la page, et Michel les prendrait pour une réponse de Mathieu.
+6. **Examen** : demander `pages_messaging` et `instagram_manage_messages` dans la même demande que `instagram_manage_comments` (textes et vidéo ci-dessus).

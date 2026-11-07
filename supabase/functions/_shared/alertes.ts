@@ -162,13 +162,26 @@ function fiche(a: Alerte): Fiche {
         ],
       };
     case "reseaux": {
-      // Fonction « reseaux » : jeton Meta cassé, ou commentaire que Michel préfère laisser à Mathieu.
+      // Fonctions « reseaux » et « reseaux-webhook » : jeton Meta cassé, ou commentaire, mention ou message
+      // privé que Michel préfère laisser à Mathieu.
       if (d.type === "jeton") {
         return {
           sujet: `🔌 Michel ne lit plus les commentaires Facebook et Instagram`,
           blocs: [
             "Meta refuse mon jeton : je ne peux plus lire ni répondre aux commentaires. Il faut en refaire un, c'est expliqué dans docs/REPONSES-RESEAUX.md (étape « Le jeton »).",
             { lignes: [["Erreur", txt(d.erreur) ?? "?"]] },
+          ],
+        };
+      }
+      if (d.message) {
+        const messagerie = d.reseau === "instagram" ? "Instagram" : "Messenger";
+        return {
+          sujet: `✉️ Un message ${messagerie} pour toi`,
+          blocs: [
+            `${txt(d.auteur) ?? "Quelqu'un"} m'a écrit en privé sur ${messagerie}, et je préfère que tu répondes toi-même. Je ne me mêle plus de cette conversation pendant 24 heures :`,
+            `« ${txt(d.texte) ?? ""} »`,
+            { lignes: [["Pourquoi", ou(d.raison)], ["Messagerie", messagerie]] },
+            { bouton: "Ouvrir la boîte de réception", url: "https://business.facebook.com/latest/inbox/all" },
           ],
         };
       }
