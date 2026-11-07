@@ -737,7 +737,7 @@ function PromoTab() {
           />
           <View style={styles.row}>
             <Text style={styles.switchLabel}>Remise (%)</Text>
-            <TextInput value={remise} onChangeText={(t) => setRemise(t.replace(/\D/g, '').slice(0, 2))} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
+            <TextInput value={remise} onChangeText={(t) => setRemise(t.replace(/\D/g, '').slice(0, 3))} keyboardType="number-pad" style={[styles.subject, styles.promoNombre]} />
           </View>
           <Text style={styles.small}>Formule</Text>
           <View style={styles.filters}>
