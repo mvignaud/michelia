@@ -204,6 +204,11 @@ Sur le site seulement (les applis suivent les prix d'Apple et de Google). Migrat
   RPC `admin_codes_promo`, `admin_code_promo_creer`, `admin_code_promo_actif` (journal `admin_audit`).
 - Page `/la-cotisation` : « J'ai un code promo », ou lien tout prêt `michel.beer/la-cotisation?code=GERS-20`.
   `code_promo_verifier` (membres) rend les prix remisés ; le code part avec `{souscrire, …, code_promo}`.
+- Reprise d'une cotisation résiliée (`{reprendre: true, code_promo}`) : `code_promo_reprise` (migration
+  `20261107030000_codes_promo_reprise.sql`) pose le code avant la reprise (refusé : rien ne repart),
+  pour les prochaines échéances (`remise_periodes` = échéances déjà payées + celles du code), une seule
+  remise par abonnement (`cumul`). Déjà chez E-KO : `PATCH unit_price_override_ht` au prix remisé
+  (échec : ALERTE dans les journaux, à corriger dans E-KO).
 - `michelia-plus` crée l'abonnement en attente puis appelle `code_promo_appliquer` (rôle service, sous
   verrou) : places comptées, une fois par compte, formule, dates. L'abonnement garde `prix_cents` = prix
   remisé, `prix_plein_cents` = prix normal, `remise_pct`, `remise_periodes`, `code_promo_id`. Refusé :

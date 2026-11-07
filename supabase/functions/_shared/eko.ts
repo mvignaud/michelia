@@ -215,6 +215,11 @@ export async function premiereFactureEko(code: string): Promise<{ factureId: num
 }
 
 // Fin de la remise d'un code promo : les prochaines périodes reprennent le prix du plan.
+// Code promo posé en cours d'abonnement (reprise d'une cotisation résiliée) : prix hors taxes remisé.
+export async function remiseEko(code: string, prixHt: number): Promise<void> {
+  await eko("PATCH", `/subscriptions/${encodeURIComponent(code)}`, { unit_price_override_ht: prixHt });
+}
+
 export async function prixNormalEko(code: string): Promise<void> {
   await eko("PATCH", `/subscriptions/${encodeURIComponent(code)}`, { unit_price_override_ht: null });
 }
